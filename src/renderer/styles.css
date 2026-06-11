@@ -178,6 +178,9 @@ nav .codex-icon { width: 18px; height: 18px; border-radius: 6px; }
 .main-content header { height: 64px; padding: 0 34px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #27272a; color: #71717a; font-size: 10px; font-weight: 750; letter-spacing: .12em; }
 .main-content header > div { display: flex; align-items: center; gap: 8px; }
 .main-content time { font-variant-numeric: tabular-nums; }
+.system-clock { display: grid; justify-items: end; gap: 3px; color: #a1a1aa; letter-spacing: .04em; line-height: 1; }
+.system-clock .system-date { font-size: 11px; font-weight: 700; }
+.system-clock .system-time { color: #71717a; font-size: 10px; font-weight: 650; }
 #page-content { padding: 48px 44px; }
 .page-heading p { margin: 0 0 12px; color: #a78bfa; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
 .page-heading h1 { margin: 0 0 9px; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.045em; }

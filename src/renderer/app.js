@@ -10,6 +10,39 @@ const view = new URLSearchParams(window.location.search).get("view") || "main";
 let currentSection = "Dashboard";
 let codexRefreshing = false;
 let floatingPinned = false;
+let systemClockTimer = null;
+
+function systemClockParts(now = new Date()) {
+  const date = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now);
+  const time = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(now);
+  const weekday = new Intl.DateTimeFormat("zh-CN", {
+    weekday: "long"
+  }).format(now);
+  return { date, time, weekday };
+}
+
+function updateSystemClock() {
+  const clock = document.querySelector("#system-clock");
+  if (!clock) return;
+  const { date, time, weekday } = systemClockParts();
+  clock.querySelector(".system-date").textContent = date;
+  clock.querySelector(".system-time").textContent = `${time} ${weekday}`;
+}
+
+function startSystemClock() {
+  clearInterval(systemClockTimer);
+  updateSystemClock();
+  systemClockTimer = setInterval(updateSystemClock, 1000);
+}
 
 function normalizePercent(percent) {
   const value = Number(percent);
@@ -274,7 +307,13 @@ function renderMain() {
         <div class="sidebar-status"><span></span><div><strong>All systems normal</strong><small>Codex CLI status active</small></div></div>
       </aside>
       <main class="main-content">
-        <header><div><span class="live-dot"></span> LIVE STATUS</div><time>${statusData.codex.resetText || "--:--"}</time></header>
+        <header>
+          <div><span class="live-dot"></span> LIVE STATUS</div>
+          <time class="system-clock" id="system-clock">
+            <span class="system-date"></span>
+            <span class="system-time"></span>
+          </time>
+        </header>
         <section id="page-content">${dashboardContent(currentSection)}</section>
       </main>
     </div>`;
@@ -291,6 +330,7 @@ function renderMain() {
     });
   });
   bindCodexRefresh();
+  startSystemClock();
 }
 
 async function refreshStatus() {
