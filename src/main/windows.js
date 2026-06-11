@@ -8,6 +8,7 @@ let quitting = false;
 const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
 const preloadPath = path.join(__dirname, "..", "preload", "preload.js");
 const iconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
+const FLOATING_WINDOW_WIDTH = 500;
 
 function secureWebPreferences() {
   return {
@@ -21,13 +22,13 @@ function secureWebPreferences() {
 function positionFloatingWindow() {
   const display = screen.getPrimaryDisplay();
   const { x, y, width } = display.workArea;
-  floatingWindow.setPosition(x + width - 500 - 32, y + 80);
+  floatingWindow.setPosition(x + width - FLOATING_WINDOW_WIDTH - 32, y + 80);
 }
 
 function createFloatingWindow() {
   floatingWindow = new BrowserWindow({
-    width: 500,
-    height: 72,
+    width: FLOATING_WINDOW_WIDTH,
+    height: 104,
     frame: false,
     transparent: true,
     resizable: false,
