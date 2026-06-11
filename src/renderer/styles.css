@@ -32,9 +32,10 @@ button { font: inherit; }
 }
 
 .status-capsule {
+  position: relative;
   width: 100%;
   height: 88px;
-  padding: 10px 14px;
+  padding: 10px 52px 10px 14px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -105,21 +106,7 @@ button { font: inherit; }
 .weather-condition { color: #a1a1aa; font-size: 11px; white-space: nowrap; }
 .heart-module { gap: 5px; }
 .heart-icon { color: #fb7185; font-size: 15px; filter: drop-shadow(0 0 6px rgba(251,113,133,.45)); }
-.settings-button {
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  color: rgba(255,255,255,.68);
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-.settings-button:hover { color: #fff; background: rgba(255,255,255,.12); }
+
 
 .popover, .tooltip {
   position: absolute;
@@ -242,4 +229,63 @@ nav .codex-icon { width: 18px; height: 18px; border-radius: 6px; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .dashboard-card { min-height: 170px; }
   .usage-window-grid { grid-template-columns: 1fr; }
+}
+.right-controls {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  bottom: 10px;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  -webkit-app-region: no-drag;
+}
+
+.pin-button,
+.settings-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,.68);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.pin-button:hover,
+.settings-button:hover {
+  color: #fff;
+  background: rgba(255,255,255,.12);
+  transform: scale(1.06);
+}
+
+.pin-button.active {
+  color: #fff;
+  background: rgba(255,255,255,.14);
+}
+
+.settings-button {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.pin-icon {
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+}
+
+.pin-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }

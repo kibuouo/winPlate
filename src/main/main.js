@@ -5,7 +5,9 @@ const {
   showMainWindow,
   showFloatingWindow,
   hideFloatingWindow,
-  setQuitting
+  setQuitting,
+  setFloatingPinned,
+  setFloatingPinInteractive
 } = require("./windows");
 const { createAppTray } = require("./tray");
 const { startPythonService, stopPythonService } = require("./pythonService");
@@ -46,6 +48,10 @@ if (!gotLock) {
       console.log("refresh github profile");
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
+    ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
+    ipcMain.on("floating:pin-interactive", (_event, value) => {
+  setFloatingPinInteractive(value);
+});
     app.on("activate", showMainWindow);
   });
 

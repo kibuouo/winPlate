@@ -9,6 +9,7 @@ const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
 let currentSection = "Dashboard";
 let codexRefreshing = false;
+let floatingPinned = false;
 
 function normalizePercent(percent) {
   const value = Number(percent);
@@ -106,7 +107,15 @@ function renderFloating() {
                   <span>Updated: ${statusData.heart.updatedAt}</span>
                 </div>
               </div>
-              <button class="settings-button no-drag" id="settings-button" aria-label="Open settings">⚙</button>
+              <div class="right-controls no-drag">
+                <button class="pin-button" id="pin-button" aria-label="Pin floating window" title="Pin / click-through">
+                  <svg class="pin-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 3h6v2l-1.4 1.4v4.8L18 15.6V17h-5v4h-2v-4H6v-1.4l4.4-4.4V6.4L9 5V3Z"></path>
+                  </svg>
+                </button>
+
+                 <button class="settings-button" id="settings-button" aria-label="Open settings">⚙</button>
+              </div>
             </div>
           </div>
         </div>
@@ -125,6 +134,36 @@ function renderFloating() {
   document.querySelector("#open-profile").addEventListener("click", () => window.winplate.openGithubProfile());
   document.querySelector("#refresh-profile").addEventListener("click", () => window.winplate.refreshGithub());
   document.querySelector("#settings-button").addEventListener("click", () => window.winplate.showMainWindow("Settings"));
+  const pinButton = document.querySelector("#pin-button");
+
+  pinButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+
+    floatingPinned = !floatingPinned;
+    pinButton.classList.toggle("active", floatingPinned);
+
+    await window.winplate.setFloatingPinned(floatingPinned);
+
+    // 刚点击后，鼠标仍在按钮上，所以保持按钮可点击
+    if (floatingPinned) {
+      window.winplate.setFloatingPinInteractive(true);
+    }
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!floatingPinned) return;
+
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const overPin = Boolean(target?.closest?.("#pin-button"));
+
+    window.winplate.setFloatingPinInteractive(overPin);
+  });
+
+  document.addEventListener("mouseleave", () => {
+    if (floatingPinned) {
+      window.winplate.setFloatingPinInteractive(false);
+    }
+  });
 }
 
 function dashboardContent(section) {
