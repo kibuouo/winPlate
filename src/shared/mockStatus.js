@@ -1,10 +1,20 @@
 const mockStatus = {
   github: {
-    name: "kibuouo",
-    username: "@kibuouo",
-    repos: 24,
-    followers: 18,
-    project: "winplate"
+    source: "loading",
+    name: "GitHub",
+    username: "@loading",
+    profileUrl: "https://github.com",
+    avatarUrl: "",
+    repos: 0,
+    followers: 0,
+    project: "Loading...",
+    commitsThisMonth: 0,
+    streakDays: 0,
+    status: "Loading",
+    language: "Unknown",
+    stars: 0,
+    updatedText: "",
+    contributions30d: Array(30).fill(0)
   },
   codex: {
     source: "mock",

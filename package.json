@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/codexUsage.js && node --check src/main/pythonService.js && node --check src/main/windows.js && node --check src/main/tray.js && node --check src/preload/preload.js && node --check src/renderer/app.js && node --check src/shared/mockStatus.js && node --test src/main/codexUsage.test.js",
+    "check": "node --check src/main/main.js && node --check src/main/codexUsage.js && node --check src/main/pythonService.js && node --check src/main/windows.js && node --check src/main/tray.js && node --check src/preload/preload.js && node --check src/renderer/app.js && node --check src/shared/mockStatus.js && node --test src/main/codexUsage.test.js src/renderer/security.test.js",
     "venv:create": "python -m venv .venv",
     "backend:install": ".venv\\Scripts\\python.exe -m pip install -r backend/requirements.txt",
     "backend:test": ".venv\\Scripts\\python.exe -m unittest discover -s backend -p \"test_*.py\""

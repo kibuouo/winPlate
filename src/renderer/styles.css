@@ -76,7 +76,57 @@ button { font: inherit; }
 .module { position: relative; display: flex; align-items: center; height: 100%; }
 .module-label { font-size: 12px; font-weight: 650; letter-spacing: -0.01em; }
 .separator { width: 1px; height: 18px; background: rgba(255,255,255,.12); }
-.github-module { gap: 6px; }
+.github-module {
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.github-module:hover { background: rgba(255, 255, 255, .06); }
+.github-module:focus-visible { outline: 1px solid rgba(255, 255, 255, .7); outline-offset: 2px; }
+.github-module::after {
+  content: "";
+  position: absolute;
+  right: 7px;
+  bottom: 2px;
+  left: 33px;
+  height: 1px;
+  opacity: 0;
+  background: rgba(255, 255, 255, .55);
+  transform: scaleX(.5);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.github-module:hover::after { opacity: 1; transform: scaleX(1); }
+.github-avatar-button {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.github-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #52525b, #27272a);
+}
+.github-avatar-bar {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(255,255,255,.58);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.05);
+}
+.github-avatar img { position: relative; z-index: 1; width: 100%; height: 100%; display: block; object-fit: cover; }
+.github-avatar.fallback img { display: none; }
+.avatar-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 9px; font-weight: 800; }
+.github-summary {
+  color: #f4f4f5;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
 .icon-button { width: 20px; height: 20px; padding: 1px; border: 0; color: #fafafa; background: none; cursor: pointer; }
 .icon-button svg, .card-icon svg, nav svg { width: 100%; height: 100%; display: block; }
 .codex-module { gap: 8px; }
@@ -245,6 +295,107 @@ nav .codex-icon { width: 18px; height: 18px; border-radius: 6px; }
   justify-content: space-between;
   -webkit-app-region: no-drag;
 }
+
+.tooltip-body {
+  display: grid;
+  place-items: start;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+
+.system-tooltip {
+  width: 100%;
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  color: #f4f4f5;
+  background: rgba(24, 24, 27, .96);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.system-tooltip span {
+  color: #a1a1aa;
+  font-size: 11px;
+}
+
+.github-hover-card {
+  width: 100%;
+  padding: 14px;
+  pointer-events: none;
+  cursor: default;
+  color: #f4f4f5;
+  background: rgba(24, 24, 27, .94);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.42);
+  backdrop-filter: blur(24px);
+}
+.github-preview-head { display: flex; align-items: center; gap: 10px; }
+.github-avatar-preview {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255,255,255,.5);
+}
+.github-avatar-preview .avatar-fallback { font-size: 13px; }
+.github-identity { min-width: 0; display: grid; gap: 1px; }
+.github-identity strong { font-size: 13px; line-height: 1.2; }
+.github-identity span { color: #a1a1aa; font-size: 10px; }
+.active-pill {
+  margin-left: auto;
+  padding: 4px 8px;
+  color: #6ee7b7;
+  border: 1px solid rgba(52,211,153,.25);
+  border-radius: 999px;
+  background: rgba(16,185,129,.1);
+  font-size: 9px;
+  font-weight: 750;
+}
+.github-preview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 11px;
+  background: rgba(255,255,255,.025);
+}
+.github-preview-stats > div { min-height: 58px; padding: 7px 10px; display: grid; justify-items: center; align-content: center; border-right: 1px solid rgba(255,255,255,.1); }
+.github-preview-stats > div:last-child { border-right: 0; }
+.github-preview-stats span { display: flex; align-items: center; gap: 5px; color: #d4d4d8; font-size: 9px; font-weight: 650; }
+.github-preview-stats span svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.github-preview-stats small { color: #71717a; font-size: 8px; }
+.github-preview-stats strong { margin-top: 1px; font-size: 15px; line-height: 1; }
+.contribution-section { margin-top: 11px; }
+.contribution-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.contribution-heading strong { font-size: 10px; }
+.contribution-heading span { color: #a1a1aa; font-size: 9px; }
+.contribution-month { display: block; }
+.contribution-grid { display: grid; grid-template-columns: repeat(15, 1fr); grid-auto-flow: column; grid-template-rows: repeat(2, 1fr); gap: 4px; }
+.contribution-cell { aspect-ratio: 1; border-radius: 2px; background: #3f3f46; }
+.contribution-cell.level-1 { background: #14532d; }
+.contribution-cell.level-2 { background: #166534; }
+.contribution-cell.level-3 { background: #16a34a; }
+.contribution-cell.level-4 { background: #4ade80; }
+.contribution-legend { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.contribution-legend span { color: #a1a1aa; font-size: 8px; }
+.contribution-legend i { flex: 0 0 9px; width: 9px; height: 9px; aspect-ratio: auto; }
+.github-repository {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,.09);
+  font-size: 10px;
+}
+.github-repository strong { margin-right: auto; display: flex; align-items: center; gap: 7px; }
+.github-repository strong svg, .repository-stars svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.github-repository span { display: flex; align-items: center; gap: 4px; color: #a1a1aa; }
+.github-repository i { width: 7px; height: 7px; border-radius: 50%; background: #d4d4d8; }
 
 .pin-button,
 .settings-button {

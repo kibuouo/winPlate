@@ -11,6 +11,7 @@ let currentSection = "Dashboard";
 let codexRefreshing = false;
 let floatingPinned = false;
 let systemClockTimer = null;
+let tooltipHideTimer = null;
 
 function systemClockParts(now = new Date()) {
   const date = new Intl.DateTimeFormat("zh-CN", {
@@ -72,6 +73,37 @@ const githubIcon = `
   </svg>`;
 const codexIcon = `<img class="codex-icon" src="../../assets/codex-icon.png" alt="">`;
 
+function avatarMarkup(github, className = "") {
+  return `
+    <span class="github-avatar ${className}" data-avatar>
+      <span class="avatar-fallback" aria-hidden="true">K</span>
+      <img src="${github.avatarUrl || ""}" alt="${github.name || "GitHub"} avatar">
+    </span>`;
+}
+
+function bindAvatarFallbacks(root = document) {
+  root.querySelectorAll("[data-avatar] img").forEach((image) => {
+    const showFallback = () => image.closest("[data-avatar]")?.classList.add("fallback");
+    image.addEventListener("error", showFallback, { once: true });
+    if (image.complete && !image.naturalWidth) showFallback();
+  });
+}
+
+function contributionGrid(values = []) {
+  return Array.from({ length: 30 }, (_, index) => {
+    const level = Math.max(0, Math.min(4, Number(values[index]) || 0));
+    return `<span class="contribution-cell level-${level}"></span>`;
+  }).join("");
+}
+
+const previewIcons = {
+  repos: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2"></rect><path d="M8 7h8M8 17h8M9 20.5v2M15 20.5v2"></path></svg>`,
+  commits: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>`,
+  streak: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5c.7 3.1-1.8 4.6-1.8 7.1 0 1.2.7 2 1.7 2.5-.2-2.1 1-3.3 2.4-4.7 1.5 1.6 2.7 3.5 2.7 6A6.5 6.5 0 1 1 8 9.3c.1 2 1 3.2 2.1 3.8-.5-3.8 1.1-6.8 3.4-9.6Z"></path></svg>`,
+  repository: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2"></rect><path d="M8 7h8M8 17h8M9 20.5v2M15 20.5v2"></path></svg>`,
+  star: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"></path></svg>`
+};
+
 function renderFloating() {
   const weather = statusData.weather || mockStatus.weather;
   const date = new Intl.DateTimeFormat("zh-CN", {
@@ -85,24 +117,11 @@ function renderFloating() {
         <div class="drag-handle" aria-hidden="true"></div>
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module github-module no-drag">
-              <button class="icon-button" id="github-button" aria-label="GitHub profile">${githubIcon}</button>
-              <span class="module-label">GitHub</span>
-              <div class="popover github-popover">
-                <div class="profile-head">
-                  <div class="avatar">K</div>
-                  <div><strong>${statusData.github.name}</strong><span>${statusData.github.username}</span></div>
-                </div>
-                <div class="profile-stats">
-                  <span><b>${statusData.github.repos}</b> Repos</span>
-                  <span><b>${statusData.github.followers}</b> Followers</span>
-                </div>
-                <div class="project-row"><span>Current project</span><strong>${statusData.github.project}</strong></div>
-                <div class="popover-actions">
-                  <button id="open-profile">Open Profile</button>
-                  <button class="secondary" id="refresh-profile">Refresh</button>
-                </div>
-              </div>
+            <div class="module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
+              <span class="github-avatar-button" aria-hidden="true">
+                ${avatarMarkup(statusData.github, "github-avatar-bar")}
+              </span>
+              <span class="github-summary">GitHub</span>
             </div>
             <div class="module codex-module no-drag">
               ${codexIcon}
@@ -111,13 +130,6 @@ function renderFloating() {
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
               <span class="metric reset">${statusData.codex.resetText || "--:--"}</span>
               <time class="date-label">${date}</time>
-              <div class="tooltip codex-tooltip">
-                <span>Codex usage window: ${statusData.codex.windowHours}h</span>
-                <span>Remaining: ${statusData.codex.remainingPct ?? "--"}%</span>
-                <span>Used: ${statusData.codex.usedPct ?? "--"}%</span>
-                <span>Reset: ${statusData.codex.resetText || "--:--"}</span>
-                <span>Status: ${statusData.codex.status}</span>
-              </div>
             </div>
           </div>
           <div class="status-group auxiliary-status">
@@ -155,6 +167,7 @@ function renderFloating() {
       </section>
     </main>`;
   updateProgressBars(appRoot);
+  bindAvatarFallbacks(appRoot);
 
   const shell = document.querySelector("#floating-shell");
   shell.addEventListener("dblclick", () => window.winplate.showMainWindow());
@@ -163,11 +176,62 @@ function renderFloating() {
       window.winplate.showMainWindow();
     }
   });
-  document.querySelector("#github-button").addEventListener("click", () => window.winplate.openGithubProfile());
-  document.querySelector("#open-profile").addEventListener("click", () => window.winplate.openGithubProfile());
-  document.querySelector("#refresh-profile").addEventListener("click", () => window.winplate.refreshGithub());
   document.querySelector("#settings-button").addEventListener("click", () => window.winplate.showMainWindow("Settings"));
   const pinButton = document.querySelector("#pin-button");
+  const githubModule = document.querySelector(".github-module");
+  const codexModule = document.querySelector(".codex-module");
+
+  githubModule.addEventListener("click", () => window.winplate.openGithubProfile(statusData.github.profileUrl));
+  githubModule.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      window.winplate.openGithubProfile(statusData.github.profileUrl);
+    }
+  });
+
+  githubModule.addEventListener("mouseenter", () => {
+    clearTimeout(tooltipHideTimer);
+    const rect = githubModule.getBoundingClientRect();
+    window.winplate.showTooltip({
+      anchor: {
+        x: window.screenX + rect.left,
+        y: window.screenY + rect.top,
+        width: rect.width,
+        height: rect.height
+      },
+      data: {
+        type: "github",
+        github: statusData.github
+      }
+    });
+  });
+  githubModule.addEventListener("mouseleave", () => {
+    tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
+  });
+
+  codexModule.addEventListener("mouseenter", () => {
+    clearTimeout(tooltipHideTimer);
+    const rect = codexModule.getBoundingClientRect();
+    window.winplate.showTooltip({
+      anchor: {
+        x: window.screenX + rect.left,
+        y: window.screenY + rect.top,
+        width: rect.width,
+        height: rect.height
+      },
+      data: {
+        type: "codex",
+        windowHours: statusData.codex.windowHours,
+        remainingPct: statusData.codex.remainingPct,
+        usedPct: statusData.codex.usedPct,
+        resetText: statusData.codex.resetText,
+        status: statusData.codex.status
+      }
+    });
+  });
+  codexModule.addEventListener("mouseleave", () => {
+    tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
+  });
 
   pinButton.addEventListener("click", async (event) => {
     event.stopPropagation();
@@ -199,6 +263,56 @@ function renderFloating() {
   });
 }
 
+function renderTooltip(data = {}) {
+  document.body.className = "tooltip-body";
+  if (data.type === "github") {
+    const github = { ...mockStatus.github, ...data.github };
+    appRoot.innerHTML = `
+      <article class="github-hover-card" role="tooltip" aria-label="GitHub profile preview">
+        <header class="github-preview-head">
+          ${avatarMarkup(github, "github-avatar-preview")}
+          <div class="github-identity">
+            <strong>${github.name}</strong>
+            <span>${github.username}</span>
+          </div>
+          <span class="active-pill">${github.status}</span>
+        </header>
+        <div class="github-preview-stats">
+          <div><span>${previewIcons.repos} Repos</span><strong>${github.repos}</strong></div>
+          <div><span>${previewIcons.commits} Commits</span><strong>${github.commitsThisMonth}</strong><small>This month</small></div>
+          <div><span>${previewIcons.streak} Streak</span><strong>${github.streakDays}</strong><small>days</small></div>
+        </div>
+        <section class="contribution-section">
+          <div class="contribution-heading">
+            <strong>Last 30 days</strong>
+            <span class="contribution-month">${github.contributionMonth || ""}</span>
+          </div>
+          <div class="contribution-grid" aria-hidden="true">${contributionGrid(github.contributions30d)}</div>
+          <div class="contribution-legend">
+            <span>Less</span>
+            ${[0, 1, 2, 3, 4].map((level) => `<i class="contribution-cell level-${level}"></i>`).join("")}
+            <span>More</span>
+          </div>
+        </section>
+        <footer class="github-repository">
+          <strong>${previewIcons.repository}${github.project}</strong>
+          <span><i></i>${github.language}</span>
+          <span class="repository-stars" aria-label="${github.stars} stars">${previewIcons.star}${github.stars}</span>
+        </footer>
+      </article>`;
+    bindAvatarFallbacks(appRoot);
+    return;
+  }
+  appRoot.innerHTML = `
+    <div class="system-tooltip" role="tooltip">
+      <span>Codex usage window: ${data.windowHours ?? "--"}h</span>
+      <span>Remaining: ${data.remainingPct ?? "--"}%</span>
+      <span>Used: ${data.usedPct ?? "--"}%</span>
+      <span>Reset: ${data.resetText || "--:--"}</span>
+      <span>Status: ${data.status || "Unavailable"}</span>
+    </div>`;
+}
+
 function dashboardContent(section) {
   const cards = `
     <div class="dashboard-grid">
@@ -219,7 +333,7 @@ function dashboardContent(section) {
 
   const content = {
     Dashboard: `<div class="page-heading"><p>OVERVIEW</p><h1>Good afternoon, ${statusData.github.name}</h1><span>Your live workspace status at a glance.</span></div>${cards}`,
-    GitHub: `<div class="page-heading"><p>GITHUB</p><h1>${statusData.github.username}</h1><span>Profile and repository status from mock data.</span></div>${cards.split("</article>")[0]}</article>`,
+    GitHub: `<div class="page-heading"><p>GITHUB</p><h1>${statusData.github.username}</h1><span>Live profile and repository status from GitHub.</span></div>${cards.split("</article>")[0]}</article>`,
     Codex: codexContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
     Settings: `<div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
@@ -334,6 +448,9 @@ function renderMain() {
 }
 
 async function refreshStatus() {
+  if (view === "tooltip") {
+    return;
+  }
   try {
     const response = await fetch("http://127.0.0.1:8765/api/status", { cache: "no-store" });
     if (!response.ok) {
@@ -357,7 +474,12 @@ async function refreshStatus() {
 }
 
 refreshStatus();
-setInterval(refreshStatus, 30_000);
+if (view !== "tooltip") {
+  setInterval(refreshStatus, 30_000);
+} else {
+  renderTooltip();
+  window.winplate.onTooltipUpdate(renderTooltip);
+}
 
 window.winplate.onNavigate((section) => {
   currentSection = section;

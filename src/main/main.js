@@ -1,4 +1,4 @@
-const { app, ipcMain } = require("electron");
+const { app, ipcMain, shell } = require("electron");
 const {
   createFloatingWindow,
   createMainWindow,
@@ -7,7 +7,9 @@ const {
   hideFloatingWindow,
   setQuitting,
   setFloatingPinned,
-  setFloatingPinInteractive
+  setFloatingPinInteractive,
+  showTooltipWindow,
+  hideTooltipWindow
 } = require("./windows");
 const { createAppTray } = require("./tray");
 const { startPythonService, stopPythonService } = require("./pythonService");
@@ -41,17 +43,25 @@ if (!gotLock) {
     });
 
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
-    ipcMain.on("github:open-profile", () => {
-      console.log("open github profile");
+    ipcMain.on("github:open-profile", (_event, url) => {
+      if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
+        shell.openExternal(url);
+      }
     });
-    ipcMain.on("github:refresh", () => {
-      console.log("refresh github profile");
+    ipcMain.handle("github:refresh", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`GitHub refresh failed: HTTP ${response.status}`);
+      }
+      return response.json();
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
     ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
     ipcMain.on("floating:pin-interactive", (_event, value) => {
-  setFloatingPinInteractive(value);
-});
+      setFloatingPinInteractive(value);
+    });
+    ipcMain.on("tooltip:show", (_event, payload) => showTooltipWindow(payload));
+    ipcMain.on("tooltip:hide", hideTooltipWindow);
     app.on("activate", showMainWindow);
   });
 

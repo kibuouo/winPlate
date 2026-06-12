@@ -24,6 +24,19 @@ Electron automatically uses `.venv\Scripts\python.exe` when it exists, so the
 virtual environment does not need to be activated before `npm run dev`.
 `WINPLATE_PYTHON` can override the interpreter path when needed.
 
+GitHub data is loaded from the public GitHub REST API. The default account is
+`kibuouo`; override it and optionally provide a token before starting WinPlate:
+
+```powershell
+$env:WINPLATE_GITHUB_USERNAME = "your-login"
+$env:GITHUB_TOKEN = "github_pat_..."
+npm run dev
+```
+
+`GITHUB_TOKEN` is optional for public profiles, but avoids the low unauthenticated
+API rate limit. GitHub responses are cached for five minutes unless refreshed
+explicitly.
+
 To activate the environment manually in PowerShell:
 
 ```powershell
