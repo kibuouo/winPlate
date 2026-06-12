@@ -9,7 +9,11 @@ const {
   setFloatingPinned,
   setFloatingPinInteractive,
   showTooltipWindow,
-  hideTooltipWindow
+  hideTooltipWindow,
+  setMainWindowTheme,
+  minimizeMainWindow,
+  toggleMaximizeMainWindow,
+  closeMainWindow
 } = require("./windows");
 const { createAppTray } = require("./tray");
 const { startPythonService, stopPythonService } = require("./pythonService");
@@ -56,6 +60,10 @@ if (!gotLock) {
       return response.json();
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
+    ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));
+    ipcMain.on("window:minimize", minimizeMainWindow);
+    ipcMain.handle("window:toggle-maximize", toggleMaximizeMainWindow);
+    ipcMain.on("window:close", closeMainWindow);
     ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
     ipcMain.on("floating:pin-interactive", (_event, value) => {
       setFloatingPinInteractive(value);

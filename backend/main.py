@@ -3,6 +3,7 @@ import os
 import sqlite3
 import time
 from contextlib import closing
+from calendar import monthrange
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -45,6 +46,19 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
+def github_token() -> str | None:
+    token = os.getenv("GITHUB_TOKEN")
+    if token or os.name != "nt":
+        return token
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, _ = winreg.QueryValueEx(key, "GITHUB_TOKEN")
+            return value if isinstance(value, str) and value else None
+    except (ImportError, FileNotFoundError, OSError):
+        return None
+
 
 def connect() -> sqlite3.Connection:
     connection = sqlite3.connect(DATABASE_PATH)
@@ -77,7 +91,7 @@ def github_request(path: str) -> object:
         "User-Agent": "WinPlate",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    token = os.getenv("GITHUB_TOKEN")
+    token = github_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
@@ -106,6 +120,14 @@ def contribution_level(count: int) -> int:
     return 4
 
 
+def month_key(value: datetime) -> str:
+    return value.strftime("%Y-%m")
+
+
+def previous_month(year: int, month: int) -> tuple[int, int]:
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
 def build_github_status(username: str) -> dict:
     encoded_username = quote(username, safe="")
     profile = github_request(f"/users/{encoded_username}")
@@ -118,9 +140,15 @@ def build_github_status(username: str) -> dict:
         raise RuntimeError("GitHub API returned an unexpected response")
 
     now = datetime.now(timezone.utc)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     daily_counts = [0] * 30
-    commits_this_month = 0
+    monthly_counts: dict[str, list[int]] = {}
+    monthly_commits: dict[str, int] = {}
+    year, month = now.year, now.month
+    for _ in range(12):
+        key = f"{year:04d}-{month:02d}"
+        monthly_counts[key] = [0] * monthrange(year, month)[1]
+        monthly_commits[key] = 0
+        year, month = previous_month(year, month)
 
     for event in events:
         try:
@@ -130,8 +158,11 @@ def build_github_status(username: str) -> dict:
         days_ago = (now.date() - created_at.date()).days
         if 0 <= days_ago < 30:
             daily_counts[29 - days_ago] += 1
-        if event.get("type") == "PushEvent" and created_at >= month_start:
-            commits_this_month += len(event.get("payload", {}).get("commits", []))
+        key = month_key(created_at)
+        if key in monthly_counts:
+            monthly_counts[key][created_at.day - 1] += 1
+            if event.get("type") == "PushEvent":
+                monthly_commits[key] += len(event.get("payload", {}).get("commits", []))
 
     streak_days = 0
     for count in reversed(daily_counts):
@@ -141,6 +172,16 @@ def build_github_status(username: str) -> dict:
 
     repository = repositories[0] if repositories else {}
     display_name = profile.get("name") or profile.get("login") or username
+    contribution_months = [
+        {
+            "key": key,
+            "label": datetime.strptime(key, "%Y-%m").strftime("%B %Y"),
+            "commits": monthly_commits[key],
+            "levels": [contribution_level(count) for count in counts],
+        }
+        for key, counts in reversed(monthly_counts.items())
+    ]
+    current_month = contribution_months[-1]
     return {
         "source": "github",
         "name": display_name,
@@ -150,7 +191,7 @@ def build_github_status(username: str) -> dict:
         "repos": profile.get("public_repos", 0),
         "followers": profile.get("followers", 0),
         "project": repository.get("name", "No public repositories"),
-        "commitsThisMonth": commits_this_month,
+        "commitsThisMonth": current_month["commits"],
         "streakDays": streak_days,
         "status": "Live",
         "language": repository.get("language") or "Unknown",
@@ -158,6 +199,7 @@ def build_github_status(username: str) -> dict:
         "updatedText": repository.get("pushed_at", ""),
         "contributions30d": [contribution_level(count) for count in daily_counts],
         "contributionMonth": now.strftime("%B"),
+        "contributionMonths": contribution_months,
         "updatedAt": int(time.time() * 1000),
     }
 

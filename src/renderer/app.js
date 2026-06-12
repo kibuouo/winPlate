@@ -1,6 +1,33 @@
-let statusData = mockStatus;
+function normalizeGithub(github = {}, fallback = mockStatus.github) {
+  const definedEntries = (value) => Object.fromEntries(
+    Object.entries(value || {}).filter(([, entry]) => entry !== undefined && entry !== null)
+  );
+  const merged = {
+    ...mockStatus.github,
+    ...definedEntries(fallback),
+    ...definedEntries(github)
+  };
+  return {
+    ...merged,
+    repos: Number.isFinite(Number(merged.repos)) ? Number(merged.repos) : 0,
+    followers: Number.isFinite(Number(merged.followers)) ? Number(merged.followers) : 0,
+    commitsThisMonth: Number.isFinite(Number(merged.commitsThisMonth)) ? Number(merged.commitsThisMonth) : 0,
+    streakDays: Number.isFinite(Number(merged.streakDays)) ? Number(merged.streakDays) : 0,
+    stars: Number.isFinite(Number(merged.stars)) ? Number(merged.stars) : 0,
+    project: merged.project || "No public repositories",
+    language: merged.language || "Unknown",
+    contributions30d: Array.isArray(merged.contributions30d)
+      ? merged.contributions30d.slice(-30)
+      : Array(30).fill(0),
+    contributionMonths: Array.isArray(merged.contributionMonths)
+      ? merged.contributionMonths
+      : []
+  };
+}
+
+let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
 const offlineStatus = {
-  github: { ...mockStatus.github },
+  github: normalizeGithub(mockStatus.github),
   codex: { remainingPct: null, usedPct: null, resetText: "--:--", windowHours: 5, status: "Offline" },
   heart: { heartRate: null, unit: "bpm", source: "Offline", updatedAt: "unavailable" },
   weather: { ...mockStatus.weather }
@@ -8,10 +35,69 @@ const offlineStatus = {
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
 let currentSection = "Dashboard";
-let codexRefreshing = false;
 let floatingPinned = false;
 let systemClockTimer = null;
 let tooltipHideTimer = null;
+let mainWindowMaximized = false;
+let selectedContributionMonth = null;
+const THEME_STORAGE_KEY = "winplate-theme";
+const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+let themePreference = localStorage.getItem(THEME_STORAGE_KEY) || "system";
+
+function resolvedTheme() {
+  return themePreference === "system"
+    ? (themeMedia.matches ? "dark" : "light")
+    : themePreference;
+}
+
+function applyMainTheme() {
+  if (view !== "main") return;
+  const theme = resolvedTheme();
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+  window.winplate.setWindowTheme(theme);
+}
+
+function setThemePreference(theme) {
+  if (!["light", "dark", "system"].includes(theme)) return;
+  themePreference = theme;
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  applyMainTheme();
+  bindThemeControls();
+}
+
+function themeSelector() {
+  const options = [
+    ["light", `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.25"></circle><path d="M12 2.5v2M12 19.5v2M4.5 12h-2M21.5 12h-2M5.28 5.28l1.42 1.42M17.3 17.3l1.42 1.42M18.72 5.28 17.3 6.7M6.7 17.3l-1.42 1.42"></path></svg>`, "浅色"],
+    ["dark", `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.25A8.6 8.6 0 0 1 8.75 3.8 8.6 8.6 0 1 0 20.2 15.25Z"></path></svg>`, "深色"],
+    ["system", `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.25" y="4.25" width="15.5" height="11.75" rx="1.5"></rect><path d="M2.75 18h18.5l-1 1.75H3.75L2.75 18Z"></path></svg>`, "系统"]
+  ];
+  return `
+    <div class="appearance-setting">
+      <span>
+        <strong>主题</strong>
+        <small>使用浅色、深色，或匹配系统设置</small>
+      </span>
+      <div class="theme-selector" role="radiogroup" aria-label="主题">
+        ${options.map(([value, icon, label]) => `
+          <button type="button" class="${themePreference === value ? "active" : ""}" data-theme-choice="${value}" role="radio" aria-checked="${themePreference === value}">
+            <i>${icon}</i><span>${label}</span>
+          </button>`).join("")}
+      </div>
+    </div>`;
+}
+
+function bindThemeControls() {
+  document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.themeChoice === themePreference);
+    button.setAttribute("aria-checked", String(button.dataset.themeChoice === themePreference));
+    button.onclick = () => setThemePreference(button.dataset.themeChoice);
+  });
+}
+
+themeMedia.addEventListener("change", () => {
+  if (themePreference === "system") applyMainTheme();
+});
 
 function systemClockParts(now = new Date()) {
   const date = new Intl.DateTimeFormat("zh-CN", {
@@ -71,7 +157,11 @@ const githubIcon = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M12 .8a11.4 11.4 0 0 0-3.6 22.2c.6.1.8-.2.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.3 2.9.1 3.2.8.9 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.2c0 .4.2.7.8.6A11.4 11.4 0 0 0 12 .8Z"/>
   </svg>`;
-const codexIcon = `<img class="codex-icon" src="../../assets/codex-icon.png" alt="">`;
+const codexIcon = `
+  <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
+    <path d="m8.25 10.25 2.25 2.25-2.25 2.25M12.75 14.75h3"/>
+  </svg>`;
 
 function avatarMarkup(github, className = "") {
   return `
@@ -94,6 +184,103 @@ function contributionGrid(values = []) {
     const level = Math.max(0, Math.min(4, Number(values[index]) || 0));
     return `<span class="contribution-cell level-${level}"></span>`;
   }).join("");
+}
+
+function githubContributionCalendar(month) {
+  const values = month.levels || [];
+  const firstDay = new Date(`${month.key}-01T00:00:00`).getDay();
+  const mondayOffset = (firstDay + 6) % 7;
+  const cellCount = Math.ceil((mondayOffset + values.length) / 7) * 7;
+  const cells = Array.from({ length: cellCount }, (_, index) => {
+    const sourceIndex = index - mondayOffset;
+    const active = sourceIndex >= 0 && sourceIndex < values.length;
+    const level = active ? Math.max(0, Math.min(4, Number(values[sourceIndex]) || 0)) : 0;
+    return `<span class="github-calendar-cell level-${level}${active ? "" : " outside-month"}" title="${active ? `${month.label} ${sourceIndex + 1}` : ""}"></span>`;
+  }).join("");
+  return `
+    <div class="github-calendar-shell">
+      <div class="github-calendar-labels" aria-hidden="true"><span>Mon</span><span>Wed</span><span>Fri</span></div>
+      <div class="github-calendar">
+        <div class="github-calendar-months"><span>Monthly activity</span><span>${month.label}</span></div>
+        <div class="github-calendar-grid" aria-label="GitHub contributions for ${month.label}">${cells}</div>
+      </div>
+    </div>`;
+}
+
+function githubContributionMonths(github) {
+  return github.contributionMonths.length
+    ? github.contributionMonths
+    : [{
+        key: new Date().toISOString().slice(0, 7),
+        label: github.contributionMonth || "Current month",
+        commits: github.commitsThisMonth || 0,
+        levels: github.contributions30d
+      }];
+}
+
+function githubContent() {
+  const github = normalizeGithub(statusData.github);
+  const months = githubContributionMonths(github);
+  const selectedIndex = months.findIndex((month) => month.key === selectedContributionMonth);
+  const monthIndex = selectedIndex >= 0 ? selectedIndex : months.length - 1;
+  const selectedMonth = months[monthIndex];
+  selectedContributionMonth = selectedMonth.key;
+  const activityCount = selectedMonth.commits || 0;
+  return `
+    <section class="github-dashboard">
+      <div class="github-profile-column">
+        ${avatarMarkup(github, "github-profile-avatar")}
+        <div class="github-profile-copy">
+          <h1>${github.name}</h1>
+          <p>${github.username}</p>
+        </div>
+        <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
+        <dl class="github-profile-metrics">
+          <div><dt>${github.repos}</dt><dd>Repositories</dd></div>
+          <div><dt>${github.followers}</dt><dd>Followers</dd></div>
+          <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
+        </dl>
+        <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
+      </div>
+      <div class="github-main-column">
+        <div class="github-page-heading">
+          <div><p>GITHUB</p><h2>Contribution overview</h2><span>Live profile and repository activity for ${github.username}.</span></div>
+          <button class="github-refresh-button" id="refresh-github" type="button" aria-label="Refresh GitHub data">
+            <span>Refresh</span>
+          </button>
+        </div>
+        <article class="github-pinned-card">
+          <div class="github-card-heading"><span>Pinned repository</span><small>Public</small></div>
+          <button type="button" data-open-github class="github-repo-link">${previewIcons.repository}<strong>${github.project}</strong></button>
+          <div class="github-repo-meta"><span><i></i>${github.language}</span><span>${previewIcons.star}${github.stars}</span></div>
+        </article>
+        <article class="github-contribution-card">
+          <div class="github-card-heading">
+            <span>${activityCount} commits in ${selectedMonth.label}</span>
+            <div class="github-month-navigation">
+              <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
+              <strong>${selectedMonth.label}</strong>
+              <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
+            </div>
+          </div>
+          ${githubContributionCalendar(selectedMonth)}
+          <div class="github-calendar-legend"><span>Less</span>${[0, 1, 2, 3, 4].map((level) => `<i class="github-calendar-cell level-${level}"></i>`).join("")}<span>More</span></div>
+        </article>
+        <article class="github-activity-card">
+          <div class="github-card-heading"><span>Contribution activity</span><small>${selectedMonth.label}</small></div>
+          <div class="github-activity-row">
+            <span class="github-activity-icon">${previewIcons.commits}</span>
+            <div><strong>Created ${activityCount} commits</strong><small>Recent public push activity</small></div>
+            <b>${activityCount}</b>
+          </div>
+          <div class="github-activity-row">
+            <span class="github-activity-icon">${previewIcons.repository}</span>
+            <div><strong>Recently updated ${github.project}</strong><small>${github.language} · ${github.stars} stars</small></div>
+            <span class="github-activity-status">Active</span>
+          </div>
+        </article>
+      </div>
+    </section>`;
 }
 
 const previewIcons = {
@@ -333,15 +520,21 @@ function dashboardContent(section) {
 
   const content = {
     Dashboard: `<div class="page-heading"><p>OVERVIEW</p><h1>Good afternoon, ${statusData.github.name}</h1><span>Your live workspace status at a glance.</span></div>${cards}`,
-    GitHub: `<div class="page-heading"><p>GITHUB</p><h1>${statusData.github.username}</h1><span>Live profile and repository status from GitHub.</span></div>${cards.split("</article>")[0]}</article>`,
+    GitHub: githubContent(),
     Codex: codexContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
     Settings: `<div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
+      <section class="settings-section">
+        <h2>外观</h2>
+        <div class="settings-panel appearance-panel">${themeSelector()}</div>
+      </section>
+      <section class="settings-section">
+        <h2>通用</h2>
       <div class="settings-panel">
         <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
         <div><span><strong>Always on top</strong><small>Keep WinPlate above other windows.</small></span><b class="enabled">Enabled</b></div>
         <div><span><strong>Codex source</strong><small>Hidden local CLI session using /status.</small></span><b>${statusData.codex.source || "Unavailable"}</b></div>
-      </div>`
+      </div></section>`
   };
   return content[section];
 }
@@ -374,15 +567,12 @@ function codexContent() {
   return `
     <div class="codex-page-header">
       <h1>剩余用量</h1>
-      <div class="codex-update">
-        <span>${relativeUpdatedAt(statusData.codex.updatedAt)}</span>
-        <button id="refresh-codex" aria-label="刷新 Codex 用量" title="刷新 Codex 用量" ${codexRefreshing ? "disabled" : ""}>
-          <span class="${codexRefreshing ? "spinning" : ""}">⟳</span>
-        </button>
-      </div>
     </div>
     <section class="codex-usage-panel">
-      <div class="codex-panel-title">${codexIcon}<h2>Codex Usage</h2></div>
+      <div class="codex-panel-title">
+        <div>${codexIcon}<h2>Codex Usage</h2></div>
+        <span class="codex-update">${relativeUpdatedAt(statusData.codex.updatedAt)}</span>
+      </div>
       <div class="usage-window-grid">
         ${usageWindowCard("5-hour window", fiveHour)}
         ${usageWindowCard("7-day window", sevenDay)}
@@ -391,30 +581,21 @@ function codexContent() {
     </section>`;
 }
 
-function bindCodexRefresh() {
-  const button = document.querySelector("#refresh-codex");
-  if (!button) return;
-  button.addEventListener("click", async () => {
-    codexRefreshing = true;
-    document.querySelector("#page-content").innerHTML = codexContent();
-    updateProgressBars(document.querySelector("#page-content"));
-    bindCodexRefresh();
-    try {
-      statusData.codex = { ...statusData.codex, ...await window.winplate.getCodexUsage({ force: true }) };
-    } finally {
-      codexRefreshing = false;
-      document.querySelector("#page-content").innerHTML = codexContent();
-      updateProgressBars(document.querySelector("#page-content"));
-      bindCodexRefresh();
-    }
-  });
-}
-
 function renderMain() {
   document.body.className = "main-body";
+  applyMainTheme();
   const sections = ["Dashboard", "GitHub", "Codex", "Heart", "Settings"];
   appRoot.innerHTML = `
-    <div class="workspace">
+    <div class="main-window-shell">
+      <header class="app-titlebar">
+        <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""><span>WinPlate</span></div>
+        <div class="window-controls">
+          <button id="window-minimize" aria-label="最小化"><span></span></button>
+          <button id="window-maximize" aria-label="${mainWindowMaximized ? "还原" : "最大化"}"><span class="${mainWindowMaximized ? "restore-icon" : ""}"></span></button>
+          <button id="window-close" class="close" aria-label="关闭"><span></span></button>
+        </div>
+      </header>
+      <div class="workspace">
       <aside class="sidebar">
         <div class="brand"><img src="../../assets/icon.png" alt=""><strong>WinPlate</strong></div>
         <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}"><i>${item === "Dashboard" ? "⌂" : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Heart" ? "♥" : "⚙"}</i>${item}</button>`).join("")}</nav>
@@ -430,6 +611,7 @@ function renderMain() {
         </header>
         <section id="page-content">${dashboardContent(currentSection)}</section>
       </main>
+      </div>
     </div>`;
   updateProgressBars(appRoot);
 
@@ -440,11 +622,62 @@ function renderMain() {
       currentSection = button.dataset.section;
       document.querySelector("#page-content").innerHTML = dashboardContent(button.dataset.section);
       updateProgressBars(document.querySelector("#page-content"));
-      bindCodexRefresh();
+      bindThemeControls();
+      bindGithubControls();
     });
   });
-  bindCodexRefresh();
+  bindThemeControls();
+  bindGithubControls();
+  document.querySelector("#window-minimize").addEventListener("click", () => window.winplate.minimizeWindow());
+  document.querySelector("#window-maximize").addEventListener("click", async () => {
+    mainWindowMaximized = await window.winplate.toggleMaximizeWindow();
+    updateMaximizeButton();
+  });
+  document.querySelector("#window-close").addEventListener("click", () => window.winplate.closeWindow());
   startSystemClock();
+}
+
+function bindGithubControls() {
+  document.querySelectorAll("[data-open-github]").forEach((button) => {
+    button.addEventListener("click", () => window.winplate.openGithubProfile(statusData.github.profileUrl));
+  });
+  document.querySelectorAll("[data-month-direction]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const months = githubContributionMonths(normalizeGithub(statusData.github));
+      const currentIndex = months.findIndex((month) => month.key === selectedContributionMonth);
+      const safeIndex = currentIndex >= 0 ? currentIndex : months.length - 1;
+      const nextIndex = Math.max(0, Math.min(months.length - 1, safeIndex + Number(button.dataset.monthDirection)));
+      selectedContributionMonth = months[nextIndex].key;
+      document.querySelector("#page-content").innerHTML = githubContent();
+      bindAvatarFallbacks(document.querySelector("#page-content"));
+      bindGithubControls();
+    });
+  });
+  const refreshButton = document.querySelector("#refresh-github");
+  if (!refreshButton) return;
+  refreshButton.addEventListener("click", async () => {
+    refreshButton.disabled = true;
+    refreshButton.classList.add("refreshing");
+    refreshButton.querySelector("span").textContent = "Refreshing";
+    try {
+      statusData.github = normalizeGithub(await window.winplate.refreshGithub(), statusData.github);
+      document.querySelector("#page-content").innerHTML = githubContent();
+      bindAvatarFallbacks(document.querySelector("#page-content"));
+      bindGithubControls();
+    } catch (error) {
+      console.error("GitHub refresh failed:", error);
+      refreshButton.querySelector("span").textContent = "Retry";
+      refreshButton.disabled = false;
+      refreshButton.classList.remove("refreshing");
+    }
+  });
+}
+
+function updateMaximizeButton() {
+  const button = document.querySelector("#window-maximize");
+  if (!button) return;
+  button.setAttribute("aria-label", mainWindowMaximized ? "还原" : "最大化");
+  button.querySelector("span").classList.toggle("restore-icon", mainWindowMaximized);
 }
 
 async function refreshStatus() {
@@ -456,10 +689,15 @@ async function refreshStatus() {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
+    const incomingStatus = await response.json();
     statusData = {
       ...mockStatus,
-      ...await response.json(),
-      weather: statusData.weather || mockStatus.weather
+      ...statusData,
+      ...incomingStatus,
+      github: normalizeGithub(incomingStatus.github, statusData.github),
+      codex: { ...mockStatus.codex, ...statusData.codex, ...incomingStatus.codex },
+      heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
+      weather: { ...mockStatus.weather, ...statusData.weather, ...incomingStatus.weather }
     };
     statusData.codex = {
       ...statusData.codex,
@@ -467,7 +705,10 @@ async function refreshStatus() {
     };
   } catch (error) {
     console.error("FastAPI unavailable, showing offline status:", error);
-    statusData = offlineStatus;
+    statusData = {
+      ...offlineStatus,
+      github: normalizeGithub(statusData.github, offlineStatus.github)
+    };
   }
 
   view === "floating" ? renderFloating() : renderMain();
@@ -486,4 +727,9 @@ window.winplate.onNavigate((section) => {
   if (view === "main") {
     renderMain();
   }
+});
+
+window.winplate.onMaximizedChange((value) => {
+  mainWindowMaximized = value;
+  updateMaximizeButton();
 });

@@ -14,7 +14,8 @@ const mockStatus = {
     language: "Unknown",
     stars: 0,
     updatedText: "",
-    contributions30d: Array(30).fill(0)
+    contributions30d: Array(30).fill(0),
+    contributionMonths: []
   },
   codex: {
     source: "mock",

@@ -7,6 +7,10 @@ import main
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_github_token_prefers_process_environment(self):
+        with patch.dict(main.os.environ, {"GITHUB_TOKEN": "process-token"}):
+            self.assertEqual(main.github_token(), "process-token")
+
     def test_default_status_is_persisted(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:
@@ -38,6 +42,8 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["project"], "hello-world")
         self.assertEqual(result["repos"], 8)
         self.assertEqual(result["source"], "github")
+        self.assertEqual(len(result["contributionMonths"]), 12)
+        self.assertEqual(result["contributionMonths"][-1]["commits"], 0)
 
 
 if __name__ == "__main__":

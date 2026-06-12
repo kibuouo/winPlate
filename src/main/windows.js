@@ -163,10 +163,11 @@ function createMainWindow() {
     minWidth: 860,
     minHeight: 560,
     show: false,
-    backgroundColor: "#09090b",
+    backgroundColor: "#181818",
     title: "WinPlate",
     icon: iconPath,
     autoHideMenuBar: true,
+    frame: false,
     webPreferences: secureWebPreferences()
   });
 
@@ -189,8 +190,30 @@ function createMainWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+  mainWindow.on("maximize", () => mainWindow?.webContents.send("window:maximized", true));
+  mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window:maximized", false));
 
   return mainWindow;
+}
+
+function setMainWindowTheme(theme) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const dark = theme !== "light";
+  mainWindow.setBackgroundColor(dark ? "#181818" : "#f7f7f8");
+}
+
+function minimizeMainWindow() {
+  mainWindow?.minimize();
+}
+
+function toggleMaximizeMainWindow() {
+  if (!mainWindow) return false;
+  mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+  return mainWindow.isMaximized();
+}
+
+function closeMainWindow() {
+  mainWindow?.close();
 }
 
 function showMainWindow(section = "Dashboard") {
@@ -234,6 +257,10 @@ module.exports = {
   showTooltipWindow,
   hideTooltipWindow,
   setQuitting,
+  setMainWindowTheme,
+  minimizeMainWindow,
+  toggleMaximizeMainWindow,
+  closeMainWindow,
   setFloatingPinned,
   setFloatingPinInteractive
 };
