@@ -563,7 +563,7 @@ function weatherDateTime(now = new Date()) {
 
 function weatherIconMarkup(iconCode, className = "weather-icon") {
   const code = /^\d{3,4}$/.test(String(iconCode || "")) ? String(iconCode) : "999";
-  return `<img class="${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
+  return `<img class="themed-weather-icon ${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
 }
 
 function weatherDashboardCard() {
@@ -618,13 +618,13 @@ function renderFloating() {
         <div class="drag-handle" aria-hidden="true"></div>
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
+            <div class="module interactive-module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
               <span class="github-avatar-button" aria-hidden="true">
                 ${avatarMarkup(statusData.github, "github-avatar-bar")}
               </span>
               <span class="github-summary">GitHub</span>
             </div>
-            <div class="module codex-module no-drag">
+            <div class="module interactive-module codex-module no-drag">
               ${codexIcon}
               <span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
@@ -633,13 +633,13 @@ function renderFloating() {
             </div>
           </div>
           <div class="status-group auxiliary-status">
-            <div class="module weather-module no-drag" id="weather-module">
+            <div class="module interactive-module weather-module no-drag" id="weather-module">
               ${weatherIconMarkup(weather.icon)}
               <strong class="metric">${weather.temperature}°C</strong>
               <span class="weather-condition">${weather.condition}</span>
             </div>
             <div class="system-status">
-              <div class="module heart-module no-drag" id="heart-module">
+              <div class="module interactive-module heart-module no-drag" id="heart-module">
                 <span class="heart-icon">♥</span>
                 <strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
@@ -925,7 +925,7 @@ function renderTooltip(data = {}) {
 function qweatherServiceCard(official, failures) {
   return `
     <article class="dashboard-card qweather-card">
-      <div class="qweather-card-heading"><div class="card-icon">${weatherIconMarkup("100", "qweather-service-icon")}</div><span class="service-health"><i></i>服务正常</span></div>
+      <div class="qweather-card-heading"><div class="card-icon qweather-service-icon">${qweatherNavIcon}</div><span class="service-health"><i></i>服务正常</span></div>
       <span>QWeather API</span>
       <strong>${qweatherUsage.used} <em>/ ${qweatherUsage.total}</em></strong>
       <small>本月配额已使用 ${qweatherUsage.percent}%</small>
@@ -1271,11 +1271,11 @@ function updateFloatingStatusDom() {
         <div class="drag-handle" aria-hidden="true"></div>
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
+            <div class="module interactive-module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
               <span class="github-avatar-button" aria-hidden="true">${avatarMarkup(statusData.github, "github-avatar-bar")}</span>
               <span class="github-summary">GitHub</span>
             </div>
-            <div class="module codex-module no-drag">
+            <div class="module interactive-module codex-module no-drag">
               ${codexIcon}<span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
@@ -1283,13 +1283,13 @@ function updateFloatingStatusDom() {
             </div>
           </div>
           <div class="status-group auxiliary-status">
-            <div class="module weather-module no-drag" id="weather-module">
+            <div class="module interactive-module weather-module no-drag" id="weather-module">
               ${weatherIconMarkup(weather.icon)}
               <strong class="metric">${weather.temperature}°C</strong>
               <span class="weather-condition">${weather.condition}</span>
             </div>
             <div class="system-status">
-              <div class="module heart-module no-drag" id="heart-module">
+              <div class="module interactive-module heart-module no-drag" id="heart-module">
                 <span class="heart-icon">♥</span><strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
               <div class="right-controls no-drag">${shell.querySelector(".right-controls")?.innerHTML || ""}</div>
