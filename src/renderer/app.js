@@ -40,6 +40,8 @@ let systemClockTimer = null;
 let tooltipHideTimer = null;
 let mainWindowMaximized = false;
 let selectedContributionMonth = null;
+let locationWeatherPromise = null;
+let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
 const THEME_STORAGE_KEY = "winplate-theme";
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = localStorage.getItem(THEME_STORAGE_KEY) || "system";
@@ -92,6 +94,46 @@ function bindThemeControls() {
     button.classList.toggle("active", button.dataset.themeChoice === themePreference);
     button.setAttribute("aria-checked", String(button.dataset.themeChoice === themePreference));
     button.onclick = () => setThemePreference(button.dataset.themeChoice);
+  });
+}
+
+async function bindWeatherSettings() {
+  const form = document.querySelector("#weather-settings-form");
+  if (!form) return;
+  const keyInput = form.querySelector("#qweather-api-key");
+  const hostInput = form.querySelector("#qweather-api-host");
+  const status = form.querySelector("#weather-settings-status");
+  const saveButton = form.querySelector("button[type='submit']");
+  try {
+    weatherSettings = await window.winplate.getWeatherSettings();
+    hostInput.value = weatherSettings.apiHost;
+    keyInput.placeholder = weatherSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
+    status.textContent = weatherSettings.hasApiKey ? "API Key 已配置" : "尚未配置 API Key";
+    status.classList.toggle("configured", weatherSettings.hasApiKey);
+  } catch (error) {
+    status.textContent = `读取失败：${error.message}`;
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    saveButton.disabled = true;
+    status.textContent = "正在保存...";
+    try {
+      weatherSettings = await window.winplate.saveWeatherSettings({
+        apiKey: keyInput.value,
+        apiHost: hostInput.value
+      });
+      keyInput.value = "";
+      keyInput.placeholder = "已配置，留空则保持不变";
+      status.textContent = "保存成功，天气将在下次刷新时更新";
+      status.classList.add("configured");
+      locationWeatherPromise = null;
+      refreshStatus();
+    } catch (error) {
+      status.textContent = `保存失败：${error.message}`;
+      status.classList.remove("configured");
+    } finally {
+      saveButton.disabled = false;
+    }
   });
 }
 
@@ -291,6 +333,27 @@ const previewIcons = {
   star: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"></path></svg>`
 };
 
+const locationArrowIcon = `
+  <svg class="location-arrow-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M20.2 3.8 4.7 9.7c-.9.3-.9 1.6 0 1.9l6.2 2.1 2.1 6.2c.3.9 1.6.9 1.9 0l5.9-15.5c.2-.5-.3-1-.6-.6Z"></path>
+  </svg>`;
+
+function weatherDateTime(now = new Date()) {
+  const time = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(now);
+  const date = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long"
+  }).format(now);
+  return { time, date };
+}
+
 function renderFloating() {
   const weather = statusData.weather || mockStatus.weather;
   const date = new Intl.DateTimeFormat("zh-CN", {
@@ -372,7 +435,7 @@ function renderFloating() {
           width: rect.width,
           height: rect.height
         },
-        data
+        data: typeof data === "function" ? data() : data
       });
     });
     module.addEventListener("mouseleave", () => {
@@ -432,12 +495,20 @@ function renderFloating() {
     tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
   });
 
-  bindSystemTooltip(weatherModule, {
-    type: "weather",
-    lines: [
-      weather.location,
-      `${weather.temperature}°C · ${weather.condition}`
-    ]
+  bindSystemTooltip(weatherModule, () => {
+    const { time, date: fullDate } = weatherDateTime();
+    return {
+      type: "weather",
+      lines: [
+        `${locationArrowIcon}<span class="weather-location-text">${weather.location}</span>`,
+        `${weather.temperature}°C · ${weather.condition}`,
+        weather.feelsLike == null ? "" : `体感 ${weather.feelsLike}°C · 湿度 ${weather.humidity}%`,
+        weather.precipitationProbability == null ? "" : `降雨概率 ${weather.precipitationProbability}%`,
+        weather.windDirection ? `${weather.windDirection} ${weather.windScale}级` : "",
+        `当前时间 ${time}`,
+        fullDate
+      ].filter(Boolean)
+    };
   });
   bindSystemTooltip(heartModule, {
     type: "heart",
@@ -562,6 +633,23 @@ function dashboardContent(section) {
         <div class="settings-panel appearance-panel">${themeSelector()}</div>
       </section>
       <section class="settings-section">
+        <h2>天气</h2>
+        <form class="settings-panel weather-settings-panel" id="weather-settings-form">
+          <label>
+            <span><strong>API Key</strong><small>来自 QWeather 控制台，仅保存在 Windows 用户环境变量中</small></span>
+            <input id="qweather-api-key" type="password" autocomplete="off">
+          </label>
+          <label>
+            <span><strong>API Host</strong><small>填写项目分配的 API Host，不包含 https://</small></span>
+            <input id="qweather-api-host" type="text" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="weather-settings-actions">
+            <small id="weather-settings-status">正在读取配置...</small>
+            <button type="submit">保存配置</button>
+          </div>
+        </form>
+      </section>
+      <section class="settings-section">
         <h2>通用</h2>
       <div class="settings-panel">
         <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
@@ -656,10 +744,12 @@ function renderMain() {
       document.querySelector("#page-content").innerHTML = dashboardContent(button.dataset.section);
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
+      bindWeatherSettings();
       bindGithubControls();
     });
   });
   bindThemeControls();
+  bindWeatherSettings();
   bindGithubControls();
   document.querySelector("#window-minimize").addEventListener("click", () => window.winplate.minimizeWindow());
   document.querySelector("#window-maximize").addEventListener("click", async () => {
@@ -736,6 +826,25 @@ async function refreshStatus() {
       ...statusData.codex,
       ...await window.winplate.getCodexUsage()
     };
+    if (!locationWeatherPromise && navigator.geolocation) {
+      locationWeatherPromise = new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 10_000,
+          maximumAge: 30 * 60_000
+        });
+      }).then(({ coords }) => window.winplate.setWeatherLocation({
+        latitude: coords.latitude,
+        longitude: coords.longitude
+      })).catch((error) => {
+        console.warn("Automatic weather location unavailable:", error.message);
+        return null;
+      });
+    }
+    const locatedWeather = await locationWeatherPromise;
+    if (locatedWeather) {
+      statusData.weather = { ...statusData.weather, ...locatedWeather };
+    }
   } catch (error) {
     console.error("FastAPI unavailable, showing offline status:", error);
     statusData = {

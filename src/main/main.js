@@ -1,4 +1,6 @@
-const { app, ipcMain, shell } = require("electron");
+const { app, ipcMain, session, shell } = require("electron");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const {
   createFloatingWindow,
   createMainWindow,
@@ -20,6 +22,32 @@ const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
 
 let tray;
+const execFileAsync = promisify(execFile);
+
+async function readUserEnvironment(name) {
+  if (process.platform !== "win32") {
+    return process.env[name] || "";
+  }
+  try {
+    const { stdout } = await execFileAsync("reg.exe", [
+      "query", "HKCU\\Environment", "/v", name
+    ], { windowsHide: true });
+    const line = stdout.split(/\r?\n/).find((entry) => entry.includes(name));
+    return line?.trim().split(/\s{2,}/).at(-1) || "";
+  } catch {
+    return "";
+  }
+}
+
+async function writeUserEnvironment(name, value) {
+  if (process.platform !== "win32") {
+    process.env[name] = value;
+    return;
+  }
+  await execFileAsync("reg.exe", [
+    "add", "HKCU\\Environment", "/v", name, "/t", "REG_SZ", "/d", value, "/f"
+  ], { windowsHide: true });
+}
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -28,6 +56,10 @@ if (!gotLock) {
   app.on("second-instance", showMainWindow);
 
   app.whenReady().then(async () => {
+    session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === "geolocation");
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(permission === "geolocation");
+    });
     try {
       await startPythonService();
     } catch (error) {
@@ -58,6 +90,47 @@ if (!gotLock) {
         throw new Error(`GitHub refresh failed: HTTP ${response.status}`);
       }
       return response.json();
+    });
+    ipcMain.handle("weather:set-location", async (_event, location) => {
+      const latitude = Number(location?.latitude);
+      const longitude = Number(location?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        throw new Error("Invalid weather coordinates");
+      }
+      const response = await fetch("http://127.0.0.1:8765/api/weather/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latitude, longitude })
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const detail = payload?.detail ? `: ${payload.detail}` : "";
+        throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
+      }
+      return response.json();
+    });
+    ipcMain.handle("weather:get-settings", async () => {
+      const [apiKey, apiHost] = await Promise.all([
+        readUserEnvironment("QWEATHER_API_KEY"),
+        readUserEnvironment("QWEATHER_API_HOST")
+      ]);
+      return {
+        hasApiKey: Boolean(apiKey),
+        apiHost: apiHost || "devapi.qweather.com"
+      };
+    });
+    ipcMain.handle("weather:save-settings", async (_event, settings) => {
+      const apiKey = typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
+      const apiHost = typeof settings?.apiHost === "string" ? settings.apiHost.trim() : "";
+      if (!apiHost || !/^[a-z0-9.-]+$/i.test(apiHost)) {
+        throw new Error("API Host 格式无效");
+      }
+      const writes = [writeUserEnvironment("QWEATHER_API_HOST", apiHost)];
+      if (apiKey) {
+        writes.push(writeUserEnvironment("QWEATHER_API_KEY", apiKey));
+      }
+      await Promise.all(writes);
+      return { hasApiKey: Boolean(apiKey || await readUserEnvironment("QWEATHER_API_KEY")), apiHost };
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));

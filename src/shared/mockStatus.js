@@ -37,10 +37,12 @@ const mockStatus = {
     updatedAt: "just now"
   },
   weather: {
+    source: "mock",
     icon: "🌤",
     temperature: 29,
     condition: "多云",
-    location: "Singapore"
+    location: "Hong Kong",
+    precipitationProbability: 20
   }
 };
 

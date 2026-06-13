@@ -43,6 +43,24 @@ To activate the environment manually in PowerShell:
 .\.venv\Scripts\Activate.ps1
 ```
 
+## QWeather
+
+Weather data is loaded by the Python backend and cached for ten minutes. Create
+a project and API key in the [QWeather console](https://console.qweather.com/),
+copy its API Host, then start WinPlate with:
+
+```powershell
+[Environment]::SetEnvironmentVariable("QWEATHER_API_KEY", "your-api-key", "User")
+[Environment]::SetEnvironmentVariable("QWEATHER_API_HOST", "your-project-api-host", "User")
+npm run dev
+```
+
+WinPlate requests the Windows location permission and sends only the resulting
+coordinates to the local backend. `QWEATHER_LOCATION` is optional and is used
+as a fallback when system location is unavailable. It accepts a city name or
+location ID. The API key stays in the local backend and is never sent to the
+renderer. Restart WinPlate after changing these values.
+
 ## Future Packaging
 
 The backend is intentionally isolated behind `src/main/pythonService.js`.

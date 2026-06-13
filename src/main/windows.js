@@ -124,7 +124,9 @@ function showTooltipWindow({ anchor, data }) {
     ? GITHUB_TOOLTIP_SIZE
     : data.type === "codex"
       ? CODEX_TOOLTIP_SIZE
-      : SYSTEM_TOOLTIP_SIZE;
+      : data.type === "weather"
+        ? { ...SYSTEM_TOOLTIP_SIZE, height: 196 }
+        : SYSTEM_TOOLTIP_SIZE;
   window.setSize(tooltipSize.width, tooltipSize.height);
   let x = Math.round(anchor.x + 22);
   let y = Math.round(anchor.y + anchor.height + 8);

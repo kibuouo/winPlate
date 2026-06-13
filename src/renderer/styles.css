@@ -360,6 +360,19 @@ nav .codex-icon { width: 18px; height: 18px; }
 .theme-selector i { width: 20px; height: 20px; display: grid; place-items: center; font-style: normal; }
 .theme-selector svg { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 .theme-selector button span { font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap; }
+.weather-settings-panel label { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 48%); align-items: center; gap: 32px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+.weather-settings-panel label > span { min-width: 0; }
+.weather-settings-panel input { width: 100%; box-sizing: border-box; padding: 10px 12px; color: var(--text); border: 1px solid var(--border-strong); border-radius: 9px; outline: none; background: var(--surface); font: inherit; }
+.weather-settings-panel input:focus { border-color: #a78bfa; box-shadow: 0 0 0 3px rgba(167,139,250,.14); }
+.weather-settings-actions { display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; }
+.weather-settings-actions small { color: var(--text-muted); }
+.weather-settings-actions small.configured { color: #10b981; }
+.weather-settings-actions button { padding: 9px 16px; color: #fff; border: 0; border-radius: 9px; background: #8b5cf6; font-weight: 650; cursor: pointer; }
+.weather-settings-actions button:hover { background: #7c3aed; }
+.weather-settings-actions button:disabled { cursor: wait; opacity: .6; }
+@media (max-width: 920px) {
+  .weather-settings-panel label { grid-template-columns: 1fr; gap: 12px; }
+}
 
 .codex-page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
 .codex-page-header h1 { margin: 0; font-size: clamp(30px, 3.2vw, 46px); letter-spacing: .04em; }
@@ -427,6 +440,21 @@ nav .codex-icon { width: 18px; height: 18px; }
 .system-tooltip span {
   color: #a1a1aa;
   font-size: 11px;
+}
+.system-tooltip span:has(.location-arrow-icon) {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.location-arrow-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .github-hover-card {

@@ -1,3 +1,4 @@
+import gzip
 import json
 import os
 import sqlite3
@@ -7,12 +8,13 @@ from calendar import monthrange
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 
 DATABASE_PATH = Path(__file__).with_name("winplate.db")
@@ -20,6 +22,9 @@ GITHUB_API_URL = "https://api.github.com"
 GITHUB_USERNAME = os.getenv("WINPLATE_GITHUB_USERNAME", "kibuouo")
 GITHUB_CACHE_SECONDS = 300
 _github_cache: tuple[float, dict] | None = None
+QWEATHER_LOCATION = os.getenv("QWEATHER_LOCATION", "Hong Kong")
+QWEATHER_CACHE_SECONDS = 600
+_weather_cache: dict[str, tuple[float, dict]] = {}
 
 DEFAULT_STATUS = {
     "codex": {
@@ -36,6 +41,13 @@ DEFAULT_STATUS = {
         "source": "Apple Watch",
         "updatedAt": "just now",
     },
+    "weather": {
+        "source": "unconfigured",
+        "icon": "🌤",
+        "temperature": 29,
+        "condition": "多云",
+        "location": QWEATHER_LOCATION,
+    },
 }
 
 api = FastAPI(title="WinPlate API", version="0.1.0")
@@ -46,18 +58,27 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
-def github_token() -> str | None:
-    token = os.getenv("GITHUB_TOKEN")
-    if token or os.name != "nt":
-        return token
+
+class WeatherLocation(BaseModel):
+    latitude: float
+    longitude: float
+
+
+def environment_setting(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    if value or os.name != "nt":
+        return value or default
     try:
         import winreg
 
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-            value, _ = winreg.QueryValueEx(key, "GITHUB_TOKEN")
-            return value if isinstance(value, str) and value else None
+            registry_value, _ = winreg.QueryValueEx(key, name)
+            return registry_value if isinstance(registry_value, str) and registry_value else default
     except (ImportError, FileNotFoundError, OSError):
-        return None
+        return default
+
+def github_token() -> str | None:
+    return environment_setting("GITHUB_TOKEN")
 
 
 def connect() -> sqlite3.Connection:
@@ -106,6 +127,100 @@ def github_request(path: str) -> object:
         raise RuntimeError(detail) from error
     except (URLError, TimeoutError) as error:
         raise RuntimeError(f"GitHub API unavailable: {error}") from error
+
+
+def qweather_request(path: str, params: dict[str, str]) -> dict:
+    api_key = environment_setting("QWEATHER_API_KEY")
+    api_host = environment_setting("QWEATHER_API_HOST", "devapi.qweather.com")
+    if not api_key:
+        raise RuntimeError("QWEATHER_API_KEY is not configured")
+    request = Request(
+        f"https://{api_host}{path}?{urlencode(params)}",
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "User-Agent": "WinPlate",
+            "X-QW-Api-Key": api_key,
+        },
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            body = response.read()
+            if response.headers.get("Content-Encoding", "").lower() == "gzip" or body.startswith(b"\x1f\x8b"):
+                body = gzip.decompress(body)
+            payload = json.loads(body.decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(f"QWeather API returned HTTP {error.code}") from error
+    except (URLError, TimeoutError) as error:
+        raise RuntimeError(f"QWeather API unavailable: {error}") from error
+    except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"QWeather API returned an invalid response: {error}") from error
+    if not isinstance(payload, dict) or payload.get("code") != "200":
+        code = payload.get("code", "invalid response") if isinstance(payload, dict) else "invalid response"
+        raise RuntimeError(f"QWeather API returned code {code}")
+    return payload
+
+
+def weather_icon(icon_code: str) -> str:
+    code = int(icon_code) if icon_code.isdigit() else 999
+    if code == 100:
+        return "☀️"
+    if code in {101, 102, 103}:
+        return "🌤"
+    if code in {104, 150, 151, 152, 153}:
+        return "☁️"
+    if 300 <= code < 400:
+        return "🌧"
+    if 400 <= code < 500:
+        return "🌨"
+    if 500 <= code < 600:
+        return "🌫"
+    return "🌡️"
+
+
+def build_weather_status(location: str) -> dict:
+    location_payload = qweather_request("/geo/v2/city/lookup", {"location": location, "number": "1", "lang": "zh"})
+    matches = location_payload.get("location", [])
+    if not matches:
+        raise RuntimeError(f"QWeather could not find location: {location}")
+    place = matches[0]
+    weather_payload = qweather_request("/v7/weather/now", {"location": place["id"], "lang": "zh", "unit": "m"})
+    hourly_payload = qweather_request("/v7/weather/24h", {"location": place["id"], "lang": "zh", "unit": "m"})
+    now = weather_payload.get("now")
+    if not isinstance(now, dict):
+        raise RuntimeError("QWeather current weather response is missing 'now'")
+    hourly = hourly_payload.get("hourly", [])
+    precipitation_probability = None
+    if hourly and isinstance(hourly[0], dict) and str(hourly[0].get("pop", "")).isdigit():
+        precipitation_probability = int(hourly[0]["pop"])
+    place_name = place.get("name", location)
+    admin = place.get("adm1")
+    return {
+        "source": "qweather",
+        "icon": weather_icon(str(now.get("icon", ""))),
+        "iconCode": now.get("icon", ""),
+        "temperature": int(float(now["temp"])),
+        "feelsLike": int(float(now["feelsLike"])),
+        "condition": now.get("text", "未知"),
+        "location": f"{place_name}, {admin}" if admin and admin != place_name else place_name,
+        "humidity": int(now["humidity"]),
+        "precipitationProbability": precipitation_probability,
+        "windDirection": now.get("windDir", ""),
+        "windScale": now.get("windScale", ""),
+        "observedAt": now.get("obsTime", ""),
+        "updatedAt": weather_payload.get("updateTime", ""),
+    }
+
+
+def weather_status(location: str | None = None, force: bool = False) -> dict:
+    query = location or QWEATHER_LOCATION
+    now = time.monotonic()
+    cached = _weather_cache.get(query)
+    if not force and cached and now - cached[0] < QWEATHER_CACHE_SECONDS:
+        return cached[1]
+    data = build_weather_status(query)
+    _weather_cache[query] = (now, data)
+    return data
 
 
 def contribution_level(count: int) -> int:
@@ -241,6 +356,11 @@ def status() -> dict[str, dict]:
             "profileUrl": f"https://github.com/{GITHUB_USERNAME}",
             "error": str(error),
         }
+    if environment_setting("QWEATHER_API_KEY"):
+        try:
+            result["weather"] = weather_status()
+        except RuntimeError as error:
+            result["weather"] = {**result.get("weather", DEFAULT_STATUS["weather"]), "source": "unavailable", "error": str(error)}
     return result
 
 
@@ -252,5 +372,18 @@ def refresh_github() -> dict:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 
+@api.post("/api/weather/refresh")
+def refresh_weather(location: WeatherLocation | None = None) -> dict:
+    try:
+        query = None
+        if location:
+            if not -90 <= location.latitude <= 90 or not -180 <= location.longitude <= 180:
+                raise HTTPException(status_code=422, detail="Invalid coordinates")
+            query = f"{location.longitude:.6f},{location.latitude:.6f}"
+        return weather_status(query, force=True)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
 if __name__ == "__main__":
-    uvicorn.run(api, host="127.0.0.1", port=8765)
+    uvicorn.run(api, host="127.0.0.1", port=8765, use_colors=True)

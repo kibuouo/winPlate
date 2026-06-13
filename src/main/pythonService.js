@@ -40,11 +40,16 @@ async function startPythonService() {
   backendProcess = spawn(python, ["main.py"], {
     cwd: backendDir,
     windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      FORCE_COLOR: "1",
+      TERM: process.env.TERM || "xterm-256color"
+    }
   });
 
-  backendProcess.stdout.on("data", (data) => console.log(`[backend] ${data}`));
-  backendProcess.stderr.on("data", (data) => console.error(`[backend] ${data}`));
+  backendProcess.stdout.on("data", (data) => process.stdout.write(`\u001b[36m[backend]\u001b[0m ${data}`));
+  backendProcess.stderr.on("data", (data) => process.stderr.write(`\u001b[36m[backend]\u001b[0m ${data}`));
   backendProcess.on("error", (error) => console.error("Failed to start FastAPI backend:", error.message));
   backendProcess.on("exit", () => {
     backendProcess = null;
