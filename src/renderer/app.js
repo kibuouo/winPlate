@@ -320,24 +320,15 @@ function renderFloating() {
             </div>
           </div>
           <div class="status-group auxiliary-status">
-            <div class="module weather-module no-drag">
+            <div class="module weather-module no-drag" id="weather-module">
               <span class="weather-icon">${weather.icon}</span>
               <strong class="metric">${weather.temperature}°C</strong>
               <span class="weather-condition">${weather.condition}</span>
-              <div class="tooltip weather-tooltip">
-                <span>${weather.location}</span>
-                <span>${weather.temperature}°C · ${weather.condition}</span>
-              </div>
             </div>
             <div class="system-status">
-              <div class="module heart-module no-drag">
+              <div class="module heart-module no-drag" id="heart-module">
                 <span class="heart-icon">♥</span>
                 <strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
-                <div class="tooltip heart-tooltip">
-                  <span>Current: ${statusData.heart.heartRate ?? "--"} ${statusData.heart.unit}</span>
-                  <span>Source: ${statusData.heart.source}</span>
-                  <span>Updated: ${statusData.heart.updatedAt}</span>
-                </div>
               </div>
               <div class="right-controls no-drag">
                 <button class="pin-button" id="pin-button" aria-label="Pin floating window" title="Pin / click-through">
@@ -367,6 +358,27 @@ function renderFloating() {
   const pinButton = document.querySelector("#pin-button");
   const githubModule = document.querySelector(".github-module");
   const codexModule = document.querySelector(".codex-module");
+  const weatherModule = document.querySelector("#weather-module");
+  const heartModule = document.querySelector("#heart-module");
+
+  function bindSystemTooltip(module, data) {
+    module.addEventListener("mouseenter", () => {
+      clearTimeout(tooltipHideTimer);
+      const rect = module.getBoundingClientRect();
+      window.winplate.showTooltip({
+        anchor: {
+          x: window.screenX + rect.left,
+          y: window.screenY + rect.top,
+          width: rect.width,
+          height: rect.height
+        },
+        data
+      });
+    });
+    module.addEventListener("mouseleave", () => {
+      tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
+    });
+  }
 
   githubModule.addEventListener("click", () => window.winplate.openGithubProfile(statusData.github.profileUrl));
   githubModule.addEventListener("keydown", (event) => {
@@ -418,6 +430,22 @@ function renderFloating() {
   });
   codexModule.addEventListener("mouseleave", () => {
     tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
+  });
+
+  bindSystemTooltip(weatherModule, {
+    type: "weather",
+    lines: [
+      weather.location,
+      `${weather.temperature}°C · ${weather.condition}`
+    ]
+  });
+  bindSystemTooltip(heartModule, {
+    type: "heart",
+    lines: [
+      `Current: ${statusData.heart.heartRate ?? "--"} ${statusData.heart.unit}`,
+      `Source: ${statusData.heart.source}`,
+      `Updated: ${statusData.heart.updatedAt}`
+    ]
   });
 
   pinButton.addEventListener("click", async (event) => {
@@ -490,13 +518,18 @@ function renderTooltip(data = {}) {
     bindAvatarFallbacks(appRoot);
     return;
   }
+  const lines = Array.isArray(data.lines)
+    ? data.lines
+    : [
+        `Codex usage window: ${data.windowHours ?? "--"}h`,
+        `Remaining: ${data.remainingPct ?? "--"}%`,
+        `Used: ${data.usedPct ?? "--"}%`,
+        `Reset: ${data.resetText || "--:--"}`,
+        `Status: ${data.status || "Unavailable"}`
+      ];
   appRoot.innerHTML = `
     <div class="system-tooltip" role="tooltip">
-      <span>Codex usage window: ${data.windowHours ?? "--"}h</span>
-      <span>Remaining: ${data.remainingPct ?? "--"}%</span>
-      <span>Used: ${data.usedPct ?? "--"}%</span>
-      <span>Reset: ${data.resetText || "--:--"}</span>
-      <span>Status: ${data.status || "Unavailable"}</span>
+      ${lines.map((line) => `<span>${line}</span>`).join("")}
     </div>`;
 }
 

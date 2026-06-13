@@ -12,6 +12,7 @@ const preloadPath = path.join(__dirname, "..", "preload", "preload.js");
 const iconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
 const CODEX_TOOLTIP_SIZE = { width: 230, height: 150 };
+const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 248 };
 let floatingPinned = false;
 function setFloatingPinned(value) {
@@ -119,7 +120,11 @@ function showTooltipWindow({ anchor, data }) {
     y: Math.round(anchor.y)
   });
   const workArea = display.workArea;
-  const tooltipSize = data.type === "github" ? GITHUB_TOOLTIP_SIZE : CODEX_TOOLTIP_SIZE;
+  const tooltipSize = data.type === "github"
+    ? GITHUB_TOOLTIP_SIZE
+    : data.type === "codex"
+      ? CODEX_TOOLTIP_SIZE
+      : SYSTEM_TOOLTIP_SIZE;
   window.setSize(tooltipSize.width, tooltipSize.height);
   let x = Math.round(anchor.x + 22);
   let y = Math.round(anchor.y + anchor.height + 8);
