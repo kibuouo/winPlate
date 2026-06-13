@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import time
+from copy import deepcopy
 from contextlib import closing
 from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +15,7 @@ from urllib.request import Request, urlopen
 
 import uvicorn
 import jwt
+from uvicorn.config import LOGGING_CONFIG
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +31,21 @@ QWEATHER_LOCATION = os.getenv("QWEATHER_LOCATION", "Hong Kong")
 QWEATHER_CACHE_SECONDS = 600
 QWEATHER_MONTHLY_LIMIT = 50000
 _weather_cache: dict[str, tuple[float, dict]] = {}
+
+
+def build_log_config() -> dict:
+    config = deepcopy(LOGGING_CONFIG)
+    config["formatters"]["default"]["fmt"] = "%(asctime)s %(levelprefix)s %(message)s"
+    config["formatters"]["access"]["fmt"] = (
+        '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+    )
+    for formatter in config["formatters"].values():
+        formatter["datefmt"] = "%Y-%m-%d %H:%M:%S"
+    return config
+
+
+LOG_CONFIG = build_log_config()
+
 
 DEFAULT_STATUS = {
     "codex": {
@@ -665,4 +682,10 @@ def refresh_weather_official_usage() -> dict:
 
 
 if __name__ == "__main__":
-    uvicorn.run(api, host="127.0.0.1", port=8765, use_colors=True)
+    uvicorn.run(
+        api,
+        host="127.0.0.1",
+        port=8765,
+        use_colors=True,
+        log_config=LOG_CONFIG,
+    )

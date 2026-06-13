@@ -44,6 +44,7 @@ let mainWindowMaximized = false;
 let selectedContributionMonth = null;
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
+let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" };
 let qweatherUsage = { used: 0, total: 50000, remaining: 50000, percent: 0, today: 0, month: "" };
 let qweatherOfficialStats = null;
 let qweatherUsageMessage = "";
@@ -212,6 +213,49 @@ async function bindWeatherSettings() {
       saveButton.disabled = false;
     }
   });
+}
+
+async function bindDeepSeekSettings() {
+  const form = document.querySelector("#deepseek-settings-form");
+  if (!form) return;
+  const keyInput = form.querySelector("#deepseek-api-key");
+  const baseUrlInput = form.querySelector("#deepseek-base-url");
+  const status = form.querySelector("#deepseek-settings-status");
+  const button = form.querySelector("button[type='submit']");
+  const setStatus = (text, className = "") => {
+    status.textContent = `DeepSeek API：${text}`;
+    status.className = className;
+  };
+  try {
+    deepseekSettings = await window.winplate.getDeepSeekSettings();
+    baseUrlInput.value = deepseekSettings.baseUrl;
+    keyInput.placeholder = deepseekSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
+    setStatus(deepseekSettings.hasApiKey ? "已配置" : "未配置", deepseekSettings.hasApiKey ? "configured" : "");
+  } catch {
+    setStatus("读取失败", "error");
+  }
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    setStatus("正在保存...");
+    try {
+      deepseekSettings = await window.winplate.saveDeepSeekSettings({
+        apiKey: keyInput.value,
+        baseUrl: baseUrlInput.value
+      });
+      keyInput.value = "";
+      keyInput.placeholder = "已配置，留空则保持不变";
+      statusData.deepseek = await window.winplate.getDeepSeekUsage({ force: true });
+      setStatus(
+        statusData.deepseek.status === "Normal" ? "已配置，余额读取正常" : "已保存，余额暂不可用",
+        statusData.deepseek.status === "Normal" ? "configured" : "error"
+      );
+    } catch (error) {
+      setStatus(error.message || "保存失败", "error");
+    } finally {
+      button.disabled = false;
+    }
+  };
 }
 
 themeMedia.addEventListener("change", () => {
@@ -913,6 +957,26 @@ function dashboardContent(section) {
         </form>
       </section>
       <section class="settings-section">
+        <h2>DeepSeek</h2>
+        <form class="settings-panel weather-settings-panel" id="deepseek-settings-form">
+          <fieldset>
+            <legend><strong>DeepSeek API</strong><small>用于在 Codex 模块中读取账户余额</small></legend>
+            <label>
+              <span><strong>API Key</strong><small>仅保存在 Windows 用户环境变量中，留空保持原值</small></span>
+              <input id="deepseek-api-key" type="password" autocomplete="off">
+            </label>
+            <label>
+              <span><strong>Base URL</strong><small>默认使用 DeepSeek 官方 API 地址</small></span>
+              <input id="deepseek-base-url" type="url" autocomplete="off" spellcheck="false">
+            </label>
+          </fieldset>
+          <div class="weather-settings-actions">
+            <div class="weather-settings-statuses"><small id="deepseek-settings-status">DeepSeek API：正在读取...</small></div>
+            <button type="submit">保存配置</button>
+          </div>
+        </form>
+      </section>
+      <section class="settings-section">
         <h2>通用</h2>
       <div class="settings-panel">
         <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
@@ -948,6 +1012,50 @@ function codexContent() {
   const windows = statusData.codex.windows || {};
   const fiveHour = windows.fiveHour || statusData.codex;
   const sevenDay = windows.sevenDay;
+  const deepseek = statusData.deepseek || {};
+  const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
+  const currencySymbol = (currency) => currency === "CNY" ? "¥" : currency === "USD" ? "$" : "";
+  const usageDate = new Intl.DateTimeFormat("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+  const tokenUsage = deepseek.tokenUsage?.model === "deepseek-v4-pro"
+    ? deepseek.tokenUsage
+    : null;
+  const cacheInputTokens = Number(tokenUsage?.cacheHitTokens) + Number(tokenUsage?.cacheMissTokens);
+  const cacheHitRate = Number.isFinite(cacheInputTokens) && cacheInputTokens > 0
+    ? `${Math.round(Number(tokenUsage.cacheHitTokens) / cacheInputTokens * 100)}%`
+    : "--%";
+  const tokenValue = (value) => Number.isFinite(Number(value))
+    ? `${Number(value).toLocaleString("en-US")} tokens`
+    : "--";
+  const tokenPanel = `
+    <div class="deepseek-token-panel">
+      <header><strong>缓存命中率</strong><span>${cacheHitRate}</span></header>
+      <div><i class="cache-hit"></i><span>输入（命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheHitTokens)}</strong></div>
+      <div><i class="cache-miss"></i><span>输入（未命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheMissTokens)}</strong></div>
+      <div><i class="output"></i><span>输出</span><strong>${tokenValue(tokenUsage?.outputTokens)}</strong></div>
+    </div>`;
+  const balanceCards = balances.length
+    ? balances.map((balance) => `
+        <article class="deepseek-balance-card">
+          <div class="deepseek-balance-metric">
+            <span>充值余额</span>
+            <strong><b>${currencySymbol(balance.currency)}${balance.toppedUpBalance}</b><em>${balance.currency}</em></strong>
+            <small class="deepseek-date-total"><span>${usageDate}</span><strong>${tokenValue(tokenUsage?.totalTokens)}</strong></small>
+          </div>
+          ${tokenPanel}
+        </article>`).join("")
+    : `<article class="deepseek-balance-card deepseek-empty">
+        <div class="deepseek-balance-metric">
+          <span>充值余额</span>
+          <strong><b>--</b><em>CNY</em></strong>
+          <small class="deepseek-date-total"><span>${usageDate}</span><strong>${tokenValue(tokenUsage?.totalTokens)}</strong></small>
+        </div>
+        ${tokenPanel}
+        <small>${deepseek.configured ? "余额暂不可用，请检查 API 配置" : "请先在设置中配置 DeepSeek API Key"}</small>
+      </article>`;
   return `
     <div class="codex-page-header">
       <h1>剩余用量</h1>
@@ -962,6 +1070,14 @@ function codexContent() {
         ${usageWindowCard("7-day window", sevenDay)}
       </div>
       <div class="codex-cli-status"><span></span>Status: Codex CLI ${statusData.codex.status === "Unavailable" ? "unavailable" : "active"}</div>
+    </section>
+    <section class="codex-usage-panel deepseek-usage-panel">
+      <div class="codex-panel-title">
+        <div><span class="deepseek-mark" aria-hidden="true"></span><h2>DeepSeek Usage</h2></div>
+        <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
+      </div>
+      <div class="usage-window-grid deepseek-balance-grid">${balanceCards}</div>
+      <div class="codex-cli-status ${deepseek.status === "Normal" ? "" : "inactive"}"><span></span>Status: DeepSeek API ${deepseek.status === "Normal" ? "active" : deepseek.status || "unconfigured"}</div>
     </section>`;
 }
 
@@ -1008,12 +1124,14 @@ function renderMain() {
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
       bindWeatherSettings();
+      bindDeepSeekSettings();
       bindGithubControls();
       bindQWeatherUsageControls();
     });
   });
   bindThemeControls();
   bindWeatherSettings();
+  bindDeepSeekSettings();
   bindGithubControls();
   bindQWeatherUsageControls();
   document.querySelector("#window-minimize").addEventListener("click", () => window.winplate.minimizeWindow());
@@ -1109,11 +1227,7 @@ async function refreshStatus() {
     return;
   }
   try {
-    const response = await fetch("http://127.0.0.1:8765/api/status", { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const incomingStatus = await response.json();
+    const incomingStatus = await window.winplate.getStatus();
     statusData = {
       ...mockStatus,
       ...statusData,
@@ -1126,6 +1240,11 @@ async function refreshStatus() {
     statusData.codex = {
       ...statusData.codex,
       ...await window.winplate.getCodexUsage()
+    };
+    statusData.deepseek = {
+      ...mockStatus.deepseek,
+      ...statusData.deepseek,
+      ...await window.winplate.getDeepSeekUsage()
     };
     await hydrateQWeatherUsage();
     if (!locationWeatherPromise && navigator.geolocation) {

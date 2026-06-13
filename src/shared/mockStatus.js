@@ -30,6 +30,15 @@ const mockStatus = {
       sevenDay: { remainingPct: 84, usedPct: 16, resetText: "6d 20h" }
     }
   },
+  deepseek: {
+    source: "deepseek-api",
+    configured: false,
+    available: false,
+    balances: [],
+    tokenUsage: null,
+    updatedAt: null,
+    status: "Unconfigured"
+  },
   heart: {
     heartRate: 82,
     unit: "bpm",

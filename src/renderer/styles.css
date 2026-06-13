@@ -483,6 +483,40 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .codex-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--text-soft); transition: width .3s ease; }
 .codex-cli-status { display: flex; align-items: center; gap: 9px; margin-top: 24px; color: #a1a1aa; font-size: 12px; }
 .codex-cli-status span { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 10px rgba(52,211,153,.55); }
+.codex-cli-status.inactive span { background: #71717a; box-shadow: none; }
+.deepseek-usage-panel { margin-top: 16px; padding: 20px 24px; }
+.deepseek-usage-panel .codex-panel-title { margin-bottom: 16px; }
+.deepseek-mark { width: 30px; height: 30px; display: block; flex: 0 0 30px; background: currentColor; -webkit-mask: url("../../assets/deepseek-icon.png") center / contain no-repeat; mask: url("../../assets/deepseek-icon.png") center / contain no-repeat; }
+.deepseek-balance-grid { display: block; }
+.deepseek-balance-card { min-height: 82px; padding: 14px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-muted); }
+.deepseek-balance-metric { min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 8px; }
+.deepseek-balance-metric + .deepseek-balance-metric { border-left: 1px solid var(--border); }
+.deepseek-balance-metric > span { color: var(--text-soft); font-size: 13px; font-weight: 500; }
+.deepseek-balance-metric strong { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.deepseek-balance-metric b { font-size: 28px; font-weight: 500; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.deepseek-balance-metric em { color: var(--text-soft); font-size: 16px; font-style: normal; font-weight: 400; }
+.deepseek-balance-metric > small { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.deepseek-date-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.deepseek-date-total > strong { color: var(--text-soft); font-size: 11px; font-weight: 650; }
+.deepseek-token-panel { min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 6px; border-left: 1px solid var(--border); }
+.deepseek-token-panel header, .deepseek-token-panel > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.deepseek-token-panel header { margin-bottom: 1px; }
+.deepseek-token-panel header strong { font-size: 13px; }
+.deepseek-token-panel header span { color: var(--text-soft); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.deepseek-token-panel > div { grid-template-columns: 12px minmax(0, 1fr) auto; color: var(--text-soft); font-size: 12px; }
+.deepseek-token-panel > div i { width: 9px; height: 9px; border-radius: 2px; background: #bae6fd; }
+.deepseek-token-panel > div i.cache-miss { background: #60a5fa; }
+.deepseek-token-panel > div i.output { background: #1677ff; }
+.deepseek-token-panel > div strong { color: var(--text-soft); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.deepseek-usage-panel .codex-cli-status { margin-top: 16px; }
+.deepseek-empty { position: relative; padding-bottom: 40px; }
+.deepseek-empty > small { position: absolute; right: 28px; bottom: 14px; left: 28px; color: var(--text-muted); font-size: 11px; }
+@media (max-width: 720px) {
+  .deepseek-balance-card { grid-template-columns: 1fr; }
+  .deepseek-balance-metric { padding: 18px 22px; }
+  .deepseek-balance-metric + .deepseek-balance-metric { border-top: 1px solid var(--border); border-left: 0; }
+  .deepseek-token-panel { padding: 18px 22px; border-top: 1px solid var(--border); border-left: 0; }
+}
 
 @media (max-width: 920px) {
   .dashboard-grid { grid-template-columns: 1fr; }

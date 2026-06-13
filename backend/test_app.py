@@ -14,6 +14,12 @@ import main
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_uvicorn_log_formats_include_timestamp(self):
+        config = main.build_log_config()
+        for formatter in config["formatters"].values():
+            self.assertIn("%(asctime)s", formatter["fmt"])
+            self.assertEqual(formatter["datefmt"], "%Y-%m-%d %H:%M:%S")
+
     def test_environment_setting_prefers_process_environment(self):
         with patch.dict(main.os.environ, {"QWEATHER_API_KEY": "process-key"}):
             self.assertEqual(main.environment_setting("QWEATHER_API_KEY"), "process-key")
