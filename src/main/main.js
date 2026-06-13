@@ -1,4 +1,4 @@
-const { app, ipcMain, session, shell } = require("electron");
+const { app, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const {
@@ -20,6 +20,10 @@ const {
 const { createAppTray } = require("./tray");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
+const {
+  readAppearanceSettings,
+  writeAppearanceSettings
+} = require("./appearanceSettings");
 
 let tray;
 const execFileAsync = promisify(execFile);
@@ -65,7 +69,17 @@ if (!gotLock) {
     } catch (error) {
       console.error(error.message);
     }
-    createMainWindow();
+    const appearanceSettings = await readAppearanceSettings(app.getPath("userData"));
+    const initialTheme = appearanceSettings.theme === "system"
+      ? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
+      : appearanceSettings.theme;
+    ipcMain.handle("appearance:get-settings", () => (
+      readAppearanceSettings(app.getPath("userData"))
+    ));
+    ipcMain.handle("appearance:save-settings", (_event, settings) => (
+      writeAppearanceSettings(app.getPath("userData"), settings)
+    ));
+    createMainWindow(initialTheme);
     createFloatingWindow();
 
     tray = createAppTray({

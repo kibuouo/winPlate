@@ -38,7 +38,7 @@ const mockStatus = {
   },
   weather: {
     source: "mock",
-    icon: "🌤",
+    icon: "101",
     temperature: 29,
     condition: "多云",
     location: "Hong Kong",

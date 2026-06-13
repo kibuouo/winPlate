@@ -14,6 +14,8 @@ function normalizeGithub(github = {}, fallback = mockStatus.github) {
     commitsThisMonth: Number.isFinite(Number(merged.commitsThisMonth)) ? Number(merged.commitsThisMonth) : 0,
     streakDays: Number.isFinite(Number(merged.streakDays)) ? Number(merged.streakDays) : 0,
     stars: Number.isFinite(Number(merged.stars)) ? Number(merged.stars) : 0,
+    availability: merged.availability || "live",
+    stateMessage: merged.stateMessage || "",
     project: merged.project || "No public repositories",
     language: merged.language || "Unknown",
     contributions30d: Array.isArray(merged.contributions30d)
@@ -44,7 +46,7 @@ let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
 const THEME_STORAGE_KEY = "winplate-theme";
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
-let themePreference = localStorage.getItem(THEME_STORAGE_KEY) || "system";
+let themePreference = "system";
 
 function resolvedTheme() {
   return themePreference === "system"
@@ -60,12 +62,39 @@ function applyMainTheme() {
   window.winplate.setWindowTheme(theme);
 }
 
-function setThemePreference(theme) {
+async function setThemePreference(theme) {
   if (!["light", "dark", "system"].includes(theme)) return;
   themePreference = theme;
-  localStorage.setItem(THEME_STORAGE_KEY, theme);
   applyMainTheme();
   bindThemeControls();
+  try {
+    await window.winplate.saveAppearanceSettings({ theme });
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  } catch (error) {
+    console.error("Failed to save appearance settings:", error);
+  }
+}
+
+async function hydrateAppearanceSettings() {
+  if (view !== "main") return;
+  const legacyTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  try {
+    const settings = await window.winplate.getAppearanceSettings();
+    themePreference = ["light", "dark", "system"].includes(settings?.theme)
+      ? settings.theme
+      : "system";
+    if (legacyTheme && ["light", "dark", "system"].includes(legacyTheme)) {
+      themePreference = legacyTheme;
+      await window.winplate.saveAppearanceSettings({ theme: legacyTheme });
+      localStorage.removeItem(THEME_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.error("Failed to load appearance settings:", error);
+    if (legacyTheme && ["light", "dark", "system"].includes(legacyTheme)) {
+      themePreference = legacyTheme;
+    }
+  }
+  applyMainTheme();
 }
 
 function themeSelector() {
@@ -268,6 +297,9 @@ function githubContent() {
   const selectedMonth = months[monthIndex];
   selectedContributionMonth = selectedMonth.key;
   const activityCount = selectedMonth.commits || 0;
+  const stateNotice = github.stateMessage
+    ? `<div class="github-state-notice state-${github.availability}" role="status">${github.stateMessage}</div>`
+    : "";
   return `
     <section class="github-dashboard">
       <div class="github-profile-column">
@@ -285,6 +317,7 @@ function githubContent() {
         <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
       </div>
       <div class="github-main-column">
+        ${stateNotice}
         <div class="github-page-heading">
           <div><p>GITHUB</p><h2>Contribution overview</h2><span>Live profile and repository activity for ${github.username}.</span></div>
           <button class="github-refresh-button" id="refresh-github" type="button" aria-label="Refresh GitHub data">
@@ -354,6 +387,11 @@ function weatherDateTime(now = new Date()) {
   return { time, date };
 }
 
+function weatherIconMarkup(iconCode, className = "weather-icon") {
+  const code = /^\d{3,4}$/.test(String(iconCode || "")) ? String(iconCode) : "999";
+  return `<img class="${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
+}
+
 function renderFloating() {
   const weather = statusData.weather || mockStatus.weather;
   document.body.className = "floating-body";
@@ -379,7 +417,7 @@ function renderFloating() {
           </div>
           <div class="status-group auxiliary-status">
             <div class="module weather-module no-drag" id="weather-module">
-              <span class="weather-icon">${weather.icon}</span>
+              ${weatherIconMarkup(weather.icon)}
               <strong class="metric">${weather.temperature}°C</strong>
               <span class="weather-condition">${weather.condition}</span>
             </div>
@@ -557,8 +595,12 @@ function renderTooltip(data = {}) {
   document.body.className = "tooltip-body";
   if (data.type === "github") {
     const github = { ...mockStatus.github, ...data.github };
+    const stateNotice = github.stateMessage
+      ? `<div class="github-preview-state">${github.stateMessage}</div>`
+      : "";
     appRoot.innerHTML = `
       <article class="github-hover-card" role="tooltip" aria-label="GitHub profile preview">
+        ${stateNotice}
         <header class="github-preview-head">
           ${avatarMarkup(github, "github-avatar-preview")}
           <div class="github-identity">
@@ -638,7 +680,7 @@ function renderTooltip(data = {}) {
           <time>${data.time || ""}</time>
         </header>
         <div class="weather-tooltip-current">
-          <span class="weather-tooltip-icon">${data.icon || "🌡️"}</span>
+          ${weatherIconMarkup(data.icon, "weather-tooltip-icon")}
           <strong>${data.temperature ?? "--"}°</strong>
           <div><b>${data.condition || "天气未知"}</b><span>${data.date || ""}</span></div>
         </div>
@@ -848,9 +890,15 @@ function bindGithubControls() {
       bindGithubControls();
     } catch (error) {
       console.error("GitHub refresh failed:", error);
-      refreshButton.querySelector("span").textContent = "Retry";
-      refreshButton.disabled = false;
-      refreshButton.classList.remove("refreshing");
+      statusData.github = normalizeGithub({
+        ...statusData.github,
+        status: "Cached",
+        availability: "unavailable",
+        stateMessage: "Refresh failed; showing last known data."
+      }, statusData.github);
+      document.querySelector("#page-content").innerHTML = githubContent();
+      bindAvatarFallbacks(document.querySelector("#page-content"));
+      bindGithubControls();
     }
   });
 }
@@ -915,7 +963,11 @@ async function refreshStatus() {
   view === "floating" ? renderFloating() : renderMain();
 }
 
-refreshStatus();
+if (view === "main") {
+  hydrateAppearanceSettings().then(refreshStatus);
+} else {
+  refreshStatus();
+}
 if (view !== "tooltip") {
   setInterval(refreshStatus, 30_000);
 } else {

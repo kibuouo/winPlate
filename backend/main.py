@@ -5,6 +5,7 @@ import sqlite3
 import time
 from contextlib import closing
 from calendar import monthrange
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -21,6 +22,7 @@ DATABASE_PATH = Path(__file__).with_name("winplate.db")
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_USERNAME = os.getenv("WINPLATE_GITHUB_USERNAME", "kibuouo")
 GITHUB_CACHE_SECONDS = 300
+GITHUB_TIMEOUT_SECONDS = 4
 _github_cache: tuple[float, dict] | None = None
 QWEATHER_LOCATION = os.getenv("QWEATHER_LOCATION", "Hong Kong")
 QWEATHER_CACHE_SECONDS = 600
@@ -43,7 +45,7 @@ DEFAULT_STATUS = {
     },
     "weather": {
         "source": "unconfigured",
-        "icon": "🌤",
+        "icon": "101",
         "temperature": 29,
         "condition": "多云",
         "location": QWEATHER_LOCATION,
@@ -118,15 +120,19 @@ def github_request(path: str) -> object:
 
     request = Request(f"{GITHUB_API_URL}{path}", headers=headers)
     try:
-        with urlopen(request, timeout=10) as response:
+        with urlopen(request, timeout=GITHUB_TIMEOUT_SECONDS) as response:
             return json.load(response)
     except HTTPError as error:
-        detail = f"GitHub API returned HTTP {error.code}"
+        if error.code == 401:
+            raise RuntimeError("auth: GitHub authentication was rejected") from error
         if error.code == 403:
-            detail += "; set GITHUB_TOKEN to increase the rate limit"
-        raise RuntimeError(detail) from error
+            raise RuntimeError("rate-limit: GitHub API rate limit reached") from error
+        if error.code == 429:
+            raise RuntimeError("rate-limit: GitHub API is temporarily rate-limited") from error
+        raise RuntimeError(f"unavailable: GitHub API returned HTTP {error.code}") from error
     except (URLError, TimeoutError) as error:
-        raise RuntimeError(f"GitHub API unavailable: {error}") from error
+        reason = "slow" if isinstance(error, TimeoutError) or "timed out" in str(error).lower() else "unavailable"
+        raise RuntimeError(f"{reason}: GitHub API unavailable") from error
 
 
 def qweather_request(path: str, params: dict[str, str]) -> dict:
@@ -159,23 +165,6 @@ def qweather_request(path: str, params: dict[str, str]) -> dict:
         code = payload.get("code", "invalid response") if isinstance(payload, dict) else "invalid response"
         raise RuntimeError(f"QWeather API returned code {code}")
     return payload
-
-
-def weather_icon(icon_code: str) -> str:
-    code = int(icon_code) if icon_code.isdigit() else 999
-    if code == 100:
-        return "☀️"
-    if code in {101, 102, 103}:
-        return "🌤"
-    if code in {104, 150, 151, 152, 153}:
-        return "☁️"
-    if 300 <= code < 400:
-        return "🌧"
-    if 400 <= code < 500:
-        return "🌨"
-    if 500 <= code < 600:
-        return "🌫"
-    return "🌡️"
 
 
 def build_weather_status(location: str) -> dict:
@@ -211,8 +200,7 @@ def build_weather_status(location: str) -> dict:
     admin = place.get("adm1")
     return {
         "source": "qweather",
-        "icon": weather_icon(str(now.get("icon", ""))),
-        "iconCode": now.get("icon", ""),
+        "icon": str(now.get("icon", "999")),
         "temperature": int(float(now["temp"])),
         "feelsLike": int(float(now["feelsLike"])),
         "condition": now.get("text", "未知"),
@@ -263,11 +251,16 @@ def previous_month(year: int, month: int) -> tuple[int, int]:
 
 def build_github_status(username: str) -> dict:
     encoded_username = quote(username, safe="")
-    profile = github_request(f"/users/{encoded_username}")
-    repositories = github_request(
-        f"/users/{encoded_username}/repos?sort=pushed&direction=desc&per_page=100"
-    )
-    events = github_request(f"/users/{encoded_username}/events/public?per_page=100")
+    paths = {
+        "profile": f"/users/{encoded_username}",
+        "repositories": f"/users/{encoded_username}/repos?sort=pushed&direction=desc&per_page=100",
+        "events": f"/users/{encoded_username}/events/public?per_page=100",
+    }
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {key: executor.submit(github_request, path) for key, path in paths.items()}
+        profile = futures["profile"].result()
+        repositories = futures["repositories"].result()
+        events = futures["events"].result()
 
     if not isinstance(profile, dict) or not isinstance(repositories, list) or not isinstance(events, list):
         raise RuntimeError("GitHub API returned an unexpected response")
@@ -337,14 +330,77 @@ def build_github_status(username: str) -> dict:
     }
 
 
+def persist_github_status(data: dict) -> None:
+    with closing(connect()) as connection:
+        connection.execute(
+            """
+            INSERT INTO status_modules (module, payload, updated_at)
+            VALUES ('github', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(module) DO UPDATE SET
+                payload = excluded.payload,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (json.dumps(data),),
+        )
+        connection.commit()
+
+
+def cached_github_status() -> dict | None:
+    with closing(connect()) as connection:
+        row = connection.execute(
+            "SELECT payload FROM status_modules WHERE module = 'github'"
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(row["payload"])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) and data.get("source") == "github" else None
+
+
+def github_failure_state(error: RuntimeError) -> tuple[str, str]:
+    reason, _, _detail = str(error).partition(":")
+    messages = {
+        "auth": "Authentication unavailable; showing last known data.",
+        "rate-limit": "GitHub rate limit reached; showing last known data.",
+        "slow": "GitHub is responding slowly; showing last known data.",
+        "unavailable": "GitHub is unavailable; showing last known data.",
+    }
+    normalized = reason if reason in messages else "unavailable"
+    return normalized, messages[normalized]
+
+
 def github_status(force: bool = False) -> dict:
     global _github_cache
     now = time.monotonic()
     if not force and _github_cache and now - _github_cache[0] < GITHUB_CACHE_SECONDS:
         return _github_cache[1]
-    data = build_github_status(GITHUB_USERNAME)
-    _github_cache = (now, data)
-    return data
+    try:
+        data = build_github_status(GITHUB_USERNAME)
+        persist_github_status(data)
+        _github_cache = (now, data)
+        return data
+    except RuntimeError as error:
+        reason, message = github_failure_state(error)
+        cached = cached_github_status()
+        if cached:
+            return {
+                **cached,
+                "source": "github-cache",
+                "status": "Cached",
+                "availability": reason,
+                "stateMessage": message,
+            }
+        return {
+            "source": "unavailable",
+            "name": GITHUB_USERNAME,
+            "username": f"@{GITHUB_USERNAME}",
+            "profileUrl": f"https://github.com/{GITHUB_USERNAME}",
+            "status": "Unavailable",
+            "availability": reason,
+            "stateMessage": message.replace("showing last known data", "no cached data is available"),
+        }
 
 
 @api.on_event("startup")
@@ -364,16 +420,7 @@ def status() -> dict[str, dict]:
             "SELECT module, payload FROM status_modules ORDER BY module"
         ).fetchall()
     result = {row["module"]: json.loads(row["payload"]) for row in rows}
-    try:
-        result["github"] = github_status()
-    except RuntimeError as error:
-        result["github"] = {
-            "source": "unavailable",
-            "name": GITHUB_USERNAME,
-            "username": f"@{GITHUB_USERNAME}",
-            "profileUrl": f"https://github.com/{GITHUB_USERNAME}",
-            "error": str(error),
-        }
+    result["github"] = github_status()
     if environment_setting("QWEATHER_API_KEY"):
         try:
             result["weather"] = weather_status()
@@ -384,10 +431,7 @@ def status() -> dict[str, dict]:
 
 @api.post("/api/github/refresh")
 def refresh_github() -> dict:
-    try:
-        return github_status(force=True)
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+    return github_status(force=True)
 
 
 @api.post("/api/weather/refresh")

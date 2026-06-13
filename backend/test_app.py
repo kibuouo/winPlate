@@ -35,8 +35,8 @@ class DatabaseTests(unittest.TestCase):
         main.DATABASE_PATH = original_path
 
     def test_build_github_status_maps_profile_repository_and_events(self):
-        responses = [
-            {
+        responses = {
+            "/users/octocat": {
                 "login": "octocat",
                 "name": "The Octocat",
                 "html_url": "https://github.com/octocat",
@@ -44,10 +44,12 @@ class DatabaseTests(unittest.TestCase):
                 "public_repos": 8,
                 "followers": 42,
             },
-            [{"name": "hello-world", "language": "Python", "stargazers_count": 9, "pushed_at": "2026-06-12T00:00:00Z"}],
-            [],
-        ]
-        with patch.object(main, "github_request", side_effect=responses):
+            "/users/octocat/repos?sort=pushed&direction=desc&per_page=100": [
+                {"name": "hello-world", "language": "Python", "stargazers_count": 9, "pushed_at": "2026-06-12T00:00:00Z"}
+            ],
+            "/users/octocat/events/public?per_page=100": [],
+        }
+        with patch.object(main, "github_request", side_effect=lambda path: responses[path]):
             result = main.build_github_status("octocat")
         self.assertEqual(result["username"], "@octocat")
         self.assertEqual(result["project"], "hello-world")
@@ -55,6 +57,57 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["source"], "github")
         self.assertEqual(len(result["contributionMonths"]), 12)
         self.assertEqual(result["contributionMonths"][-1]["commits"], 0)
+
+    def test_github_status_persists_and_restores_last_known_good_data(self):
+        original_path = main.DATABASE_PATH
+        original_cache = main._github_cache
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main._github_cache = None
+            main.initialize_database()
+            live = {
+                "source": "github",
+                "name": "The Octocat",
+                "username": "@octocat",
+                "profileUrl": "https://github.com/octocat",
+                "repos": 8,
+                "updatedAt": 123,
+            }
+            with patch.object(main, "build_github_status", return_value=live):
+                self.assertEqual(main.github_status(force=True), live)
+            main._github_cache = None
+            with patch.object(
+                main,
+                "build_github_status",
+                side_effect=RuntimeError("rate-limit: GitHub API rate limit reached"),
+            ):
+                cached = main.github_status(force=True)
+            self.assertEqual(cached["source"], "github-cache")
+            self.assertEqual(cached["repos"], 8)
+            self.assertEqual(cached["availability"], "rate-limit")
+            self.assertEqual(cached["status"], "Cached")
+        main.DATABASE_PATH = original_path
+        main._github_cache = original_cache
+
+    def test_github_status_returns_lightweight_unavailable_state_without_cache(self):
+        original_path = main.DATABASE_PATH
+        original_cache = main._github_cache
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main._github_cache = None
+            main.initialize_database()
+            with patch.object(
+                main,
+                "build_github_status",
+                side_effect=RuntimeError("auth: GitHub authentication was rejected"),
+            ):
+                result = main.github_status(force=True)
+            self.assertEqual(result["source"], "unavailable")
+            self.assertEqual(result["availability"], "auth")
+            self.assertEqual(result["status"], "Unavailable")
+            self.assertIn("no cached data", result["stateMessage"])
+        main.DATABASE_PATH = original_path
+        main._github_cache = original_cache
 
     def test_build_weather_status_maps_qweather_response(self):
         responses = [
@@ -71,7 +124,7 @@ class DatabaseTests(unittest.TestCase):
             result = main.build_weather_status("Hong Kong")
         self.assertEqual(result["source"], "qweather")
         self.assertEqual(result["temperature"], 30)
-        self.assertEqual(result["icon"], "🌧")
+        self.assertEqual(result["icon"], "305")
         self.assertEqual(result["location"], "香港")
         self.assertEqual(result["precipitationProbability"], 75)
         self.assertEqual(result["weatherSummary"], "今天白天阵雨，夜晚多云，现在30°。")

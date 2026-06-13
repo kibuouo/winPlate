@@ -191,14 +191,15 @@ function hideTooltipWindow() {
   tooltipWindow?.hide();
 }
 
-function createMainWindow() {
+function createMainWindow(initialTheme = "dark") {
+  const dark = initialTheme !== "light";
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 720,
     minWidth: 860,
     minHeight: 560,
     show: false,
-    backgroundColor: "#181818",
+    backgroundColor: dark ? "#181818" : "#f7f7f8",
     title: "WinPlate",
     icon: iconPath,
     autoHideMenuBar: true,

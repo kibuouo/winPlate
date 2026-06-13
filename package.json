@@ -9,7 +9,7 @@
     "backend": "uvicorn backend.main:api --host 127.0.0.1 --port 8765 --reload --use-colors",
     "frontend": "echo Frontend ready",
     "electron": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/codexUsage.js && node --check src/main/pythonService.js && node --check src/main/windows.js && node --check src/main/tray.js && node --check src/preload/preload.js && node --check src/renderer/app.js && node --check src/shared/mockStatus.js && node --test src/main/codexUsage.test.js src/renderer/security.test.js",
+    "check": "node --check src/main/main.js && node --check src/main/appearanceSettings.js && node --check src/main/codexUsage.js && node --check src/main/pythonService.js && node --check src/main/windows.js && node --check src/main/tray.js && node --check src/preload/preload.js && node --check src/renderer/app.js && node --check src/shared/mockStatus.js && node --test src/main/appearanceSettings.test.js src/main/codexUsage.test.js src/renderer/security.test.js",
     "venv:create": "python -m venv .venv",
     "backend:install": ".venv\\Scripts\\python.exe -m pip install -r backend/requirements.txt",
     "backend:test": ".venv\\Scripts\\python.exe -m unittest discover -s backend -p \"test_*.py\""
@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "node-pty": "^1.1.0",
+    "qweather-icons": "^1.8.0",
     "strip-ansi": "^6.0.1"
   }
 }
