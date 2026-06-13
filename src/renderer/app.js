@@ -44,6 +44,10 @@ let mainWindowMaximized = false;
 let selectedContributionMonth = null;
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
+let qweatherUsage = { used: 0, total: 50000, remaining: 50000, percent: 0, today: 0, month: "" };
+let qweatherOfficialStats = null;
+let qweatherUsageMessage = "";
+let qweatherOfficialStatus = null;
 const THEME_STORAGE_KEY = "winplate-theme";
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
@@ -126,40 +130,84 @@ function bindThemeControls() {
   });
 }
 
+function hasOfficialWeatherSettings(settings = weatherSettings) {
+  return Boolean(settings.projectId && settings.credentialId && settings.hasPrivateKey);
+}
+
+function updateWeatherSettingsStatuses(form, serviceState, officialState) {
+  const serviceStatus = form.querySelector("#weather-service-status");
+  const officialStatus = form.querySelector("#weather-official-status");
+  const states = {
+    configured: ["已配置", "configured"],
+    unconfigured: ["未配置", ""],
+    permission: ["权限不足", "error"],
+    failed: ["校验失败", "error"],
+    saving: ["正在保存...", ""],
+    readFailed: ["读取失败", "error"]
+  };
+  const applyState = (element, prefix, state) => {
+    const [text, className] = states[state];
+    element.textContent = `${prefix}：${text}`;
+    element.className = className;
+  };
+  applyState(serviceStatus, "天气服务", serviceState);
+  applyState(officialStatus, "官方统计", officialState);
+}
+
 async function bindWeatherSettings() {
   const form = document.querySelector("#weather-settings-form");
   if (!form) return;
   const keyInput = form.querySelector("#qweather-api-key");
   const hostInput = form.querySelector("#qweather-api-host");
-  const status = form.querySelector("#weather-settings-status");
+  const projectInput = form.querySelector("#qweather-project-id");
+  const credentialInput = form.querySelector("#qweather-credential-id");
+  const privateKeyInput = form.querySelector("#qweather-private-key");
   const saveButton = form.querySelector("button[type='submit']");
   try {
     weatherSettings = await window.winplate.getWeatherSettings();
     hostInput.value = weatherSettings.apiHost;
+    projectInput.value = weatherSettings.projectId || "";
+    credentialInput.value = weatherSettings.credentialId || "";
     keyInput.placeholder = weatherSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
-    status.textContent = weatherSettings.hasApiKey ? "API Key 已配置" : "尚未配置 API Key";
-    status.classList.toggle("configured", weatherSettings.hasApiKey);
+    privateKeyInput.placeholder = weatherSettings.hasPrivateKey ? "已配置，留空则保持不变" : "粘贴 Ed25519 私钥";
+    updateWeatherSettingsStatuses(
+      form,
+      weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured",
+      qweatherOfficialStatus || (hasOfficialWeatherSettings() ? "configured" : "unconfigured")
+    );
   } catch (error) {
-    status.textContent = `读取失败：${error.message}`;
+    updateWeatherSettingsStatuses(form, "readFailed", "readFailed");
   }
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     saveButton.disabled = true;
-    status.textContent = "正在保存...";
+    updateWeatherSettingsStatuses(form, "saving", "saving");
     try {
       weatherSettings = await window.winplate.saveWeatherSettings({
         apiKey: keyInput.value,
-        apiHost: hostInput.value
+        apiHost: hostInput.value,
+        projectId: projectInput.value,
+        credentialId: credentialInput.value,
+        privateKey: privateKeyInput.value
       });
       keyInput.value = "";
+      privateKeyInput.value = "";
       keyInput.placeholder = "已配置，留空则保持不变";
-      status.textContent = "保存成功，天气将在下次刷新时更新";
-      status.classList.add("configured");
+      privateKeyInput.placeholder = weatherSettings.hasPrivateKey ? "已配置，留空则保持不变" : "粘贴 Ed25519 私钥";
+      qweatherOfficialStatus = null;
+      updateWeatherSettingsStatuses(
+        form,
+        weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured",
+        hasOfficialWeatherSettings() ? "configured" : "unconfigured"
+      );
       locationWeatherPromise = null;
       refreshStatus();
     } catch (error) {
-      status.textContent = `保存失败：${error.message}`;
-      status.classList.remove("configured");
+      updateWeatherSettingsStatuses(
+        form,
+        weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured",
+        qweatherOfficialStatus || (hasOfficialWeatherSettings() ? "configured" : "unconfigured")
+      );
     } finally {
       saveButton.disabled = false;
     }
@@ -259,6 +307,7 @@ function contributionGrid(values = []) {
 
 function githubContributionCalendar(month) {
   const values = month.levels || [];
+  const counts = month.counts || [];
   const firstDay = new Date(`${month.key}-01T00:00:00`).getDay();
   const mondayOffset = (firstDay + 6) % 7;
   const cellCount = Math.ceil((mondayOffset + values.length) / 7) * 7;
@@ -266,7 +315,15 @@ function githubContributionCalendar(month) {
     const sourceIndex = index - mondayOffset;
     const active = sourceIndex >= 0 && sourceIndex < values.length;
     const level = active ? Math.max(0, Math.min(4, Number(values[sourceIndex]) || 0)) : 0;
-    return `<span class="github-calendar-cell level-${level}${active ? "" : " outside-month"}" title="${active ? `${month.label} ${sourceIndex + 1}` : ""}"></span>`;
+    if (!active) return `<span class="github-calendar-cell level-0 outside-month"></span>`;
+    const count = Math.max(0, Number(counts[sourceIndex]) || 0);
+    const date = new Date(`${month.key}-${String(sourceIndex + 1).padStart(2, "0")}T00:00:00`);
+    const dateLabel = new Intl.DateTimeFormat("en-US", {
+      month: "long",
+      day: "numeric"
+    }).format(date);
+    const contributionLabel = `${count} contribution${count === 1 ? "" : "s"} on ${dateLabel}.`;
+    return `<span class="github-calendar-cell level-${level}" tabindex="0" aria-label="${contributionLabel}" data-tooltip="${contributionLabel}"></span>`;
   }).join("");
   return `
     <div class="github-calendar-shell">
@@ -371,6 +428,18 @@ const locationArrowIcon = `
     <path d="M20.2 3.8 4.7 9.7c-.9.3-.9 1.6 0 1.9l6.2 2.1 2.1 6.2c.3.9 1.6.9 1.9 0l5.9-15.5c.2-.5-.3-1-.6-.6Z"></path>
   </svg>`;
 
+const dashboardIcon = `
+  <svg class="dashboard-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect>
+    <path d="M8.5 20h7M12 16.5V20"></path>
+  </svg>`;
+
+const qweatherNavIcon = `
+  <svg class="qweather-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="8" cy="8" r="4.25"></circle>
+    <path d="M7.25 18.75h10a4 4 0 0 0 .45-7.97A5.75 5.75 0 0 0 7.08 9.3a4.75 4.75 0 0 0 .17 9.45Z"></path>
+  </svg>`;
+
 function weatherDateTime(now = new Date()) {
   const time = new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -390,6 +459,49 @@ function weatherDateTime(now = new Date()) {
 function weatherIconMarkup(iconCode, className = "weather-icon") {
   const code = /^\d{3,4}$/.test(String(iconCode || "")) ? String(iconCode) : "999";
   return `<img class="${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
+}
+
+function weatherDashboardCard() {
+  const weather = statusData.weather || mockStatus.weather;
+  const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 3) : [];
+  const dayLabel = (date, index) => {
+    if (index === 0) return "今天";
+    if (index === 1) return "明天";
+    return new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(new Date(`${date}T12:00:00`));
+  };
+  const details = [
+    ["体感", weather.feelsLike == null ? "--" : `${weather.feelsLike}°`],
+    ["湿度", weather.humidity == null ? "--" : `${weather.humidity}%`],
+    ["降雨", weather.precipitationProbability == null ? "--" : `${weather.precipitationProbability}%`],
+    ["风力", [weather.windDirection, weather.windScale && `${weather.windScale}级`].filter(Boolean).join(" ") || "--"]
+  ];
+  return `
+    <article class="dashboard-card weather-dashboard-card">
+      <div class="weather-card-main">
+        <div class="weather-card-heading">
+          <span>${locationArrowIcon}<b>${weather.location || "当前位置"}</b></span>
+          <small>${weather.source === "qweather" ? "QWeather 实时数据" : "等待天气数据"}</small>
+        </div>
+        <div class="weather-card-current">
+          ${weatherIconMarkup(weather.icon, "weather-dashboard-icon")}
+          <strong>${weather.temperature ?? "--"}°</strong>
+          <div><b>${weather.condition || "天气未知"}</b><span>${weather.weatherSummary || "天气数据更新后将在这里显示。"}</span></div>
+        </div>
+        <div class="weather-card-details">
+          ${details.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("")}
+        </div>
+      </div>
+      <div class="weather-forecast-list">
+        <div class="weather-forecast-title"><strong>未来天气</strong><span>3 天预报</span></div>
+        ${forecast.length ? forecast.map((day, index) => `
+          <div class="weather-forecast-day">
+            <span>${dayLabel(day.date, index)}</span>
+            ${weatherIconMarkup(day.icon, "weather-forecast-icon")}
+            <b>${day.condition}</b>
+            <strong>${day.tempMax}° <i>${day.tempMin}°</i></strong>
+          </div>`).join("") : `<p class="weather-forecast-empty">配置 QWeather 后显示未来 3 天预报</p>`}
+      </div>
+    </article>`;
 }
 
 function renderFloating() {
@@ -705,7 +817,29 @@ function renderTooltip(data = {}) {
     </div>`;
 }
 
+function qweatherServiceCard(official, failures) {
+  return `
+    <article class="dashboard-card qweather-card">
+      <div class="qweather-card-heading"><div class="card-icon">${weatherIconMarkup("100", "qweather-service-icon")}</div><span class="service-health"><i></i>服务正常</span></div>
+      <span>QWeather API</span>
+      <strong>${qweatherUsage.used} <em>/ ${qweatherUsage.total}</em></strong>
+      <small>本月配额已使用 ${qweatherUsage.percent}%</small>
+      ${progressBar(qweatherUsage.percent, "large-track")}
+      <div class="qweather-summary">
+        <div><span>剩余</span><strong>${qweatherUsage.remaining}</strong></div>
+        <div><span>今日</span><strong>${qweatherUsage.today ?? 0}</strong></div>
+        <div><span>失败</span><strong>${failures}</strong></div>
+      </div>
+      ${official}
+      <button type="button" class="qweather-verify-button" id="qweather-verify">官方校验</button>
+    </article>`;
+}
+
 function dashboardContent(section) {
+  const failures = qweatherOfficialStats?.errors ?? 0;
+  const official = qweatherOfficialStats
+    ? `<div class="qweather-official"><span>过去24小时：${qweatherOfficialStats.total}次</span><span>成功：${qweatherOfficialStats.success}</span><span>错误：${qweatherOfficialStats.errors}</span><small>截至 ${qweatherOfficialStats.asOf}</small></div>`
+    : `<small class="qweather-message">${qweatherUsageMessage || "官方数据可能延迟 1 小时或更久"}</small>`;
   const cards = `
     <div class="dashboard-grid">
       <article class="dashboard-card github-card">
@@ -721,6 +855,12 @@ function dashboardContent(section) {
         <div class="card-icon">♥</div><span>Heart Rate</span>
         <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
       </article>
+      ${qweatherServiceCard(official, failures)}
+    </div>`;
+  const qweatherCards = `
+    <div class="dashboard-grid qweather-page-grid">
+      ${weatherDashboardCard()}
+      ${qweatherServiceCard(official, failures)}
     </div>`;
 
   const content = {
@@ -728,6 +868,7 @@ function dashboardContent(section) {
     GitHub: githubContent(),
     Codex: codexContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
+    QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
     Settings: `<div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
       <section class="settings-section">
         <h2>外观</h2>
@@ -736,16 +877,37 @@ function dashboardContent(section) {
       <section class="settings-section">
         <h2>天气</h2>
         <form class="settings-panel weather-settings-panel" id="weather-settings-form">
-          <label>
-            <span><strong>API Key</strong><small>来自 QWeather 控制台，仅保存在 Windows 用户环境变量中</small></span>
-            <input id="qweather-api-key" type="password" autocomplete="off">
-          </label>
-          <label>
-            <span><strong>API Host</strong><small>填写项目分配的 API Host，不包含 https://</small></span>
-            <input id="qweather-api-host" type="text" autocomplete="off" spellcheck="false">
-          </label>
+          <fieldset>
+            <legend><strong>天气服务</strong><small>必填，用于实时天气与天气预报</small></legend>
+            <label>
+              <span><strong>API Key</strong><small>来自 QWeather 控制台，仅保存在 Windows 用户环境变量中</small></span>
+              <input id="qweather-api-key" type="password" autocomplete="off">
+            </label>
+            <label>
+              <span><strong>API Host</strong><small>填写项目分配的 API Host，不包含 https://</small></span>
+              <input id="qweather-api-host" type="text" autocomplete="off" spellcheck="false">
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend><strong>官方用量统计</strong><small>可选，用于读取 QWeather 官方调用统计</small></legend>
+            <label>
+              <span><strong>JWT Project ID</strong><small>QWeather 控制台中的 Project ID</small></span>
+              <input id="qweather-project-id" type="text" autocomplete="off">
+            </label>
+            <label>
+              <span><strong>JWT Credential ID</strong><small>官方统计接口使用的 Credential ID</small></span>
+              <input id="qweather-credential-id" type="text" autocomplete="off">
+            </label>
+            <label>
+              <span><strong>Ed25519 私钥</strong><small>仅保存在 Windows 用户环境变量中，留空保持原值</small></span>
+              <textarea id="qweather-private-key" rows="4" autocomplete="off" spellcheck="false"></textarea>
+            </label>
+          </fieldset>
           <div class="weather-settings-actions">
-            <small id="weather-settings-status">正在读取配置...</small>
+            <div class="weather-settings-statuses">
+              <small id="weather-service-status">天气服务：正在读取...</small>
+              <small id="weather-official-status">官方统计：正在读取...</small>
+            </div>
             <button type="submit">保存配置</button>
           </div>
         </form>
@@ -806,7 +968,7 @@ function codexContent() {
 function renderMain() {
   document.body.className = "main-body";
   applyMainTheme();
-  const sections = ["Dashboard", "GitHub", "Codex", "Heart", "Settings"];
+  const sections = ["Dashboard", "GitHub", "Codex", "Heart", "QWeather", "Settings"];
   appRoot.innerHTML = `
     <div class="main-window-shell">
       <header class="app-titlebar">
@@ -820,7 +982,7 @@ function renderMain() {
       <div class="workspace">
       <aside class="sidebar">
         <div class="brand"><img src="../../assets/icon.png" alt=""><strong>WinPlate</strong></div>
-        <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}"><i>${item === "Dashboard" ? "⌂" : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Heart" ? "♥" : "⚙"}</i>${item}</button>`).join("")}</nav>
+        <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i>${item}</button>`).join("")}</nav>
         <div class="sidebar-status"><span></span><div><strong>All systems normal</strong><small>Codex CLI status active</small></div></div>
       </aside>
       <main class="main-content">
@@ -847,11 +1009,13 @@ function renderMain() {
       bindThemeControls();
       bindWeatherSettings();
       bindGithubControls();
+      bindQWeatherUsageControls();
     });
   });
   bindThemeControls();
   bindWeatherSettings();
   bindGithubControls();
+  bindQWeatherUsageControls();
   document.querySelector("#window-minimize").addEventListener("click", () => window.winplate.minimizeWindow());
   document.querySelector("#window-maximize").addEventListener("click", async () => {
     mainWindowMaximized = await window.winplate.toggleMaximizeWindow();
@@ -859,6 +1023,36 @@ function renderMain() {
   });
   document.querySelector("#window-close").addEventListener("click", () => window.winplate.closeWindow());
   startSystemClock();
+}
+
+function bindQWeatherUsageControls() {
+  const button = document.querySelector("#qweather-verify");
+  if (!button) return;
+  button.onclick = async () => {
+    button.disabled = true;
+    button.textContent = "校验中...";
+    qweatherUsageMessage = "";
+    try {
+      qweatherOfficialStats = await window.winplate.refreshQWeatherOfficialStats();
+      qweatherOfficialStatus = "configured";
+    } catch (error) {
+      qweatherOfficialStats = null;
+      qweatherUsageMessage = `校验失败：${error.message}`;
+      qweatherOfficialStatus = /权限|401|403|凭据无效/.test(error.message) ? "permission" : "failed";
+    }
+    document.querySelector("#page-content").innerHTML = dashboardContent(currentSection);
+    updateProgressBars(document.querySelector("#page-content"));
+    bindQWeatherUsageControls();
+  };
+}
+
+async function hydrateQWeatherUsage() {
+  if (view !== "main") return;
+  try {
+    qweatherUsage = await window.winplate.getQWeatherUsage();
+  } catch (error) {
+    qweatherUsageMessage = `本地用量读取失败：${error.message}`;
+  }
 }
 
 function bindGithubControls() {
@@ -933,6 +1127,7 @@ async function refreshStatus() {
       ...statusData.codex,
       ...await window.winplate.getCodexUsage()
     };
+    await hydrateQWeatherUsage();
     if (!locationWeatherPromise && navigator.geolocation) {
       locationWeatherPromise = new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -964,7 +1159,7 @@ async function refreshStatus() {
 }
 
 if (view === "main") {
-  hydrateAppearanceSettings().then(refreshStatus);
+  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage()]).then(refreshStatus);
 } else {
   refreshStatus();
 }

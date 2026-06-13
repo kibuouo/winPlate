@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("winplate", {
   setWeatherLocation: (location) => ipcRenderer.invoke("weather:set-location", location),
   getWeatherSettings: () => ipcRenderer.invoke("weather:get-settings"),
   saveWeatherSettings: (settings) => ipcRenderer.invoke("weather:save-settings", settings),
+  getQWeatherUsage: () => ipcRenderer.invoke("weather:get-usage"),
+  refreshQWeatherOfficialStats: () => ipcRenderer.invoke("weather:refresh-official-usage"),
   getAppearanceSettings: () => ipcRenderer.invoke("appearance:get-settings"),
   saveAppearanceSettings: (settings) => ipcRenderer.invoke("appearance:save-settings", settings),
   getCodexUsage: (options = {}) => ipcRenderer.invoke("codex:usage", options),

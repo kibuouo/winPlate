@@ -13,6 +13,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import uvicorn
+import jwt
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -26,6 +27,7 @@ GITHUB_TIMEOUT_SECONDS = 4
 _github_cache: tuple[float, dict] | None = None
 QWEATHER_LOCATION = os.getenv("QWEATHER_LOCATION", "Hong Kong")
 QWEATHER_CACHE_SECONDS = 600
+QWEATHER_MONTHLY_LIMIT = 50000
 _weather_cache: dict[str, tuple[float, dict]] = {}
 
 DEFAULT_STATUS = {
@@ -100,6 +102,22 @@ def initialize_database() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qweather_usage (
+                month TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qweather_usage_daily (
+                day TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
         for module, payload in DEFAULT_STATUS.items():
             connection.execute(
                 "INSERT OR IGNORE INTO status_modules (module, payload) VALUES (?, ?)",
@@ -149,6 +167,7 @@ def qweather_request(path: str, params: dict[str, str]) -> dict:
             "X-QW-Api-Key": api_key,
         },
     )
+    record_qweather_request()
     try:
         with urlopen(request, timeout=10) as response:
             body = response.read()
@@ -165,6 +184,177 @@ def qweather_request(path: str, params: dict[str, str]) -> dict:
         code = payload.get("code", "invalid response") if isinstance(payload, dict) else "invalid response"
         raise RuntimeError(f"QWeather API returned code {code}")
     return payload
+
+
+def record_qweather_request(now: datetime | None = None) -> None:
+    current = now or datetime.now().astimezone()
+    month = current.strftime("%Y-%m")
+    day = current.strftime("%Y-%m-%d")
+    with closing(connect()) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qweather_usage (
+                month TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO qweather_usage (month, request_count) VALUES (?, 1)
+            ON CONFLICT(month) DO UPDATE SET request_count = request_count + 1
+            """,
+            (month,),
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qweather_usage_daily (
+                day TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO qweather_usage_daily (day, request_count) VALUES (?, 1)
+            ON CONFLICT(day) DO UPDATE SET request_count = request_count + 1
+            """,
+            (day,),
+        )
+        connection.commit()
+
+
+def qweather_usage(now: datetime | None = None) -> dict:
+    current = now or datetime.now().astimezone()
+    month = current.strftime("%Y-%m")
+    day = current.strftime("%Y-%m-%d")
+    with closing(connect()) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qweather_usage (
+                month TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        row = connection.execute(
+            "SELECT request_count FROM qweather_usage WHERE month = ?",
+            (month,),
+        ).fetchone()
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qweather_usage_daily (
+                day TEXT PRIMARY KEY,
+                request_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        daily_row = connection.execute(
+            "SELECT request_count FROM qweather_usage_daily WHERE day = ?",
+            (day,),
+        ).fetchone()
+    used = int(row["request_count"]) if row else 0
+    remaining = max(0, QWEATHER_MONTHLY_LIMIT - used)
+    percent = min(100.0, round(used / QWEATHER_MONTHLY_LIMIT * 100, 1))
+    return {
+        "month": month,
+        "used": used,
+        "total": QWEATHER_MONTHLY_LIMIT,
+        "remaining": remaining,
+        "percent": percent,
+        "today": int(daily_row["request_count"]) if daily_row else 0,
+    }
+
+
+def _sum_metric_hours(value: object) -> int:
+    if isinstance(value, dict):
+        if isinstance(value.get("hours"), list):
+            return sum(int(item or 0) for item in value["hours"])
+        return sum(_sum_metric_hours(item) for item in value.values())
+    if isinstance(value, list):
+        return sum(_sum_metric_hours(item) for item in value)
+    return 0
+
+
+def _sum_named_metric(value: object, name: str) -> int:
+    if isinstance(value, dict):
+        total = _sum_metric_hours(value.get(name, {}))
+        return total + sum(
+            _sum_named_metric(item, name)
+            for key, item in value.items()
+            if key != name
+        )
+    if isinstance(value, list):
+        return sum(_sum_named_metric(item, name) for item in value)
+    return 0
+
+
+def _decode_qweather_json(body: bytes, content_encoding: str = "") -> dict:
+    if content_encoding.lower() == "gzip" or body.startswith(b"\x1f\x8b"):
+        body = gzip.decompress(body)
+    payload = json.loads(body.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("QWeather response is not an object")
+    return payload
+
+
+def qweather_official_stats() -> dict:
+    project_id = environment_setting("QWEATHER_PROJECT_ID")
+    credential_id = environment_setting("QWEATHER_CREDENTIAL_ID")
+    private_key = environment_setting("QWEATHER_PRIVATE_KEY")
+    api_host = environment_setting("QWEATHER_API_HOST", "devapi.qweather.com")
+    if not project_id or not credential_id or not private_key:
+        raise RuntimeError("QWeather JWT 项目 ID、凭据 ID 或私钥尚未配置")
+
+    now = int(time.time())
+    token = jwt.encode(
+        {"sub": project_id, "iat": now - 30, "exp": now + 900},
+        private_key.replace("\\n", "\n"),
+        algorithm="EdDSA",
+        headers={"kid": credential_id},
+    )
+    request = Request(
+        f"https://{api_host}/metrics/v1/stats?{urlencode({'credential': credential_id})}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "WinPlate",
+        },
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = _decode_qweather_json(
+                response.read(),
+                getattr(response, "headers", {}).get("Content-Encoding", ""),
+            )
+    except HTTPError as error:
+        body = error.read()
+        try:
+            detail = _decode_qweather_json(
+                body,
+                error.headers.get("Content-Encoding", ""),
+            ).get("error", {}).get("detail")
+        except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            detail = None
+        if error.code in (401, 403):
+            message = "QWeather 指标权限或 JWT 凭据无效"
+            if detail:
+                message = f"{message}: {detail}"
+            raise RuntimeError(message) from error
+        raise RuntimeError(f"QWeather 指标接口返回 HTTP {error.code}") from error
+    except (URLError, TimeoutError) as error:
+        raise RuntimeError(f"QWeather 指标接口不可用: {error}") from error
+    except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise RuntimeError("QWeather 指标接口返回了无效响应") from error
+
+    success = _sum_named_metric(payload, "success")
+    errors = _sum_named_metric(payload, "errors")
+    return {
+        "total": success + errors,
+        "success": success,
+        "errors": errors,
+        "asOf": payload.get("asOf") or payload.get("updateTime") or datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def build_weather_status(location: str) -> dict:
@@ -198,6 +388,18 @@ def build_weather_status(location: str) -> dict:
     weather_summary = "，".join(weather_summary_parts) + "。"
     place_name = place.get("name", location)
     admin = place.get("adm1")
+    forecast = [
+        {
+            "date": item.get("fxDate", ""),
+            "icon": str(item.get("iconDay", "999")),
+            "condition": item.get("textDay", "未知"),
+            "tempMax": int(float(item["tempMax"])),
+            "tempMin": int(float(item["tempMin"])),
+            "precipitationProbability": int(item["precip"]) if str(item.get("precip", "")).isdigit() else None,
+        }
+        for item in daily[:3]
+        if isinstance(item, dict) and item.get("tempMax") is not None and item.get("tempMin") is not None
+    ]
     return {
         "source": "qweather",
         "icon": str(now.get("icon", "999")),
@@ -211,6 +413,7 @@ def build_weather_status(location: str) -> dict:
         "visibility": int(float(now["vis"])),
         "precipitationProbability": precipitation_probability,
         "weatherSummary": weather_summary,
+        "forecast": forecast,
         "windDirection": now.get("windDir", ""),
         "windScale": now.get("windScale", ""),
         "observedAt": now.get("obsTime", ""),
@@ -303,6 +506,7 @@ def build_github_status(username: str) -> dict:
             "key": key,
             "label": datetime.strptime(key, "%Y-%m").strftime("%B %Y"),
             "commits": monthly_commits[key],
+            "counts": counts,
             "levels": [contribution_level(count) for count in counts],
         }
         for key, counts in reversed(monthly_counts.items())
@@ -444,6 +648,19 @@ def refresh_weather(location: WeatherLocation | None = None) -> dict:
             query = f"{location.longitude:.6f},{location.latitude:.6f}"
         return weather_status(query, force=True)
     except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@api.get("/api/weather/usage")
+def get_weather_usage() -> dict:
+    return qweather_usage()
+
+
+@api.post("/api/weather/usage/official")
+def refresh_weather_official_usage() -> dict:
+    try:
+        return qweather_official_stats()
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 

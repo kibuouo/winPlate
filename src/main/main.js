@@ -124,27 +124,62 @@ if (!gotLock) {
       return response.json();
     });
     ipcMain.handle("weather:get-settings", async () => {
-      const [apiKey, apiHost] = await Promise.all([
+      const [apiKey, apiHost, projectId, credentialId, privateKey] = await Promise.all([
         readUserEnvironment("QWEATHER_API_KEY"),
-        readUserEnvironment("QWEATHER_API_HOST")
+        readUserEnvironment("QWEATHER_API_HOST"),
+        readUserEnvironment("QWEATHER_PROJECT_ID"),
+        readUserEnvironment("QWEATHER_CREDENTIAL_ID"),
+        readUserEnvironment("QWEATHER_PRIVATE_KEY")
       ]);
       return {
         hasApiKey: Boolean(apiKey),
-        apiHost: apiHost || "devapi.qweather.com"
+        apiHost: apiHost || "devapi.qweather.com",
+        projectId,
+        credentialId,
+        hasPrivateKey: Boolean(privateKey)
       };
     });
     ipcMain.handle("weather:save-settings", async (_event, settings) => {
       const apiKey = typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
       const apiHost = typeof settings?.apiHost === "string" ? settings.apiHost.trim() : "";
+      const projectId = typeof settings?.projectId === "string" ? settings.projectId.trim() : "";
+      const credentialId = typeof settings?.credentialId === "string" ? settings.credentialId.trim() : "";
+      const privateKey = typeof settings?.privateKey === "string" ? settings.privateKey.trim() : "";
       if (!apiHost || !/^[a-z0-9.-]+$/i.test(apiHost)) {
         throw new Error("API Host 格式无效");
       }
-      const writes = [writeUserEnvironment("QWEATHER_API_HOST", apiHost)];
+      const writes = [
+        writeUserEnvironment("QWEATHER_API_HOST", apiHost),
+        writeUserEnvironment("QWEATHER_PROJECT_ID", projectId),
+        writeUserEnvironment("QWEATHER_CREDENTIAL_ID", credentialId)
+      ];
       if (apiKey) {
         writes.push(writeUserEnvironment("QWEATHER_API_KEY", apiKey));
       }
+      if (privateKey) {
+        writes.push(writeUserEnvironment("QWEATHER_PRIVATE_KEY", privateKey));
+      }
       await Promise.all(writes);
-      return { hasApiKey: Boolean(apiKey || await readUserEnvironment("QWEATHER_API_KEY")), apiHost };
+      return {
+        hasApiKey: Boolean(apiKey || await readUserEnvironment("QWEATHER_API_KEY")),
+        apiHost,
+        projectId,
+        credentialId,
+        hasPrivateKey: Boolean(privateKey || await readUserEnvironment("QWEATHER_PRIVATE_KEY"))
+      };
+    });
+    ipcMain.handle("weather:get-usage", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/weather/usage");
+      if (!response.ok) throw new Error(`QWeather usage failed: HTTP ${response.status}`);
+      return response.json();
+    });
+    ipcMain.handle("weather:refresh-official-usage", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/weather/usage/official", { method: "POST" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail || `QWeather official usage failed: HTTP ${response.status}`);
+      }
+      return response.json();
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));

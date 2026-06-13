@@ -2,10 +2,13 @@ import tempfile
 import unittest
 import gzip
 import json
+import gzip
+from datetime import datetime
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import URLError
 
 import main
 
@@ -118,7 +121,10 @@ class DatabaseTests(unittest.TestCase):
                 "pressure": "1005", "vis": "12", "windDir": "东南风", "windScale": "3",
             }},
             {"code": "200", "hourly": [{"fxTime": "2026-06-13T12:00+08:00", "pop": "75"}]},
-            {"code": "200", "daily": [{"fxDate": "2026-06-13", "textDay": "阵雨", "textNight": "多云"}]},
+            {"code": "200", "daily": [
+                {"fxDate": "2026-06-13", "iconDay": "305", "textDay": "阵雨", "textNight": "多云", "tempMax": "31", "tempMin": "27", "precip": "2"},
+                {"fxDate": "2026-06-14", "iconDay": "101", "textDay": "多云", "textNight": "晴", "tempMax": "32", "tempMin": "28", "precip": "0"},
+            ]},
         ]
         with patch.object(main, "qweather_request", side_effect=responses):
             result = main.build_weather_status("Hong Kong")
@@ -131,6 +137,8 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["precipitation"], 0.3)
         self.assertEqual(result["pressure"], 1005)
         self.assertEqual(result["visibility"], 12)
+        self.assertEqual(result["forecast"][0]["tempMax"], 31)
+        self.assertEqual(result["forecast"][1]["condition"], "多云")
 
     def test_refresh_weather_uses_longitude_latitude_order(self):
         with patch.object(main, "weather_status", return_value={"source": "qweather"}) as weather_status:
@@ -154,6 +162,123 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "urlopen", return_value=response),
         ):
             self.assertEqual(main.qweather_request("/test", {}), payload)
+
+    def test_qweather_request_counts_success_and_network_failure(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            response = BytesIO(b'{"code":"200"}')
+            response.headers = Message()
+            response.__enter__ = lambda value: value
+            response.__exit__ = lambda *_args: None
+            settings = lambda name, default=None: {
+                "QWEATHER_API_KEY": "key",
+                "QWEATHER_API_HOST": "example.com",
+            }.get(name, default)
+            with patch.object(main, "environment_setting", side_effect=settings):
+                with patch.object(main, "urlopen", return_value=response):
+                    main.qweather_request("/success", {})
+                with patch.object(main, "urlopen", side_effect=URLError("offline")):
+                    with self.assertRaises(RuntimeError):
+                        main.qweather_request("/failure", {})
+            self.assertEqual(main.qweather_usage()["used"], 2)
+        main.DATABASE_PATH = original_path
+
+    def test_qweather_usage_calculates_monthly_allowance(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            for _ in range(200):
+                main.record_qweather_request(datetime(2026, 6, 13))
+            usage = main.qweather_usage(datetime(2026, 6, 13))
+            self.assertEqual(usage, {
+                "month": "2026-06",
+                "used": 200,
+                "total": 50000,
+                "remaining": 49800,
+                "percent": 0.4,
+                "today": 200,
+            })
+            self.assertEqual(main.qweather_usage(datetime(2026, 6, 20))["today"], 0)
+            self.assertEqual(main.qweather_usage(datetime(2026, 7, 1))["used"], 0)
+        main.DATABASE_PATH = original_path
+
+    def test_qweather_official_stats_sums_all_api_hours(self):
+        payload = {
+            "asOf": "2026-06-13T10:00:00Z",
+            "data": [
+                {"success": {"hours": [2, 3]}, "errors": {"hours": [1, 0]}},
+                {"success": {"hours": [4]}, "errors": {"hours": [2]}},
+            ],
+        }
+        response = BytesIO(json.dumps(payload).encode())
+        response.__enter__ = lambda value: value
+        response.__exit__ = lambda *_args: None
+        settings = lambda name, default=None: {
+            "QWEATHER_PROJECT_ID": "project",
+            "QWEATHER_CREDENTIAL_ID": "credential",
+            "QWEATHER_PRIVATE_KEY": "private-key",
+            "QWEATHER_API_HOST": "example.com",
+        }.get(name, default)
+        with (
+            patch.object(main, "environment_setting", side_effect=settings),
+            patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "urlopen", return_value=response) as mock_urlopen,
+        ):
+            result = main.qweather_official_stats()
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://example.com/metrics/v1/stats?credential=credential")
+        self.assertNotIn("Accept-encoding", request.headers)
+        self.assertEqual(result, {
+            "total": 12,
+            "success": 9,
+            "errors": 3,
+            "asOf": "2026-06-13T10:00:00Z",
+        })
+
+    def test_qweather_official_stats_decompresses_gzip_response(self):
+        payload = {
+            "asOf": "2026-06-13T10:00:00Z",
+            "data": {"success": {"hours": [4]}, "errors": {"hours": [1]}},
+        }
+
+        class GzipResponse(BytesIO):
+            headers = {"Content-Encoding": "gzip"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+        response = GzipResponse(gzip.compress(json.dumps(payload).encode()))
+        settings = lambda name, default=None: {
+            "QWEATHER_PROJECT_ID": "project",
+            "QWEATHER_CREDENTIAL_ID": "credential",
+            "QWEATHER_PRIVATE_KEY": "private-key",
+            "QWEATHER_API_HOST": "example.com",
+        }.get(name, default)
+        with (
+            patch.object(main, "environment_setting", side_effect=settings),
+            patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "urlopen", return_value=response),
+        ):
+            result = main.qweather_official_stats()
+        self.assertEqual(result["total"], 5)
+        self.assertEqual(result["success"], 4)
+        self.assertEqual(result["errors"], 1)
+
+    def test_named_metric_sum_supports_api_keyed_objects(self):
+        payload = {
+            "data": {
+                "/v7/weather/now": {"success": {"hours": [5]}, "errors": {"hours": [1]}},
+                "/v7/weather/3d": {"success": {"hours": [7]}, "errors": {"hours": [2]}},
+            }
+        }
+        self.assertEqual(main._sum_named_metric(payload, "success"), 12)
+        self.assertEqual(main._sum_named_metric(payload, "errors"), 3)
 
 
 if __name__ == "__main__":
