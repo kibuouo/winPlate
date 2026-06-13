@@ -11,9 +11,9 @@ const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
 const preloadPath = path.join(__dirname, "..", "preload", "preload.js");
 const iconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
-const CODEX_TOOLTIP_SIZE = { width: 230, height: 150 };
+const CODEX_TOOLTIP_SIZE = { width: 232, height: 128 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
-const GITHUB_TOOLTIP_SIZE = { width: 340, height: 248 };
+const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 let floatingPinned = false;
 function setFloatingPinned(value) {
   floatingPinned = Boolean(value);
@@ -115,39 +115,67 @@ function showTooltipWindow({ anchor, data }) {
 
   tooltipVisible = true;
   const window = tooltipWindow || createTooltipWindow();
+  const floatingBounds = floatingWindow && !floatingWindow.isDestroyed()
+    ? floatingWindow.getBounds()
+    : null;
+  const absoluteAnchor = anchor.relativeToFloatingWindow && floatingBounds
+    ? {
+        ...anchor,
+        x: floatingBounds.x + anchor.x,
+        y: floatingBounds.y + anchor.y
+      }
+    : anchor;
   const display = screen.getDisplayNearestPoint({
-    x: Math.round(anchor.x),
-    y: Math.round(anchor.y)
+    x: Math.round(absoluteAnchor.x),
+    y: Math.round(absoluteAnchor.y)
   });
   const workArea = display.workArea;
   const tooltipSize = data.type === "github"
     ? GITHUB_TOOLTIP_SIZE
-    : data.type === "codex"
+      : data.type === "codex"
       ? CODEX_TOOLTIP_SIZE
       : data.type === "weather"
-        ? { ...SYSTEM_TOOLTIP_SIZE, height: 196 }
+        ? { width: 292, height: 276 }
         : SYSTEM_TOOLTIP_SIZE;
-  window.setSize(tooltipSize.width, tooltipSize.height);
-  let x = Math.round(anchor.x + 22);
-  let y = Math.round(anchor.y + anchor.height + 8);
+  let placement = "below";
+  let x = Math.round(absoluteAnchor.x + 22);
+  let y = Math.round(absoluteAnchor.y + absoluteAnchor.height + 8);
 
-  if (floatingWindow && !floatingWindow.isDestroyed()) {
-    const floatingBounds = floatingWindow.getBounds();
+  if (data.type === "codex") {
+    x = Math.round(absoluteAnchor.x + absoluteAnchor.width / 2 - tooltipSize.width / 2);
+    y = Math.round((floatingBounds?.y ?? absoluteAnchor.y) - tooltipSize.height - 10);
+    if (y < workArea.y) {
+      y = Math.round(
+        (floatingBounds?.y + floatingBounds?.height)
+        ?? (absoluteAnchor.y + absoluteAnchor.height)
+      ) + 10;
+    } else {
+      placement = "above";
+    }
+  } else if (floatingBounds) {
     y = Math.max(y, floatingBounds.y + floatingBounds.height + 8);
   }
 
   x = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - tooltipSize.width));
   if (y + tooltipSize.height > workArea.y + workArea.height) {
-    y = Math.round(anchor.y - tooltipSize.height - 8);
+    y = Math.round(absoluteAnchor.y - tooltipSize.height - 8);
   }
-  y = Math.max(workArea.y, y);
+  y = Math.max(
+    workArea.y,
+    Math.min(y, workArea.y + workArea.height - tooltipSize.height)
+  );
 
-  window.setPosition(x, y);
+  window.setBounds({
+    x,
+    y,
+    width: tooltipSize.width,
+    height: tooltipSize.height
+  });
   const sendAndShow = () => {
     if (!tooltipVisible || window.isDestroyed()) {
       return;
     }
-    window.webContents.send("tooltip:update", data);
+    window.webContents.send("tooltip:update", { ...data, placement });
     window.showInactive();
   };
 

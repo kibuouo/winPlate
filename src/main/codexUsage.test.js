@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseCodexStatus } = require("./codexUsage");
+const { parseCodexStatus, parseRateLimitsResponse } = require("./codexUsage");
 
 test("parses remaining percentage and reset text", () => {
   const usage = parseCodexStatus(`
@@ -75,4 +75,35 @@ test("ignores the temporary limits refresh response", () => {
   );
   assert.equal(usage.remainingPct, null);
   assert.equal(usage.status, "Unavailable");
+});
+
+test("maps app-server rate limits to the compact usage windows", () => {
+  const now = Date.UTC(2026, 5, 13, 4, 0, 0);
+  const usage = parseRateLimitsResponse({
+    rateLimits: {
+      primary: {
+        usedPercent: 18,
+        resetsAt: Math.floor((now + 2 * 60 * 60 * 1000) / 1000)
+      },
+      secondary: {
+        usedPercent: 36,
+        resetsAt: Math.floor((now + 3 * 24 * 60 * 60 * 1000) / 1000)
+      }
+    }
+  }, now);
+
+  assert.equal(usage.remainingPct, 82);
+  assert.deepEqual(usage.windows.fiveHour, {
+    remainingPct: 82,
+    usedPct: 18,
+    resetText: "2h",
+    resetClock: "14:00"
+  });
+  assert.deepEqual(usage.windows.sevenDay, {
+    remainingPct: 64,
+    usedPct: 36,
+    resetText: "3d",
+    resetClock: "12:00"
+  });
+  assert.equal(usage.source, "codex-app-server");
 });

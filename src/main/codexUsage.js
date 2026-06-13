@@ -1,12 +1,15 @@
-const pty = require("node-pty");
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
 const stripAnsi = require("strip-ansi");
 
-const STATUS_FALLBACK_MS = 6000;
-const READ_TIMEOUT_MS = 30_000;
-const STATUS_RETRY_DELAY_MS = 3_000;
-const CACHE_TTL_MS = 30_000;
+const READ_TIMEOUT_MS = 15_000;
+const SUCCESS_CACHE_TTL_MS = 15 * 60_000;
+const FAILURE_CACHE_TTL_MS = 5 * 60_000;
 
 let cachedUsage = null;
+let cachedAt = 0;
+let lastSuccessfulUsage = null;
 let pendingRead = null;
 
 function clampPercent(value) {
@@ -79,103 +82,166 @@ function parseCodexStatus(text) {
   };
 }
 
+function formatResetTimestamp(value, now = Date.now()) {
+  if (!Number.isFinite(value)) return undefined;
+  const remainingMinutes = Math.max(0, Math.ceil((value * 1000 - now) / 60_000));
+  const days = Math.floor(remainingMinutes / 1440);
+  const hours = Math.floor((remainingMinutes % 1440) / 60);
+  const minutes = remainingMinutes % 60;
+
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
+function formatResetClock(value) {
+  if (!Number.isFinite(value)) return undefined;
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value * 1000));
+}
+
+function normalizeRateLimitWindow(window, now = Date.now()) {
+  if (!window || !Number.isFinite(window.usedPercent)) return null;
+  const usedPct = clampPercent(window.usedPercent);
+  return {
+    remainingPct: 100 - usedPct,
+    usedPct,
+    resetText: formatResetTimestamp(window.resetsAt, now),
+    resetClock: formatResetClock(window.resetsAt)
+  };
+}
+
+function parseRateLimitsResponse(result, now = Date.now()) {
+  const rateLimits = result?.rateLimitsByLimitId?.codex || result?.rateLimits;
+  const fiveHour = normalizeRateLimitWindow(rateLimits?.primary, now);
+  const sevenDay = normalizeRateLimitWindow(rateLimits?.secondary, now);
+  const remainingPct = fiveHour?.remainingPct ?? null;
+
+  return {
+    source: "codex-app-server",
+    remainingPct,
+    usedPct: fiveHour?.usedPct ?? null,
+    resetText: fiveHour?.resetText,
+    resetClock: fiveHour?.resetClock,
+    windows: { fiveHour, sevenDay },
+    updatedAt: now,
+    status: remainingPct == null ? "Unavailable" : "Normal",
+    raw: ""
+  };
+}
+
+function resolveCodexLaunch() {
+  const npmBin = process.env.APPDATA && path.join(process.env.APPDATA, "npm");
+  const cliScript = npmBin && path.join(npmBin, "node_modules", "@openai", "codex", "bin", "codex.js");
+  if (cliScript && fs.existsSync(cliScript)) {
+    return { command: "node", args: [cliScript] };
+  }
+  return {
+    command: process.platform === "win32" ? "codex.cmd" : "codex",
+    args: [],
+    shell: process.platform === "win32"
+  };
+}
+
+function unavailableUsage(message) {
+  return {
+    source: "codex-app-server",
+    remainingPct: null,
+    usedPct: null,
+    updatedAt: Date.now(),
+    status: "Unavailable",
+    raw: message
+  };
+}
+
 function spawnCodexStatus() {
   return new Promise((resolve) => {
-    const command = process.platform === "win32" ? "codex.cmd" : "codex";
-    const proc = pty.spawn(command, ["--no-alt-screen", "-c", "mcp_servers={}"], {
-      name: "xterm-color",
-      cols: 140,
-      rows: 50,
+    const launch = resolveCodexLaunch();
+    const proc = spawn(launch.command, [...launch.args, "app-server", "--listen", "stdio://"], {
       cwd: process.cwd(),
-      env: { ...process.env, TERM: "xterm-256color" }
+      env: process.env,
+      windowsHide: true,
+      shell: launch.shell,
+      stdio: ["pipe", "pipe", "pipe"]
     });
 
-    let output = "";
+    let stdout = "";
+    let stderr = "";
     let finished = false;
-    let statusSent = false;
-    let statusRetryStarted = false;
-    let statusTimer;
-    let timeoutTimer;
-    let retryTimer;
 
-    const finish = (error) => {
+    const finish = (usage) => {
       if (finished) return;
       finished = true;
-      clearTimeout(statusTimer);
       clearTimeout(timeoutTimer);
-      clearTimeout(retryTimer);
       try {
-        proc.write("/exit\r");
         proc.kill();
       } catch {}
+      resolve(usage);
+    };
 
-      if (error) {
-        resolve({
-          source: "codex-cli-status",
-          remainingPct: null,
-          usedPct: null,
-          updatedAt: Date.now(),
-          status: "Unavailable",
-          raw: `${stripAnsi(output).trim()}\n${error.message}`.trim()
-        });
+    const handleLine = (line) => {
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
         return;
       }
-      resolve(parseCodexStatus(output));
-    };
-
-    const submitStatus = () => {
-      if (finished) return;
-      proc.write("\x1b");
-      setTimeout(() => {
-        proc.write("/status");
-        setTimeout(() => proc.write("\r"), 300);
-      }, 400);
-    };
-
-    const sendStatus = () => {
-      if (finished || statusSent) return;
-      statusSent = true;
-      submitStatus();
-    };
-
-    const retryStatus = () => {
-      if (finished) return;
-      submitStatus();
-      retryTimer = setTimeout(retryStatus, STATUS_RETRY_DELAY_MS);
-    };
-
-    proc.onData((data) => {
-      output += data;
-      const plainOutput = stripAnsi(output);
-      if (
-        !statusSent &&
-        /(?:›\s*(?:Summarize recent commits)?|\/model to change)[\s\S]*?(?:·\s*~|directory:)/i.test(plainOutput) &&
-        !/Starting MCP servers[^\n]*\(\d+\/\d+\)/i.test(data)
-      ) {
-        setTimeout(sendStatus, 500);
+      if (message.id === 1 && message.result) {
+        proc.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
+        proc.stdin.write(`${JSON.stringify({
+          id: 2,
+          method: "account/rateLimits/read",
+          params: {}
+        })}\n`);
+      } else if (message.id === 2) {
+        if (message.error) {
+          finish(unavailableUsage(message.error.message || "Codex rate-limit query failed"));
+        } else {
+          finish(parseRateLimitsResponse(message.result));
+        }
       }
-      if (
-        !statusRetryStarted &&
-        /refresh requested;\s*run\s+\/status\s+again shortly/i.test(plainOutput)
-      ) {
-        statusRetryStarted = true;
-        retryTimer = setTimeout(retryStatus, STATUS_RETRY_DELAY_MS);
-      }
-      const percentageMatches = plainOutput.match(
-        /(\d{1,3})\s*%\s*(?:left|remaining|used)/gi
-      );
-      if ((percentageMatches?.length || 0) >= 2) {
-        setTimeout(() => finish(), 250);
+    };
+
+    proc.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+      const lines = stdout.split(/\r?\n/);
+      stdout = lines.pop() || "";
+      lines.filter(Boolean).forEach(handleLine);
+    });
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+      if (/refresh token (?:has already been used|was already used)|log out and sign in again/i.test(stderr)) {
+        finish(unavailableUsage("Codex CLI login expired; run `codex logout` and `codex login`"));
       }
     });
-    proc.onExit(() => finish());
-    statusTimer = setTimeout(sendStatus, STATUS_FALLBACK_MS);
-    timeoutTimer = setTimeout(() => finish(new Error("Timed out reading Codex /status")), READ_TIMEOUT_MS);
+    proc.on("error", (error) => finish(unavailableUsage(error.message)));
+    proc.on("exit", () => {
+      if (!finished) finish(unavailableUsage(stderr.trim() || "Codex app-server exited unexpectedly"));
+    });
+
+    proc.stdin.write(`${JSON.stringify({
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "winplate", version: "0.1.0" },
+        capabilities: { experimentalApi: true }
+      }
+    })}\n`);
+
+    const timeoutTimer = setTimeout(() => {
+      finish(unavailableUsage(stderr.trim() || "Timed out reading Codex rate limits"));
+    }, READ_TIMEOUT_MS);
   });
 }
 
 async function readCodexUsage({ force = false } = {}) {
-  if (!force && cachedUsage && Date.now() - cachedUsage.updatedAt < CACHE_TTL_MS) {
+  const cacheTtl = cachedUsage?.status === "Normal"
+    ? SUCCESS_CACHE_TTL_MS
+    : FAILURE_CACHE_TTL_MS;
+  if (!force && cachedUsage && Date.now() - cachedAt < cacheTtl) {
     return cachedUsage;
   }
   if (pendingRead) return pendingRead;
@@ -190,6 +256,21 @@ async function readCodexUsage({ force = false } = {}) {
       raw: error.message
     }))
     .then((usage) => {
+      cachedAt = Date.now();
+      if (usage.status === "Normal") {
+        lastSuccessfulUsage = usage;
+        cachedUsage = usage;
+        return usage;
+      }
+      if (lastSuccessfulUsage) {
+        cachedUsage = {
+          ...lastSuccessfulUsage,
+          source: `${lastSuccessfulUsage.source}-cache`,
+          status: "Cached",
+          raw: usage.raw
+        };
+        return cachedUsage;
+      }
       cachedUsage = usage;
       return usage;
     })
@@ -199,4 +280,4 @@ async function readCodexUsage({ force = false } = {}) {
   return pendingRead;
 }
 
-module.exports = { parseCodexStatus, readCodexUsage };
+module.exports = { parseCodexStatus, parseRateLimitsResponse, readCodexUsage };

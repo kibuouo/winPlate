@@ -61,9 +61,11 @@ class DatabaseTests(unittest.TestCase):
             {"code": "200", "location": [{"id": "101320101", "name": "香港", "adm1": "香港"}]},
             {"code": "200", "updateTime": "2026-06-13T12:00+08:00", "now": {
                 "obsTime": "2026-06-13T11:55+08:00", "temp": "30", "feelsLike": "35",
-                "icon": "305", "text": "小雨", "humidity": "81", "windDir": "东南风", "windScale": "3",
+                "icon": "305", "text": "小雨", "humidity": "81", "precip": "0.3",
+                "pressure": "1005", "vis": "12", "windDir": "东南风", "windScale": "3",
             }},
             {"code": "200", "hourly": [{"fxTime": "2026-06-13T12:00+08:00", "pop": "75"}]},
+            {"code": "200", "daily": [{"fxDate": "2026-06-13", "textDay": "阵雨", "textNight": "多云"}]},
         ]
         with patch.object(main, "qweather_request", side_effect=responses):
             result = main.build_weather_status("Hong Kong")
@@ -72,6 +74,10 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["icon"], "🌧")
         self.assertEqual(result["location"], "香港")
         self.assertEqual(result["precipitationProbability"], 75)
+        self.assertEqual(result["weatherSummary"], "今天白天阵雨，夜晚多云，现在30°。")
+        self.assertEqual(result["precipitation"], 0.3)
+        self.assertEqual(result["pressure"], 1005)
+        self.assertEqual(result["visibility"], 12)
 
     def test_refresh_weather_uses_longitude_latitude_order(self):
         with patch.object(main, "weather_status", return_value={"source": "qweather"}) as weather_status:

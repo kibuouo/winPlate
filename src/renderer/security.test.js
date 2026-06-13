@@ -12,3 +12,16 @@ test("content security policy permits GitHub avatar images", () => {
     "GitHub avatar CDN must be allowed by the renderer CSP"
   );
 });
+
+test("floating status omits the date beside the Codex reset time", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.doesNotMatch(renderer, /class="date-label"/);
+});
+
+test("compact Codex progress avoids CSP-blocked inline styles", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(renderer, /compact-bar[\s\S]{0,120}data-progress-value=/);
+  assert.doesNotMatch(renderer, /compact-bar[\s\S]{0,120}style=/);
+});

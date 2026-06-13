@@ -356,10 +356,6 @@ function weatherDateTime(now = new Date()) {
 
 function renderFloating() {
   const weather = statusData.weather || mockStatus.weather;
-  const date = new Intl.DateTimeFormat("zh-CN", {
-    month: "long",
-    day: "numeric"
-  }).format(new Date());
   document.body.className = "floating-body";
   appRoot.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
@@ -378,8 +374,7 @@ function renderFloating() {
               <span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
-              <span class="metric reset">${statusData.codex.resetText || "--:--"}</span>
-              <time class="date-label">${date}</time>
+              <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
             </div>
           </div>
           <div class="status-group auxiliary-status">
@@ -430,10 +425,11 @@ function renderFloating() {
       const rect = module.getBoundingClientRect();
       window.winplate.showTooltip({
         anchor: {
-          x: window.screenX + rect.left,
-          y: window.screenY + rect.top,
+          x: rect.left,
+          y: rect.top,
           width: rect.width,
-          height: rect.height
+          height: rect.height,
+          relativeToFloatingWindow: true
         },
         data: typeof data === "function" ? data() : data
       });
@@ -456,10 +452,11 @@ function renderFloating() {
     const rect = githubModule.getBoundingClientRect();
     window.winplate.showTooltip({
       anchor: {
-        x: window.screenX + rect.left,
-        y: window.screenY + rect.top,
+        x: rect.left,
+        y: rect.top,
         width: rect.width,
-        height: rect.height
+        height: rect.height,
+        relativeToFloatingWindow: true
       },
       data: {
         type: "github",
@@ -476,10 +473,11 @@ function renderFloating() {
     const rect = codexModule.getBoundingClientRect();
     window.winplate.showTooltip({
       anchor: {
-        x: window.screenX + rect.left,
-        y: window.screenY + rect.top,
+        x: rect.left,
+        y: rect.top,
         width: rect.width,
-        height: rect.height
+        height: rect.height,
+        relativeToFloatingWindow: true
       },
       data: {
         type: "codex",
@@ -487,7 +485,8 @@ function renderFloating() {
         remainingPct: statusData.codex.remainingPct,
         usedPct: statusData.codex.usedPct,
         resetText: statusData.codex.resetText,
-        status: statusData.codex.status
+        status: statusData.codex.status,
+        windows: statusData.codex.windows
       }
     });
   });
@@ -499,15 +498,20 @@ function renderFloating() {
     const { time, date: fullDate } = weatherDateTime();
     return {
       type: "weather",
-      lines: [
-        `${locationArrowIcon}<span class="weather-location-text">${weather.location}</span>`,
-        `${weather.temperature}°C · ${weather.condition}`,
-        weather.feelsLike == null ? "" : `体感 ${weather.feelsLike}°C · 湿度 ${weather.humidity}%`,
-        weather.precipitationProbability == null ? "" : `降雨概率 ${weather.precipitationProbability}%`,
-        weather.windDirection ? `${weather.windDirection} ${weather.windScale}级` : "",
-        `当前时间 ${time}`,
-        fullDate
-      ].filter(Boolean)
+      icon: weather.icon,
+      location: weather.location,
+      temperature: weather.temperature,
+      condition: weather.condition,
+      feelsLike: weather.feelsLike,
+      humidity: weather.humidity,
+      precipitation: weather.precipitation,
+      pressure: weather.pressure,
+      visibility: weather.visibility,
+      precipitationProbability: weather.precipitationProbability,
+      wind: weather.windDirection ? `${weather.windDirection} ${weather.windScale}级` : "",
+      weatherSummary: weather.weatherSummary,
+      time,
+      date: fullDate
     };
   });
   bindSystemTooltip(heartModule, {
@@ -589,15 +593,70 @@ function renderTooltip(data = {}) {
     bindAvatarFallbacks(appRoot);
     return;
   }
-  const lines = Array.isArray(data.lines)
-    ? data.lines
-    : [
-        `Codex usage window: ${data.windowHours ?? "--"}h`,
-        `Remaining: ${data.remainingPct ?? "--"}%`,
-        `Used: ${data.usedPct ?? "--"}%`,
-        `Reset: ${data.resetText || "--:--"}`,
-        `Status: ${data.status || "Unavailable"}`
-      ];
+  if (data.type === "codex") {
+    const windows = data.windows || {};
+    const fiveHour = windows.fiveHour || data;
+    const weekly = windows.sevenDay || {};
+    const usageRow = (title, usage) => {
+      const percentage = Number.isFinite(usage?.remainingPct)
+        ? Math.max(0, Math.min(100, usage.remainingPct))
+        : null;
+      return `
+        <div class="usage-compact-row">
+          <span class="compact-title">${title}</span>
+          <strong class="compact-percent">${percentage ?? "--"}%</strong>
+          <div class="compact-bar" aria-hidden="true">
+            <span data-progress-value="${percentage ?? 0}"></span>
+          </div>
+          <span class="compact-reset">${usage?.resetText || "--"}</span>
+        </div>`;
+    };
+
+    appRoot.innerHTML = `
+      <article class="codex-tooltip placement-${data.placement || "above"}" role="tooltip" aria-label="Codex usage">
+        <header>
+          <strong>Codex Usage</strong>
+          <span>${data.status || "Unavailable"}</span>
+        </header>
+        <div class="codex-tooltip-rows">
+          ${usageRow(`${data.windowHours ?? 5}h`, fiveHour)}
+          ${usageRow("Weekly", weekly)}
+        </div>
+      </article>`;
+    updateProgressBars(appRoot);
+    return;
+  }
+
+  if (data.type === "weather") {
+    const metric = (label, value) => value === null || value === undefined || value === ""
+      ? ""
+      : `<div><span>${label}</span><strong>${value}</strong></div>`;
+    appRoot.innerHTML = `
+      <article class="weather-tooltip" role="tooltip" aria-label="天气详情">
+        <header class="weather-tooltip-header">
+          <div class="weather-tooltip-location">${locationArrowIcon}<span>${data.location || "当前位置"}</span></div>
+          <time>${data.time || ""}</time>
+        </header>
+        <div class="weather-tooltip-current">
+          <span class="weather-tooltip-icon">${data.icon || "🌡️"}</span>
+          <strong>${data.temperature ?? "--"}°</strong>
+          <div><b>${data.condition || "天气未知"}</b><span>${data.date || ""}</span></div>
+        </div>
+        ${data.weatherSummary ? `<p class="weather-forecast-summary">${data.weatherSummary}</p>` : ""}
+        <div class="weather-tooltip-metrics">
+          ${metric("体感", data.feelsLike == null ? "" : `${data.feelsLike}°`)}
+          ${metric("湿度", data.humidity == null ? "" : `${data.humidity}%`)}
+          ${metric("降雨", data.precipitationProbability == null ? "" : `${data.precipitationProbability}%`)}
+          ${metric("风力", data.wind)}
+          ${metric("降水", data.precipitation == null ? "" : `${data.precipitation} mm`)}
+          ${metric("气压", data.pressure == null ? "" : `${data.pressure} hPa`)}
+          ${metric("能见度", data.visibility == null ? "" : `${data.visibility} km`)}
+        </div>
+      </article>`;
+    return;
+  }
+
+  const lines = Array.isArray(data.lines) ? data.lines : [];
   appRoot.innerHTML = `
     <div class="system-tooltip" role="tooltip">
       ${lines.map((line) => `<span>${line}</span>`).join("")}

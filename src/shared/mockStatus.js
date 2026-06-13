@@ -42,7 +42,11 @@ const mockStatus = {
     temperature: 29,
     condition: "多云",
     location: "Hong Kong",
-    precipitationProbability: 20
+    precipitationProbability: 20,
+    precipitation: 0,
+    pressure: 1008,
+    visibility: 16,
+    weatherSummary: "今天白天阵雨，夜晚多云，现在29°。"
   }
 };
 

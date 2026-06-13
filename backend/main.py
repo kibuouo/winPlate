@@ -186,13 +186,27 @@ def build_weather_status(location: str) -> dict:
     place = matches[0]
     weather_payload = qweather_request("/v7/weather/now", {"location": place["id"], "lang": "zh", "unit": "m"})
     hourly_payload = qweather_request("/v7/weather/24h", {"location": place["id"], "lang": "zh", "unit": "m"})
+    daily_payload = qweather_request("/v7/weather/3d", {"location": place["id"], "lang": "zh", "unit": "m"})
     now = weather_payload.get("now")
     if not isinstance(now, dict):
         raise RuntimeError("QWeather current weather response is missing 'now'")
     hourly = hourly_payload.get("hourly", [])
+    daily = daily_payload.get("daily", [])
     precipitation_probability = None
     if hourly and isinstance(hourly[0], dict) and str(hourly[0].get("pop", "")).isdigit():
         precipitation_probability = int(hourly[0]["pop"])
+    today = daily[0] if daily and isinstance(daily[0], dict) else {}
+    day_condition = str(today.get("textDay", "")).strip()
+    night_condition = str(today.get("textNight", "")).strip()
+    weather_summary_parts = []
+    if day_condition and night_condition:
+        weather_summary_parts.append(f"今天白天{day_condition}，夜晚{night_condition}")
+    elif day_condition:
+        weather_summary_parts.append(f"今天白天{day_condition}")
+    elif night_condition:
+        weather_summary_parts.append(f"今天夜晚{night_condition}")
+    weather_summary_parts.append(f"现在{int(float(now['temp']))}°")
+    weather_summary = "，".join(weather_summary_parts) + "。"
     place_name = place.get("name", location)
     admin = place.get("adm1")
     return {
@@ -204,7 +218,11 @@ def build_weather_status(location: str) -> dict:
         "condition": now.get("text", "未知"),
         "location": f"{place_name}, {admin}" if admin and admin != place_name else place_name,
         "humidity": int(now["humidity"]),
+        "precipitation": float(now["precip"]),
+        "pressure": int(now["pressure"]),
+        "visibility": int(float(now["vis"])),
         "precipitationProbability": precipitation_probability,
+        "weatherSummary": weather_summary,
         "windDirection": now.get("windDir", ""),
         "windScale": now.get("windScale", ""),
         "observedAt": now.get("obsTime", ""),
