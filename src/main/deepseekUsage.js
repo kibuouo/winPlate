@@ -1,5 +1,4 @@
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const TRACKED_MODEL = "deepseek-v4-pro";
 const READ_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 5 * 60_000;
 
@@ -91,7 +90,6 @@ async function readDeepSeekUsage(options = {}) {
 
 module.exports = {
   DEFAULT_BASE_URL,
-  TRACKED_MODEL,
   fetchDeepSeekUsage,
   normalizeBaseUrl,
   parseDeepSeekBalance,

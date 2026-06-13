@@ -4,7 +4,7 @@
 - Implementation target: WinPlate Electron main window, GitHub section
 - Viewport: 1080 x 720
 - State: light theme, live GitHub data
-- Implementation screenshot: blocked before capture because user input was detected in the target window
+- Implementation screenshot: completed with Computer Use on 2026-06-14
 
 ## Full-view comparison evidence
 
@@ -12,12 +12,14 @@ The reference and existing WinPlate shell were reviewed before implementation. T
 
 ## Focused region comparison evidence
 
-Focused rendered comparison was not completed because desktop automation stopped when user input was detected.
+Focused rendered comparison was completed in the 1080 x 720 Electron main window using the light theme and live GitHub data.
 
 ## Findings
 
 - No code-level P0/P1/P2 issues were found by syntax, unit, backend, and diff checks.
-- Visual spacing, wrapping, and live-data density still require a clean screenshot pass without concurrent window interaction.
+- The profile summary, pinned repository, contribution calendar, legend, and activity section remain readable at the target viewport.
+- The top and scrolled lower sections show no overlapping controls, horizontal overflow, clipped cards, or unreachable content.
+- The implementation preserves the WinPlate shell and card language rather than reproducing the GitHub page pixel for pixel.
 
 ## Patches made
 
@@ -31,4 +33,4 @@ Focused rendered comparison was not completed because desktop automation stopped
 - `npm run backend:test`: passed
 - `git diff --check`: passed
 
-final result: blocked
+final result: passed

@@ -19,6 +19,9 @@ test("maps DeepSeek balance response without converting money to a fake quota", 
 
   assert.equal(usage.available, true);
   assert.equal(usage.balances[0].totalBalance, "110.00");
+  assert.equal(usage.balances[0].grantedBalance, "10.00");
+  assert.equal(usage.balances[0].toppedUpBalance, "100.00");
+  assert.equal(usage.tokenUsage, null);
   assert.equal(usage.updatedAt, 123);
   assert.equal(usage.status, "Normal");
 });

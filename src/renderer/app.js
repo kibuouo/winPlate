@@ -316,6 +316,67 @@ function updateProgressBars(root = document) {
   });
 }
 
+function shouldPreserveFormState(element) {
+  return element instanceof HTMLInputElement
+    || element instanceof HTMLTextAreaElement
+    || element instanceof HTMLSelectElement;
+}
+
+function syncAttributes(current, desired) {
+  const preserved = shouldPreserveFormState(current)
+    ? new Set(["value", "checked", "selected"])
+    : new Set();
+  Array.from(current.attributes).forEach(({ name }) => {
+    if (!preserved.has(name) && !desired.hasAttribute(name)) {
+      current.removeAttribute(name);
+    }
+  });
+  Array.from(desired.attributes).forEach(({ name, value }) => {
+    if (!preserved.has(name) && current.getAttribute(name) !== value) {
+      current.setAttribute(name, value);
+    }
+  });
+}
+
+function canSyncNode(current, desired) {
+  return current?.nodeType === desired?.nodeType
+    && (current.nodeType !== Node.ELEMENT_NODE || current.tagName === desired.tagName);
+}
+
+function syncDomNode(current, desired) {
+  if (current.nodeType === Node.TEXT_NODE) {
+    if (current.nodeValue !== desired.nodeValue) current.nodeValue = desired.nodeValue;
+    return false;
+  }
+  if (current.nodeType !== Node.ELEMENT_NODE) return false;
+
+  syncAttributes(current, desired);
+  let structureChanged = false;
+  const currentChildren = Array.from(current.childNodes);
+  const desiredChildren = Array.from(desired.childNodes);
+  const sharedLength = Math.min(currentChildren.length, desiredChildren.length);
+
+  for (let index = 0; index < sharedLength; index += 1) {
+    const currentChild = currentChildren[index];
+    const desiredChild = desiredChildren[index];
+    if (canSyncNode(currentChild, desiredChild)) {
+      structureChanged = syncDomNode(currentChild, desiredChild) || structureChanged;
+    } else {
+      current.replaceChild(desiredChild.cloneNode(true), currentChild);
+      structureChanged = true;
+    }
+  }
+  for (let index = currentChildren.length - 1; index >= desiredChildren.length; index -= 1) {
+    currentChildren[index].remove();
+    structureChanged = true;
+  }
+  for (let index = currentChildren.length; index < desiredChildren.length; index += 1) {
+    current.appendChild(desiredChildren[index].cloneNode(true));
+    structureChanged = true;
+  }
+  return structureChanged;
+}
+
 const githubIcon = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M12 .8a11.4 11.4 0 0 0-3.6 22.2c.6.1.8-.2.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.3 2.9.1 3.2.8.9 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.2c0 .4.2.7.8.6A11.4 11.4 0 0 0 12 .8Z"/>
@@ -523,8 +584,8 @@ function weatherDashboardCard() {
     <article class="dashboard-card weather-dashboard-card">
       <div class="weather-card-main">
         <div class="weather-card-heading">
-          <span>${locationArrowIcon}<b>${weather.location || "当前位置"}</b></span>
-          <small>${weather.source === "qweather" ? "QWeather 实时数据" : "等待天气数据"}</small>
+          <span>${locationArrowIcon}<b>${weather.location || (weather.source === "unconfigured" ? "位置未配置" : "当前位置")}</b></span>
+          <small>${weather.source === "qweather" ? "QWeather 实时数据" : weather.source === "unconfigured" ? "请允许系统定位或配置回退位置" : "等待天气数据"}</small>
         </div>
         <div class="weather-card-current">
           ${weatherIconMarkup(weather.icon, "weather-dashboard-icon")}
@@ -1032,7 +1093,8 @@ function codexContent() {
     : "--";
   const tokenPanel = `
     <div class="deepseek-token-panel">
-      <header><strong>缓存命中率</strong><span>${cacheHitRate}</span></header>
+      <header><strong>缓存命中率</strong></header>
+      <span class="deepseek-api-notice">暂未提供接口<i aria-hidden="true"></i></span>
       <div><i class="cache-hit"></i><span>输入（命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheHitTokens)}</strong></div>
       <div><i class="cache-miss"></i><span>输入（未命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheMissTokens)}</strong></div>
       <div><i class="output"></i><span>输出</span><strong>${tokenValue(tokenUsage?.outputTokens)}</strong></div>
@@ -1082,6 +1144,10 @@ function codexContent() {
 }
 
 function renderMain() {
+  const previousMainContent = document.querySelector(".main-content");
+  const previousScrollPosition = previousMainContent
+    ? { top: previousMainContent.scrollTop, left: previousMainContent.scrollLeft }
+    : null;
   document.body.className = "main-body";
   applyMainTheme();
   const sections = ["Dashboard", "GitHub", "Codex", "Heart", "QWeather", "Settings"];
@@ -1114,6 +1180,9 @@ function renderMain() {
       </div>
     </div>`;
   updateProgressBars(appRoot);
+  if (previousScrollPosition) {
+    document.querySelector(".main-content").scrollTo(previousScrollPosition);
+  }
 
   document.querySelectorAll("nav button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1143,6 +1212,97 @@ function renderMain() {
   startSystemClock();
 }
 
+function updateMainStatusDom() {
+  const pageContent = document.querySelector("#page-content");
+  if (!pageContent) {
+    renderMain();
+    return;
+  }
+  if (currentSection === "Settings") return;
+  const template = document.createElement("template");
+  template.innerHTML = dashboardContent(currentSection).trim();
+  const desiredChildren = Array.from(template.content.childNodes);
+  const currentChildren = Array.from(pageContent.childNodes);
+
+  if (currentChildren.length !== desiredChildren.length) {
+    const mainContent = document.querySelector(".main-content");
+    const scrollPosition = mainContent
+      ? { top: mainContent.scrollTop, left: mainContent.scrollLeft }
+      : null;
+    pageContent.replaceChildren(...desiredChildren.map((node) => node.cloneNode(true)));
+    if (scrollPosition) mainContent.scrollTo(scrollPosition);
+    bindAvatarFallbacks(pageContent);
+    bindGithubControls();
+    bindQWeatherUsageControls();
+    updateProgressBars(pageContent);
+    return;
+  }
+
+  let structureChanged = false;
+  for (let index = 0; index < currentChildren.length; index += 1) {
+    const currentChild = currentChildren[index];
+    const desiredChild = desiredChildren[index];
+    if (canSyncNode(currentChild, desiredChild)) {
+      structureChanged = syncDomNode(currentChild, desiredChild) || structureChanged;
+    } else {
+      currentChild.replaceWith(desiredChild.cloneNode(true));
+      structureChanged = true;
+    }
+  }
+  if (structureChanged) {
+    bindAvatarFallbacks(pageContent);
+    bindGithubControls();
+    bindQWeatherUsageControls();
+  }
+  updateProgressBars(pageContent);
+}
+
+function updateFloatingStatusDom() {
+  const shell = document.querySelector("#floating-shell");
+  if (!shell) {
+    renderFloating();
+    return;
+  }
+  const template = document.createElement("template");
+  const weather = statusData.weather || mockStatus.weather;
+  template.innerHTML = `
+    <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
+      <section class="status-capsule">
+        <div class="drag-handle" aria-hidden="true"></div>
+        <div class="status-layout">
+          <div class="status-group app-status">
+            <div class="module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
+              <span class="github-avatar-button" aria-hidden="true">${avatarMarkup(statusData.github, "github-avatar-bar")}</span>
+              <span class="github-summary">GitHub</span>
+            </div>
+            <div class="module codex-module no-drag">
+              ${codexIcon}<span class="module-label">Codex</span>
+              ${progressBar(statusData.codex.remainingPct, "usage-track")}
+              <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
+              <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
+            </div>
+          </div>
+          <div class="status-group auxiliary-status">
+            <div class="module weather-module no-drag" id="weather-module">
+              ${weatherIconMarkup(weather.icon)}
+              <strong class="metric">${weather.temperature}°C</strong>
+              <span class="weather-condition">${weather.condition}</span>
+            </div>
+            <div class="system-status">
+              <div class="module heart-module no-drag" id="heart-module">
+                <span class="heart-icon">♥</span><strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
+              </div>
+              <div class="right-controls no-drag">${shell.querySelector(".right-controls")?.innerHTML || ""}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>`;
+  syncDomNode(shell, template.content.firstElementChild);
+  updateProgressBars(shell);
+  bindAvatarFallbacks(shell);
+}
+
 function bindQWeatherUsageControls() {
   const button = document.querySelector("#qweather-verify");
   if (!button) return;
@@ -1158,9 +1318,7 @@ function bindQWeatherUsageControls() {
       qweatherUsageMessage = `校验失败：${error.message}`;
       qweatherOfficialStatus = /权限|401|403|凭据无效/.test(error.message) ? "permission" : "failed";
     }
-    document.querySelector("#page-content").innerHTML = dashboardContent(currentSection);
-    updateProgressBars(document.querySelector("#page-content"));
-    bindQWeatherUsageControls();
+    updateMainStatusDom();
   };
 }
 
@@ -1184,9 +1342,7 @@ function bindGithubControls() {
       const safeIndex = currentIndex >= 0 ? currentIndex : months.length - 1;
       const nextIndex = Math.max(0, Math.min(months.length - 1, safeIndex + Number(button.dataset.monthDirection)));
       selectedContributionMonth = months[nextIndex].key;
-      document.querySelector("#page-content").innerHTML = githubContent();
-      bindAvatarFallbacks(document.querySelector("#page-content"));
-      bindGithubControls();
+      updateMainStatusDom();
     });
   });
   const refreshButton = document.querySelector("#refresh-github");
@@ -1197,9 +1353,7 @@ function bindGithubControls() {
     refreshButton.querySelector("span").textContent = "Refreshing";
     try {
       statusData.github = normalizeGithub(await window.winplate.refreshGithub(), statusData.github);
-      document.querySelector("#page-content").innerHTML = githubContent();
-      bindAvatarFallbacks(document.querySelector("#page-content"));
-      bindGithubControls();
+      updateMainStatusDom();
     } catch (error) {
       console.error("GitHub refresh failed:", error);
       statusData.github = normalizeGithub({
@@ -1208,9 +1362,7 @@ function bindGithubControls() {
         availability: "unavailable",
         stateMessage: "Refresh failed; showing last known data."
       }, statusData.github);
-      document.querySelector("#page-content").innerHTML = githubContent();
-      bindAvatarFallbacks(document.querySelector("#page-content"));
-      bindGithubControls();
+      updateMainStatusDom();
     }
   });
 }
@@ -1274,10 +1426,15 @@ async function refreshStatus() {
     };
   }
 
-  view === "floating" ? renderFloating() : renderMain();
+  if (view === "floating") {
+    updateFloatingStatusDom();
+  } else {
+    updateMainStatusDom();
+  }
 }
 
 if (view === "main") {
+  renderMain();
   Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage()]).then(refreshStatus);
 } else {
   refreshStatus();

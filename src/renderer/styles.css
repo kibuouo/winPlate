@@ -498,11 +498,13 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .deepseek-balance-metric > small { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .deepseek-date-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .deepseek-date-total > strong { color: var(--text-soft); font-size: 11px; font-weight: 650; }
-.deepseek-token-panel { min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 6px; border-left: 1px solid var(--border); }
+.deepseek-token-panel { position: relative; min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 6px; border-left: 1px solid var(--border); }
 .deepseek-token-panel header, .deepseek-token-panel > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .deepseek-token-panel header { margin-bottom: 1px; }
 .deepseek-token-panel header strong { font-size: 13px; }
 .deepseek-token-panel header span { color: var(--text-soft); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.deepseek-api-notice { position: absolute; top: 0; right: 24px; display: flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 12px; font-weight: 650; }
+.deepseek-api-notice i { width: 7px; height: 7px; border-radius: 50%; background: #facc15; box-shadow: 0 0 10px rgba(250,204,21,.55); }
 .deepseek-token-panel > div { grid-template-columns: 12px minmax(0, 1fr) auto; color: var(--text-soft); font-size: 12px; }
 .deepseek-token-panel > div i { width: 9px; height: 9px; border-radius: 2px; background: #bae6fd; }
 .deepseek-token-panel > div i.cache-miss { background: #60a5fa; }

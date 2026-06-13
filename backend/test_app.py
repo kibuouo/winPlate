@@ -2,7 +2,7 @@ import tempfile
 import unittest
 import gzip
 import json
-import gzip
+from contextlib import closing
 from datetime import datetime
 from email.message import Message
 from io import BytesIO
@@ -145,6 +145,38 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["visibility"], 12)
         self.assertEqual(result["forecast"][0]["tempMax"], 31)
         self.assertEqual(result["forecast"][1]["condition"], "多云")
+
+    def test_weather_status_without_location_is_unconfigured(self):
+        with (
+            patch.object(main, "QWEATHER_LOCATION", ""),
+            patch.object(main, "build_weather_status") as build_weather_status,
+        ):
+            result = main.weather_status()
+        self.assertEqual(result["source"], "unconfigured")
+        self.assertEqual(result["location"], "")
+        self.assertEqual(result["condition"], "请配置天气位置")
+        build_weather_status.assert_not_called()
+
+    def test_status_does_not_reuse_stale_location_when_fallback_is_empty(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            with closing(main.connect()) as connection:
+                connection.execute(
+                    "UPDATE status_modules SET payload = ? WHERE module = 'weather'",
+                    (json.dumps({"source": "mock", "location": "Hong Kong", "temperature": 29}),),
+                )
+                connection.commit()
+            with (
+                patch.object(main, "QWEATHER_LOCATION", ""),
+                patch.object(main, "github_status", return_value={"source": "github"}),
+                patch.object(main, "environment_setting", return_value="configured-key"),
+            ):
+                result = main.status()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["weather"]["source"], "unconfigured")
+        self.assertEqual(result["weather"]["location"], "")
 
     def test_refresh_weather_uses_longitude_latitude_order(self):
         with patch.object(main, "weather_status", return_value={"source": "qweather"}) as weather_status:

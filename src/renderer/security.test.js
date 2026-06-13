@@ -25,3 +25,23 @@ test("compact Codex progress avoids CSP-blocked inline styles", () => {
   assert.match(renderer, /compact-bar[\s\S]{0,120}data-progress-value=/);
   assert.doesNotMatch(renderer, /compact-bar[\s\S]{0,120}style=/);
 });
+
+test("main renderer preserves content scroll position across status refreshes", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(renderer, /previousMainContent\.scrollTop/);
+  assert.match(renderer, /\.main-content"\)\.scrollTo\(previousScrollPosition\)/);
+});
+
+test("automatic status refresh updates the existing main content DOM", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const refreshStatus = renderer.slice(
+    renderer.indexOf("async function refreshStatus()"),
+    renderer.indexOf("if (view === \"main\")")
+  );
+
+  assert.match(refreshStatus, /updateMainStatusDom\(\)/);
+  assert.doesNotMatch(refreshStatus, /renderMain\(\)/);
+  assert.match(renderer, /function syncDomNode\(/);
+  assert.match(renderer, /currentSection === "Settings"/);
+});

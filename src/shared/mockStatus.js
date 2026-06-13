@@ -46,21 +46,17 @@ const mockStatus = {
     updatedAt: "just now"
   },
   weather: {
-    source: "mock",
+    source: "unconfigured",
     icon: "101",
-    temperature: 29,
-    condition: "多云",
-    location: "Hong Kong",
+    temperature: "--",
+    condition: "请配置天气位置",
+    location: "",
     precipitationProbability: 20,
     precipitation: 0,
     pressure: 1008,
     visibility: 16,
-    weatherSummary: "今天白天阵雨，夜晚多云，现在29°。",
-    forecast: [
-      { date: "2026-06-13", icon: "305", condition: "阵雨", tempMax: 31, tempMin: 27, precipitationProbability: 70 },
-      { date: "2026-06-14", icon: "101", condition: "多云", tempMax: 32, tempMin: 28, precipitationProbability: 30 },
-      { date: "2026-06-15", icon: "100", condition: "晴", tempMax: 33, tempMin: 28, precipitationProbability: 10 }
-    ]
+    weatherSummary: "请允许系统定位，或配置 QWEATHER_LOCATION 作为回退位置。",
+    forecast: []
   }
 };
 

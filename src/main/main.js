@@ -34,7 +34,16 @@ let tray;
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
+const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
+
+function setResponseCache(key, value) {
+  responseCaches.delete(key);
+  responseCaches.set(key, value);
+  while (responseCaches.size > MAX_RESPONSE_CACHE_ENTRIES) {
+    responseCaches.delete(responseCaches.keys().next().value);
+  }
+}
 
 async function fetchJsonCached(key, url, ttlMs) {
   const now = Date.now();
@@ -51,13 +60,13 @@ async function fetchJsonCached(key, url, ttlMs) {
       throw new Error(`${key} failed: HTTP ${response.status}`);
     }
     const value = await response.json();
-    responseCaches.set(key, { value, updatedAt: Date.now() });
+    setResponseCache(key, { value, updatedAt: Date.now() });
     return value;
   }).catch((error) => {
     responseCaches.delete(key);
     throw error;
   });
-  responseCaches.set(key, {
+  setResponseCache(key, {
     value: cached?.value,
     updatedAt: cached?.updatedAt || 0,
     promise

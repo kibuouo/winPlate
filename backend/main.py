@@ -2,6 +2,7 @@ import gzip
 import json
 import os
 import sqlite3
+import threading
 import time
 from copy import deepcopy
 from contextlib import closing
@@ -27,10 +28,12 @@ GITHUB_USERNAME = os.getenv("WINPLATE_GITHUB_USERNAME", "kibuouo")
 GITHUB_CACHE_SECONDS = 300
 GITHUB_TIMEOUT_SECONDS = 4
 _github_cache: tuple[float, dict] | None = None
-QWEATHER_LOCATION = os.getenv("QWEATHER_LOCATION", "Hong Kong")
+_github_cache_lock = threading.Lock()
+QWEATHER_LOCATION = os.getenv("QWEATHER_LOCATION", "").strip()
 QWEATHER_CACHE_SECONDS = 600
 QWEATHER_MONTHLY_LIMIT = 50000
 _weather_cache: dict[str, tuple[float, dict]] = {}
+_weather_cache_lock = threading.Lock()
 
 
 def build_log_config() -> dict:
@@ -65,8 +68,8 @@ DEFAULT_STATUS = {
     "weather": {
         "source": "unconfigured",
         "icon": "101",
-        "temperature": 29,
-        "condition": "多云",
+        "temperature": "--",
+        "condition": "请配置天气位置",
         "location": QWEATHER_LOCATION,
     },
 }
@@ -136,9 +139,10 @@ def initialize_database() -> None:
             """
         )
         for module, payload in DEFAULT_STATUS.items():
+            initial_payload = deepcopy(payload)
             connection.execute(
                 "INSERT OR IGNORE INTO status_modules (module, payload) VALUES (?, ?)",
-                (module, json.dumps(payload)),
+                (module, json.dumps(initial_payload)),
             )
         connection.commit()
 
@@ -386,6 +390,13 @@ def build_weather_status(location: str) -> dict:
     now = weather_payload.get("now")
     if not isinstance(now, dict):
         raise RuntimeError("QWeather current weather response is missing 'now'")
+    temperature = int(float(now["temp"]))
+    feels_like = int(float(now["feelsLike"]))
+    icon = str(now.get("icon", "999"))
+    humidity = int(now["humidity"])
+    precipitation = float(now["precip"])
+    pressure = int(now["pressure"])
+    visibility = int(float(now["vis"]))
     hourly = hourly_payload.get("hourly", [])
     daily = daily_payload.get("daily", [])
     precipitation_probability = None
@@ -401,7 +412,7 @@ def build_weather_status(location: str) -> dict:
         weather_summary_parts.append(f"今天白天{day_condition}")
     elif night_condition:
         weather_summary_parts.append(f"今天夜晚{night_condition}")
-    weather_summary_parts.append(f"现在{int(float(now['temp']))}°")
+    weather_summary_parts.append(f"现在{temperature}°")
     weather_summary = "，".join(weather_summary_parts) + "。"
     place_name = place.get("name", location)
     admin = place.get("adm1")
@@ -419,15 +430,15 @@ def build_weather_status(location: str) -> dict:
     ]
     return {
         "source": "qweather",
-        "icon": str(now.get("icon", "999")),
-        "temperature": int(float(now["temp"])),
-        "feelsLike": int(float(now["feelsLike"])),
+        "icon": icon,
+        "temperature": temperature,
+        "feelsLike": feels_like,
         "condition": now.get("text", "未知"),
         "location": f"{place_name}, {admin}" if admin and admin != place_name else place_name,
-        "humidity": int(now["humidity"]),
-        "precipitation": float(now["precip"]),
-        "pressure": int(now["pressure"]),
-        "visibility": int(float(now["vis"])),
+        "humidity": humidity,
+        "precipitation": precipitation,
+        "pressure": pressure,
+        "visibility": visibility,
         "precipitationProbability": precipitation_probability,
         "weatherSummary": weather_summary,
         "forecast": forecast,
@@ -440,12 +451,16 @@ def build_weather_status(location: str) -> dict:
 
 def weather_status(location: str | None = None, force: bool = False) -> dict:
     query = location or QWEATHER_LOCATION
+    if not query:
+        return deepcopy(DEFAULT_STATUS["weather"])
     now = time.monotonic()
-    cached = _weather_cache.get(query)
+    with _weather_cache_lock:
+        cached = _weather_cache.get(query)
     if not force and cached and now - cached[0] < QWEATHER_CACHE_SECONDS:
         return cached[1]
     data = build_weather_status(query)
-    _weather_cache[query] = (now, data)
+    with _weather_cache_lock:
+        _weather_cache[query] = (now, data)
     return data
 
 
@@ -595,12 +610,15 @@ def github_failure_state(error: RuntimeError) -> tuple[str, str]:
 def github_status(force: bool = False) -> dict:
     global _github_cache
     now = time.monotonic()
-    if not force and _github_cache and now - _github_cache[0] < GITHUB_CACHE_SECONDS:
-        return _github_cache[1]
+    with _github_cache_lock:
+        cached = _github_cache
+    if not force and cached and now - cached[0] < GITHUB_CACHE_SECONDS:
+        return cached[1]
     try:
         data = build_github_status(GITHUB_USERNAME)
         persist_github_status(data)
-        _github_cache = (now, data)
+        with _github_cache_lock:
+            _github_cache = (now, data)
         return data
     except RuntimeError as error:
         reason, message = github_failure_state(error)
@@ -643,10 +661,13 @@ def status() -> dict[str, dict]:
     result = {row["module"]: json.loads(row["payload"]) for row in rows}
     result["github"] = github_status()
     if environment_setting("QWEATHER_API_KEY"):
-        try:
-            result["weather"] = weather_status()
-        except RuntimeError as error:
-            result["weather"] = {**result.get("weather", DEFAULT_STATUS["weather"]), "source": "unavailable", "error": str(error)}
+        if QWEATHER_LOCATION:
+            try:
+                result["weather"] = weather_status()
+            except RuntimeError as error:
+                result["weather"] = {**result.get("weather", DEFAULT_STATUS["weather"]), "source": "unavailable", "error": str(error)}
+        else:
+            result["weather"] = deepcopy(DEFAULT_STATUS["weather"])
     return result
 
 

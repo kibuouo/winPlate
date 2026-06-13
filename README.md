@@ -58,8 +58,11 @@ npm run dev
 WinPlate requests the Windows location permission and sends only the resulting
 coordinates to the local backend. `QWEATHER_LOCATION` is optional and is used
 as a fallback when system location is unavailable. It accepts a city name or
-location ID. The API key stays in the local backend and is never sent to the
-renderer. Restart WinPlate after changing these values.
+location ID. There is no default fallback location; if system location is
+unavailable and `QWEATHER_LOCATION` is empty, the UI prompts you to configure
+one instead of showing weather for an unrelated city. The API key stays in the
+local backend and is never sent to the renderer. Restart WinPlate after
+changing these values.
 
 ## Future Packaging
 
