@@ -118,6 +118,22 @@ button { font: inherit; }
 }
 .icon-button { width: 20px; height: 20px; padding: 1px; border: 0; color: #fafafa; background: none; cursor: pointer; }
 .icon-button svg, .card-icon svg, nav svg { width: 100%; height: 100%; display: block; }
+.github-theme-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.github-theme-icon img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.github-icon-light-mode { opacity: 0; }
+html[data-theme="light"] .github-icon-dark-mode { opacity: 0; }
+html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
 .codex-module { gap: 8px; }
 .codex-icon {
   width: 22px;
@@ -241,8 +257,28 @@ html[data-theme="light"] .main-body {
 .workspace { display: grid; grid-template-columns: 224px 1fr; width: 100%; min-height: 0; background: radial-gradient(circle at 90% 0, var(--main-glow), transparent 30%), var(--main-bg); }
 .sidebar { display: flex; flex-direction: column; padding: 24px 14px 18px; border-right: 1px solid var(--border); background: var(--sidebar-bg); }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px 28px; }
-.brand > img { width: 31px; height: 31px; display: block; object-fit: cover; border-radius: 9px; }
-.brand strong { font-size: 17px; letter-spacing: -.03em; }
+.brand {
+  display: grid;
+  gap: 4px;
+  padding: 4px 10px 24px;
+}
+.brand > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.brand strong {
+  font-size: 19px;
+  letter-spacing: -.04em;
+  line-height: 1.05;
+}
+.brand small {
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.4;
+}
 nav { display: grid; gap: 5px; }
 nav button { display: flex; align-items: center; gap: 11px; padding: 10px 12px; color: var(--text-soft); border: 1px solid transparent; border-radius: 9px; background: transparent; text-align: left; cursor: pointer; }
 nav button:hover { color: var(--text); background: var(--surface); }
@@ -272,11 +308,266 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .dashboard-card { min-height: 220px; padding: 22px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end)); box-shadow: 0 18px 40px var(--shadow); }
 .dashboard-card:hover { border-color: var(--border-strong); transform: translateY(-2px); transition: 160ms ease; }
 .card-icon { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 28px; color: #d4d4d8; font-size: 25px; }
-.codex-card-icon .codex-icon { width: 34px; height: 34px; }
+.github-card .card-icon { color: #0fbf3e; }
+.codex-card-icon img { width: 38px; height: 38px; display: block; object-fit: contain; }
 .dashboard-card > span { color: #a1a1aa; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .dashboard-card > strong { margin: 8px 0 5px; font-size: 30px; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .dashboard-card > strong em { color: #71717a; font-size: 13px; font-style: normal; font-weight: 600; }
 .dashboard-card small { color: #71717a; }
+.github-dashboard-card {
+  min-height: 286px;
+  padding: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 25% 0, rgba(255, 255, 255, .045), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, .01)),
+    linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end));
+}
+.github-dashboard-top {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 14px;
+}
+.github-dashboard-profile {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.github-dashboard-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+}
+.github-card-theme-icon {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: block;
+}
+.github-card-theme-icon img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.github-card-icon-light-mode { opacity: 0; }
+html[data-theme="light"] .github-card-icon-dark-mode { opacity: 0; }
+html[data-theme="light"] .github-card-icon-light-mode { opacity: 1; }
+.github-dashboard-identity {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.github-dashboard-identity strong {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.github-dashboard-identity span {
+  overflow: hidden;
+  color: #a1a1aa;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.github-dashboard-live {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  color: #86efac;
+  border: 1px solid rgba(52,211,153,.35);
+  border-radius: 999px;
+  background: rgba(16,185,129,.12);
+  font-size: 10px;
+  font-weight: 750;
+}
+.github-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid rgba(255,255,255,.08);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.github-dashboard-stats > div {
+  min-height: 88px;
+  padding: 14px 12px 12px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  text-align: center;
+  border-right: 1px solid rgba(255,255,255,.08);
+}
+.github-dashboard-stats > div:last-child { border-right: 0; }
+.github-dashboard-stats span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #d4d4d8;
+  font-size: 11px;
+  font-weight: 650;
+}
+.github-dashboard-stats span svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.github-dashboard-stats strong {
+  margin-top: 3px;
+  font-size: 18px;
+  line-height: 1;
+}
+.github-dashboard-stats small {
+  margin-top: 4px;
+  min-height: 15px;
+  font-size: 10px;
+}
+.github-dashboard-contributions {
+  padding: 14px 18px 0;
+  margin-top: 0;
+}
+.dashboard-github-repository {
+  margin: 12px 18px 16px;
+  padding-top: 12px;
+}
+.dashboard-codex-card {
+  min-height: 286px;
+  justify-content: flex-start;
+}
+.dashboard-codex-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.dashboard-codex-header .card-icon {
+  margin-bottom: 0;
+  flex: 0 0 38px;
+}
+.dashboard-codex-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.dashboard-codex-copy > span {
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.dashboard-codex-copy > strong {
+  font-size: 24px;
+  letter-spacing: -.03em;
+}
+.dashboard-codex-copy > small {
+  color: #71717a;
+  font-size: 11px;
+}
+.dashboard-codex-windows {
+  margin-top: auto;
+  display: grid;
+  gap: 18px;
+}
+.dashboard-codex-window {
+  display: grid;
+  gap: 8px;
+}
+.dashboard-codex-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dashboard-codex-window-head span {
+  color: #d4d4d8;
+  font-size: 13px;
+  font-weight: 650;
+}
+.dashboard-codex-window-head strong {
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-codex-window small {
+  font-size: 11px;
+}
+.dashboard-codex-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #3f3f46;
+}
+.dashboard-codex-track > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d4d4d8, #fafafa);
+  transition: width .3s ease;
+}
+html[data-theme="light"] .github-dashboard-card {
+  background:
+    radial-gradient(circle at 25% 0, rgba(59, 130, 246, .06), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(247, 247, 250, .96));
+  border-color: #dddfe5;
+}
+html[data-theme="light"] .github-dashboard-top,
+html[data-theme="light"] .github-dashboard-stats,
+html[data-theme="light"] .dashboard-github-repository {
+  border-color: rgba(24, 24, 27, .08);
+}
+html[data-theme="light"] .github-dashboard-stats > div {
+  border-right-color: rgba(24, 24, 27, .08);
+}
+html[data-theme="light"] .github-dashboard-mark {
+  background: transparent;
+}
+html[data-theme="light"] .github-dashboard-identity span,
+html[data-theme="light"] .github-dashboard-stats small,
+html[data-theme="light"] .dashboard-codex-copy > small,
+html[data-theme="light"] .dashboard-codex-window small,
+html[data-theme="light"] .contribution-legend span,
+html[data-theme="light"] .github-repository span {
+  color: #6b7280;
+}
+html[data-theme="light"] .github-dashboard-stats span,
+html[data-theme="light"] .dashboard-codex-window-head span,
+html[data-theme="light"] .dashboard-codex-copy > span {
+  color: #4b5563;
+}
+html[data-theme="light"] .github-dashboard-live {
+  color: #16a34a;
+  border-color: rgba(22,163,74,.24);
+  background: rgba(34,197,94,.10);
+}
+html[data-theme="light"] .contribution-cell {
+  background: #d1d5db;
+}
+html[data-theme="light"] .contribution-cell.level-1 { background: #166534; }
+html[data-theme="light"] .contribution-cell.level-2 { background: #15803d; }
+html[data-theme="light"] .contribution-cell.level-3 { background: #22c55e; }
+html[data-theme="light"] .contribution-cell.level-4 { background: #86efac; }
+html[data-theme="light"] .dashboard-codex-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(247, 247, 250, .96));
+  border-color: #dddfe5;
+}
+html[data-theme="light"] .dashboard-codex-track {
+  background: #e5e7eb;
+}
+html[data-theme="light"] .dashboard-codex-track > span {
+  background: linear-gradient(90deg, #6b7280, #3f3f46);
+}
 .heart-card .card-icon { color: #fb7185; }
 .qweather-card .card-icon { color: #60a5fa; }
 .qweather-card .large-track { margin-top: 14px; }
@@ -310,6 +601,8 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .qweather-card-heading .card-icon { margin-bottom: 28px; }
 .qweather-service-icon { width: 32px; height: 32px; }
 .qweather-service-icon .qweather-nav-icon { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.qweather-service-icon .qweather-nav-icon circle { stroke: #facc15; }
+.qweather-service-icon .qweather-nav-icon path { stroke: #60a5fa; }
 .service-health { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: #34d399; border-radius: 999px; background: rgba(52,211,153,.1); font-size: 9px; font-weight: 700; }
 .service-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px rgba(52,211,153,.6); }
 .qweather-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
@@ -424,9 +717,15 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .github-activity-row small { color: var(--text-muted); font-size: 10px; }
 .github-activity-row > b { font-size: 18px; }
 .github-activity-status { padding: 4px 8px; color: #22c55e; border-radius: 999px; background: rgba(34,197,94,.1); font-size: 9px; font-weight: 700; }
+.settings-page .page-heading p { margin-bottom: 7px; }
+.settings-page .page-heading h1 { margin-bottom: 5px; font-size: clamp(26px, 2.6vw, 36px); }
+.settings-page .page-heading > span { font-size: 12px; }
 .settings-section { margin-top: 36px; }
 .settings-section + .settings-section { margin-top: 30px; }
 .settings-section h2 { margin: 0 0 14px; font-size: 18px; letter-spacing: -.025em; }
+.settings-page .settings-section { margin-top: 24px; }
+.settings-page .settings-section + .settings-section { margin-top: 20px; }
+.settings-page .settings-section h2 { margin-bottom: 9px; font-size: 16px; }
 .settings-panel { margin-top: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-card); }
 .settings-panel > div { display: flex; justify-content: space-between; align-items: center; padding: 20px 22px; border-bottom: 1px solid var(--border); }
 .settings-panel > div:last-child { border: 0; }
@@ -445,6 +744,15 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .theme-selector i { width: 20px; height: 20px; display: grid; place-items: center; font-style: normal; }
 .theme-selector svg { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 .theme-selector button span { font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap; }
+.settings-page .settings-panel { border-radius: 13px; }
+.settings-page .settings-panel > div { padding: 13px 18px; }
+.settings-page .settings-panel span { gap: 3px; }
+.settings-page .settings-panel strong { font-size: 12px; }
+.settings-page .settings-panel small { font-size: 10px; line-height: 1.35; }
+.settings-page .appearance-setting { min-height: 58px; }
+.settings-page .theme-selector button { height: 32px; padding: 0 9px; }
+.settings-page .theme-selector svg { width: 18px; height: 18px; }
+.settings-page .theme-selector button span { font-size: 12px; }
 .weather-settings-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .weather-settings-panel fieldset + fieldset { border-top: 8px solid var(--surface-muted); }
 .weather-settings-panel legend { width: 100%; box-sizing: border-box; display: grid; gap: 5px; padding: 18px 22px 12px; border-bottom: 1px solid var(--border); }
@@ -462,6 +770,17 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .weather-settings-actions button { padding: 9px 16px; color: #fff; border: 0; border-radius: 9px; background: #8b5cf6; font-weight: 650; cursor: pointer; }
 .weather-settings-actions button:hover { background: #7c3aed; }
 .weather-settings-actions button:disabled { cursor: wait; opacity: .6; }
+.settings-page .weather-settings-panel fieldset + fieldset { border-top-width: 5px; }
+.settings-page .weather-settings-panel legend { gap: 3px; padding: 11px 18px 9px; }
+.settings-page .weather-settings-panel legend strong { font-size: 12px; }
+.settings-page .weather-settings-panel legend small { font-size: 10px; }
+.settings-page .weather-settings-panel label { gap: 24px; padding: 11px 18px; }
+.settings-page .weather-settings-panel input,
+.settings-page .weather-settings-panel textarea { padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.3; }
+.settings-page .weather-settings-panel textarea { min-height: 70px; }
+.settings-page .weather-settings-actions { padding: 10px 18px; }
+.settings-page .weather-settings-statuses { gap: 3px; }
+.settings-page .weather-settings-actions button { padding: 7px 13px; border-radius: 8px; font-size: 12px; }
 @media (max-width: 920px) {
   .weather-settings-panel label { grid-template-columns: 1fr; gap: 12px; }
 }
@@ -496,6 +815,12 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .deepseek-balance-metric b { font-size: 28px; font-weight: 500; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .deepseek-balance-metric em { color: var(--text-soft); font-size: 16px; font-style: normal; font-weight: 400; }
 .deepseek-balance-metric > small { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.deepseek-wallet-metric { grid-template-columns: 46px minmax(0, 1fr); align-items: center; align-content: center; gap: 18px; }
+.deepseek-wallet-icon { width: 44px; height: 44px; color: var(--text-soft); fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.deepseek-wallet-balance { display: grid; gap: 6px; min-width: 0; }
+.deepseek-wallet-balance strong { display: flex; align-items: baseline; gap: 8px; color: var(--text); white-space: nowrap; font-size: 30px; font-weight: 500; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.deepseek-wallet-balance strong span { font-size: 24px; }
+.deepseek-wallet-balance small { color: var(--text-muted); font-size: 12px; }
 .deepseek-date-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .deepseek-date-total > strong { color: var(--text-soft); font-size: 11px; font-weight: 650; }
 .deepseek-token-panel { position: relative; min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 6px; border-left: 1px solid var(--border); }
@@ -525,6 +850,8 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
   .weather-dashboard-card { grid-column: auto; grid-template-columns: 1fr; }
   .weather-forecast-list { padding: 20px 0 0; border-top: 1px solid var(--border); border-left: 0; }
   .dashboard-card { min-height: 170px; }
+  .github-dashboard-card,
+  .dashboard-codex-card { min-height: auto; }
   .usage-window-grid { grid-template-columns: 1fr; }
   #page-content { padding: 34px 28px; }
   .github-dashboard { grid-template-columns: 180px minmax(0, 1fr); gap: 24px; }
@@ -532,6 +859,20 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
   .github-page-heading { align-items: start; }
   .github-page-heading h2 { font-size: 27px; }
   .github-page-heading > div > span { display: none; }
+}
+@media (max-width: 560px) {
+  .github-dashboard-top { align-items: stretch; flex-direction: column; }
+  .github-dashboard-live { align-self: flex-start; }
+  .github-dashboard-stats { grid-template-columns: 1fr; }
+  .github-dashboard-stats > div { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .github-dashboard-stats > div:last-child { border-bottom: 0; }
+  .dashboard-github-repository {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  html[data-theme="light"] .github-dashboard-stats > div {
+    border-bottom-color: rgba(24, 24, 27, .08);
+  }
 }
 .right-controls {
   position: absolute;

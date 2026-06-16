@@ -378,9 +378,15 @@ function syncDomNode(current, desired) {
 }
 
 const githubIcon = `
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path fill="currentColor" d="M12 .8a11.4 11.4 0 0 0-3.6 22.2c.6.1.8-.2.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.3 2.9.1 3.2.8.9 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.2c0 .4.2.7.8.6A11.4 11.4 0 0 0 12 .8Z"/>
-  </svg>`;
+  <span class="github-theme-icon" aria-hidden="true">
+    <img class="github-icon-dark-mode" src="../../assets/github-mark-light.svg" alt="">
+    <img class="github-icon-light-mode" src="../../assets/github-mark-dark.svg" alt="">
+  </span>`;
+const githubCardIcon = `
+  <span class="github-card-theme-icon" aria-hidden="true">
+    <img class="github-card-icon-dark-mode" src="../../assets/github-mark-light.svg" alt="">
+    <img class="github-card-icon-light-mode" src="../../assets/github-mark-dark.svg" alt="">
+  </span>`;
 const codexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
     <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
@@ -940,6 +946,94 @@ function qweatherServiceCard(official, failures) {
     </article>`;
 }
 
+function dashboardContributionMonth(github) {
+  const lastMonth = github.contributionMonths?.[github.contributionMonths.length - 1];
+  const label = lastMonth?.label || github.contributionMonth;
+  if (label) return String(label).split(" ")[0];
+  return new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date());
+}
+
+function dashboardGithubCard() {
+  const github = normalizeGithub(statusData.github);
+  const stats = [
+    { icon: previewIcons.repos, label: "Repos", value: github.repos, meta: "" },
+    { icon: previewIcons.commits, label: "Commits", value: github.commitsThisMonth, meta: "This month" },
+    { icon: previewIcons.streak, label: "Streak", value: github.streakDays, meta: "days" }
+  ];
+  return `
+    <article class="dashboard-card github-card github-dashboard-card">
+      <div class="github-dashboard-top">
+        <div class="github-dashboard-profile">
+          <span class="github-dashboard-mark" aria-hidden="true">${githubCardIcon}</span>
+          <div class="github-dashboard-identity">
+            <strong>${github.name}</strong>
+            <span>${github.username}</span>
+          </div>
+        </div>
+        <span class="github-dashboard-live">${github.status || "Live"}</span>
+      </div>
+      <div class="github-dashboard-stats">
+        ${stats.map((item) => `
+          <div>
+            <span>${item.icon}${item.label}</span>
+            <strong>${item.value}</strong>
+            <small>${item.meta}</small>
+          </div>`).join("")}
+      </div>
+      <section class="github-dashboard-contributions">
+        <div class="contribution-heading">
+          <strong>Last 30 days</strong>
+          <span class="contribution-month">${dashboardContributionMonth(github)}</span>
+        </div>
+        <div class="contribution-grid" aria-hidden="true">${contributionGrid(github.contributions30d)}</div>
+        <div class="contribution-legend">
+          <span>Less</span>
+          ${[0, 1, 2, 3, 4].map((level) => `<i class="contribution-cell level-${level}"></i>`).join("")}
+          <span>More</span>
+        </div>
+      </section>
+      <footer class="github-repository dashboard-github-repository">
+        <strong>${previewIcons.repository}${github.project}</strong>
+        <span><i></i>${github.language}</span>
+        <span class="repository-stars" aria-label="${github.stars} stars">${previewIcons.star}${github.stars}</span>
+      </footer>
+    </article>`;
+}
+
+function dashboardCodexRow(title, data) {
+  const percentage = normalizePercent(data?.remainingPct);
+  const resetText = data?.resetText ? `Resets in ${String(data.resetText).replace(/^in\s+/i, "")}` : "Reset unavailable";
+  return `
+    <div class="dashboard-codex-window">
+      <div class="dashboard-codex-window-head">
+        <span>${title}</span>
+        <strong>${percentage ?? "--"}%</strong>
+      </div>
+      <small>${resetText}</small>
+      ${progressBar(percentage, "dashboard-codex-track")}
+    </div>`;
+}
+
+function dashboardCodexCard() {
+  const windows = statusData.codex.windows || {};
+  const fiveHour = windows.fiveHour || statusData.codex;
+  const sevenDay = windows.sevenDay || {};
+  return `
+    <article class="dashboard-card codex-card dashboard-codex-card">
+      <div class="dashboard-codex-header">
+        <div class="card-icon codex-card-icon"><img src="../../assets/codex-icon.png" alt="" aria-hidden="true"></div>
+        <div class="dashboard-codex-copy">
+          <strong>Codex Usage</strong>
+          <small>${relativeUpdatedAt(statusData.codex.updatedAt)}</small>
+        </div>
+      </div>
+      <div class="dashboard-codex-windows">
+        ${dashboardCodexRow("5 hours", fiveHour)}
+        ${dashboardCodexRow("1 week", sevenDay)}
+      </div>
+    </article>`;
+}
+
 function dashboardContent(section) {
   const failures = qweatherOfficialStats?.errors ?? 0;
   const official = qweatherOfficialStats
@@ -947,15 +1041,8 @@ function dashboardContent(section) {
     : `<small class="qweather-message">${qweatherUsageMessage || "官方数据可能延迟 1 小时或更久"}</small>`;
   const cards = `
     <div class="dashboard-grid">
-      <article class="dashboard-card github-card">
-        <div class="card-icon">${githubIcon}</div><span>GitHub Profile</span>
-        <strong>${statusData.github.username}</strong><small>${statusData.github.repos} repositories · ${statusData.github.followers} followers</small>
-      </article>
-      <article class="dashboard-card codex-card">
-        <div class="card-icon codex-card-icon">${codexIcon}</div><span>Codex Usage</span>
-        <strong>${statusData.codex.remainingPct ?? "--"}%</strong><small>${statusData.codex.resetText ? `Resets ${statusData.codex.resetText}` : "Reset unavailable"}</small>
-        ${progressBar(statusData.codex.remainingPct, "large-track")}
-      </article>
+      ${dashboardGithubCard()}
+      ${dashboardCodexCard()}
       <article class="dashboard-card heart-card">
         <div class="card-icon">♥</div><span>Heart Rate</span>
         <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
@@ -974,7 +1061,7 @@ function dashboardContent(section) {
     Codex: codexContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
     QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
-    Settings: `<div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
+    Settings: `<div class="settings-page"><div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
       <section class="settings-section">
         <h2>外观</h2>
         <div class="settings-panel appearance-panel">${themeSelector()}</div>
@@ -1005,7 +1092,7 @@ function dashboardContent(section) {
             </label>
             <label>
               <span><strong>Ed25519 私钥</strong><small>仅保存在 Windows 用户环境变量中，留空保持原值</small></span>
-              <textarea id="qweather-private-key" rows="4" autocomplete="off" spellcheck="false"></textarea>
+              <textarea id="qweather-private-key" rows="3" autocomplete="off" spellcheck="false"></textarea>
             </label>
           </fieldset>
           <div class="weather-settings-actions">
@@ -1043,7 +1130,7 @@ function dashboardContent(section) {
         <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
         <div><span><strong>Always on top</strong><small>Keep WinPlate above other windows.</small></span><b class="enabled">Enabled</b></div>
         <div><span><strong>Codex source</strong><small>Hidden local CLI session using /status.</small></span><b>${statusData.codex.source || "Unavailable"}</b></div>
-      </div></section>`
+      </div></section></div>`
   };
   return content[section];
 }
@@ -1076,18 +1163,17 @@ function codexContent() {
   const deepseek = statusData.deepseek || {};
   const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
   const currencySymbol = (currency) => currency === "CNY" ? "¥" : currency === "USD" ? "$" : "";
-  const usageDate = new Intl.DateTimeFormat("sv-SE", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date());
+  const formatBalance = (balance) => {
+    const value = Number(balance?.totalBalance);
+    if (!Number.isFinite(value)) return balance?.totalBalance || "--";
+    return value.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
   const tokenUsage = deepseek.tokenUsage?.model === "deepseek-v4-pro"
     ? deepseek.tokenUsage
     : null;
-  const cacheInputTokens = Number(tokenUsage?.cacheHitTokens) + Number(tokenUsage?.cacheMissTokens);
-  const cacheHitRate = Number.isFinite(cacheInputTokens) && cacheInputTokens > 0
-    ? `${Math.round(Number(tokenUsage.cacheHitTokens) / cacheInputTokens * 100)}%`
-    : "--%";
   const tokenValue = (value) => Number.isFinite(Number(value))
     ? `${Number(value).toLocaleString("en-US")} tokens`
     : "--";
@@ -1099,21 +1185,31 @@ function codexContent() {
       <div><i class="cache-miss"></i><span>输入（未命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheMissTokens)}</strong></div>
       <div><i class="output"></i><span>输出</span><strong>${tokenValue(tokenUsage?.outputTokens)}</strong></div>
     </div>`;
+  const walletIcon = `
+    <svg class="deepseek-wallet-icon" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M8 17.5h30.5A5.5 5.5 0 0 1 44 23v14a5.5 5.5 0 0 1-5.5 5.5h-25A7.5 7.5 0 0 1 6 35V13a7.5 7.5 0 0 1 7.5-7.5H34a4 4 0 0 1 4 4v8" />
+      <path d="M8 17.5a7.5 7.5 0 0 1 7.5-7.5H38" />
+      <path d="M31 28.5h13" />
+    </svg>`;
   const balanceCards = balances.length
     ? balances.map((balance) => `
         <article class="deepseek-balance-card">
-          <div class="deepseek-balance-metric">
-            <span>充值余额</span>
-            <strong><b>${currencySymbol(balance.currency)}${balance.toppedUpBalance}</b><em>${balance.currency}</em></strong>
-            <small class="deepseek-date-total"><span>${usageDate}</span><strong>${tokenValue(tokenUsage?.totalTokens)}</strong></small>
+          <div class="deepseek-balance-metric deepseek-wallet-metric">
+            ${walletIcon}
+            <div class="deepseek-wallet-balance">
+              <strong><span>${currencySymbol(balance.currency)}</span>${formatBalance(balance)}</strong>
+              <small>Available balance</small>
+            </div>
           </div>
           ${tokenPanel}
         </article>`).join("")
     : `<article class="deepseek-balance-card deepseek-empty">
-        <div class="deepseek-balance-metric">
-          <span>充值余额</span>
-          <strong><b>--</b><em>CNY</em></strong>
-          <small class="deepseek-date-total"><span>${usageDate}</span><strong>${tokenValue(tokenUsage?.totalTokens)}</strong></small>
+        <div class="deepseek-balance-metric deepseek-wallet-metric">
+          ${walletIcon}
+          <div class="deepseek-wallet-balance">
+            <strong><span>¥</span>--</strong>
+            <small>Available balance</small>
+          </div>
         </div>
         ${tokenPanel}
         <small>${deepseek.configured ? "余额暂不可用，请检查 API 配置" : "请先在设置中配置 DeepSeek API Key"}</small>
@@ -1135,7 +1231,7 @@ function codexContent() {
     </section>
     <section class="codex-usage-panel deepseek-usage-panel">
       <div class="codex-panel-title">
-        <div><span class="deepseek-mark" aria-hidden="true"></span><h2>DeepSeek Usage</h2></div>
+        <div><span class="deepseek-mark" aria-hidden="true"></span><h2>DeepSeek Balance</h2></div>
         <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
       </div>
       <div class="usage-window-grid deepseek-balance-grid">${balanceCards}</div>
@@ -1163,7 +1259,11 @@ function renderMain() {
       </header>
       <div class="workspace">
       <aside class="sidebar">
-        <div class="brand"><img src="../../assets/icon.png" alt=""><strong>WinPlate</strong></div>
+        <div class="brand">
+          <span>Workspace</span>
+          <strong>Live Overview</strong>
+          <small>Quick access to your active modules</small>
+        </div>
         <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i>${item}</button>`).join("")}</nav>
         <div class="sidebar-status"><span></span><div><strong>All systems normal</strong><small>Codex CLI status active</small></div></div>
       </aside>
