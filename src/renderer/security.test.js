@@ -19,6 +19,20 @@ test("floating status omits the date beside the Codex reset time", () => {
   assert.doesNotMatch(renderer, /class="date-label"/);
 });
 
+test("floating status keeps the Codex reset time immediately after the quota lamp", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const floatingTemplate = renderer.slice(
+    renderer.indexOf("function renderFloating()"),
+    renderer.indexOf("function bindNotificationStrip()")
+  );
+
+  assert.doesNotMatch(floatingTemplate, /drag-handle/);
+  assert.match(
+    floatingTemplate,
+    /quotaStatusLamp\(statusData\.codex\.remainingPct\)\}\s*<span class="metric reset">/
+  );
+});
+
 test("compact Codex progress avoids CSP-blocked inline styles", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 
@@ -44,4 +58,34 @@ test("automatic status refresh updates the existing main content DOM", () => {
   assert.doesNotMatch(refreshStatus, /renderMain\(\)/);
   assert.match(renderer, /function syncDomNode\(/);
   assert.match(renderer, /currentSection === "Settings"/);
+});
+
+test("mail outline escapes external email fields before rendering", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const mailItemCard = renderer.slice(
+    renderer.indexOf("function mailItemCard"),
+    renderer.indexOf("function mailContent")
+  );
+
+  assert.match(renderer, /function escapeHtml\(/);
+  assert.match(mailItemCard, /escapeHtml\(item\.sender\)/);
+  assert.match(mailItemCard, /escapeHtml\(item\.subject\)/);
+  assert.match(mailItemCard, /escapeHtml\(item\.summary/);
+});
+
+test("notifications escape pushed titles and messages before rendering", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const notificationContent = renderer.slice(
+    renderer.indexOf("function notificationContent"),
+    renderer.indexOf("function dashboardContent")
+  );
+  const notificationTooltip = renderer.slice(
+    renderer.indexOf("if (data.type === \"notifications\")"),
+    renderer.indexOf("const lines = Array.isArray(data.lines)")
+  );
+
+  assert.match(notificationContent, /escapeHtml\(item\.title\)/);
+  assert.match(notificationContent, /escapeHtml\(item\.message\)/);
+  assert.match(notificationTooltip, /escapeHtml\(item\.title\)/);
+  assert.match(notificationTooltip, /escapeHtml\(item\.message\)/);
 });

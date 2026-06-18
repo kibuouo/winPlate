@@ -14,6 +14,7 @@ const FLOATING_WINDOW_WIDTH = 460;
 const CODEX_TOOLTIP_SIZE = { width: 232, height: 128 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
+const NOTIFICATION_TOOLTIP_SIZE = { width: 320, height: 238 };
 let floatingPinned = false;
 function setFloatingPinned(value) {
   floatingPinned = Boolean(value);
@@ -136,6 +137,8 @@ function showTooltipWindow({ anchor, data }) {
       ? CODEX_TOOLTIP_SIZE
       : data.type === "weather"
         ? { width: 292, height: 276 }
+        : data.type === "notifications"
+          ? NOTIFICATION_TOOLTIP_SIZE
         : SYSTEM_TOOLTIP_SIZE;
   let placement = "below";
   let x = Math.round(absoluteAnchor.x + 22);
@@ -199,7 +202,7 @@ function createMainWindow(initialTheme = "dark") {
     minWidth: 860,
     minHeight: 560,
     show: false,
-    backgroundColor: dark ? "#181818" : "#f7f7f8",
+    backgroundColor: dark ? "#202123" : "#ffffff",
     title: "WinPlate",
     icon: iconPath,
     autoHideMenuBar: true,
@@ -235,7 +238,8 @@ function createMainWindow(initialTheme = "dark") {
 function setMainWindowTheme(theme) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const dark = theme !== "light";
-  mainWindow.setBackgroundColor(dark ? "#181818" : "#f7f7f8");
+  mainWindow.setBackgroundColor(dark ? "#202123" : "#ffffff");
+  mainWindow.setBackgroundMaterial?.("none");
 }
 
 function minimizeMainWindow() {

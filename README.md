@@ -24,7 +24,8 @@ Electron automatically uses `.venv\Scripts\python.exe` when it exists, so the
 virtual environment does not need to be activated before `npm run dev`.
 `WINPLATE_PYTHON` can override the interpreter path when needed.
 
-GitHub data is loaded from the public GitHub REST API. The default account is
+GitHub profile data is loaded from the public GitHub REST API. Contribution
+calendar data is loaded from GitHub's contribution calendar endpoints. The default account is
 `kibuouo`; override it and optionally provide a token before starting WinPlate:
 
 ```powershell
@@ -34,8 +35,8 @@ npm run dev
 ```
 
 `GITHUB_TOKEN` is optional for public profiles, but avoids the low unauthenticated
-API rate limit. GitHub responses are cached for five minutes unless refreshed
-explicitly.
+API rate limit and enables the official GraphQL contribution calendar API.
+GitHub responses are cached for five minutes unless refreshed explicitly.
 
 To activate the environment manually in PowerShell:
 

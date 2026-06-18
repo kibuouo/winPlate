@@ -20,6 +20,7 @@ const {
 const { createAppTray } = require("./tray");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
+const { readNetworkSpeed } = require("./networkSpeed");
 const {
   DEFAULT_BASE_URL: DEEPSEEK_DEFAULT_BASE_URL,
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
@@ -34,6 +35,9 @@ let tray;
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
+const WEATHER_ALERT_CACHE_TTL_MS = 10 * 60_000;
+const MAIL_CACHE_TTL_MS = 60_000;
+const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 
@@ -149,11 +153,14 @@ if (!gotLock) {
       if (!response.ok) {
         throw new Error(`GitHub refresh failed: HTTP ${response.status}`);
       }
-      return response.json();
+      const github = await response.json();
+      responseCaches.delete("Status");
+      return github;
     });
     ipcMain.handle("status:get", () => (
       fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
     ));
+    ipcMain.handle("network:speed", () => readNetworkSpeed());
     ipcMain.handle("weather:set-location", async (_event, location) => {
       const latitude = Number(location?.latitude);
       const longitude = Number(location?.longitude);
@@ -231,6 +238,114 @@ if (!gotLock) {
         throw new Error(payload?.detail || `QWeather official usage failed: HTTP ${response.status}`);
       }
       return response.json();
+    });
+    ipcMain.handle("weather:refresh-alerts", async () => {
+      const alerts = await fetchJsonCached(
+        "QWeather alerts",
+        "http://127.0.0.1:8765/api/weather/alerts",
+        WEATHER_ALERT_CACHE_TTL_MS
+      );
+      responseCaches.delete("Notifications");
+      return alerts;
+    });
+    ipcMain.handle("mail:get-settings", () => (
+      fetchJsonCached("Mail settings", "http://127.0.0.1:8765/api/mail/settings", MAIL_CACHE_TTL_MS)
+    ));
+    ipcMain.handle("mail:save-settings", async (_event, settings) => {
+      const clientId = typeof settings?.clientId === "string" ? settings.clientId.trim() : "";
+      const clientSecret = typeof settings?.clientSecret === "string" ? settings.clientSecret.trim() : "";
+      if (!clientId || !/^[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(clientId)) {
+        throw new Error("Gmail Client ID 格式无效");
+      }
+      if (!clientSecret) {
+        throw new Error("Gmail Client Secret 不能为空");
+      }
+      await Promise.all([
+        writeUserEnvironment("GMAIL_CLIENT_ID", clientId),
+        writeUserEnvironment("GMAIL_CLIENT_SECRET", clientSecret)
+      ]);
+      responseCaches.delete("Mail settings");
+      responseCaches.delete("Mail outline");
+      return {
+        configured: true,
+        connected: false,
+        scope: "https://www.googleapis.com/auth/gmail.readonly",
+        query: "in:inbox newer_than:30d -in:spam -in:trash",
+        windowDays: 30,
+        updatedAt: null
+      };
+    });
+    ipcMain.handle("mail:get-outline", () => (
+      fetchJsonCached("Mail outline", "http://127.0.0.1:8765/api/mail/outline", MAIL_CACHE_TTL_MS)
+    ));
+    ipcMain.handle("mail:refresh", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/mail/refresh", { method: "POST" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail || `Mail refresh failed: HTTP ${response.status}`);
+      }
+      const outline = await response.json();
+      responseCaches.delete("Mail outline");
+      responseCaches.delete("Notifications");
+      return outline;
+    });
+    ipcMain.handle("mail:connect", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/mail/oauth/start", { method: "POST" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail || `Mail OAuth failed: HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      if (!/^https:\/\/accounts\.google\.com\//.test(payload.authorizationUrl || "")) {
+        throw new Error("Mail OAuth returned an invalid authorization URL");
+      }
+      await shell.openExternal(payload.authorizationUrl);
+      return { opened: true };
+    });
+    ipcMain.handle("notifications:get", () => (
+      fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
+    ));
+    ipcMain.handle("notifications:mark-read", async (_event, id) => {
+      const notificationId = typeof id === "string" ? id.trim() : "";
+      if (!notificationId) {
+        throw new Error("Notification id is required");
+      }
+      const response = await fetch(
+        `http://127.0.0.1:8765/api/notifications/${encodeURIComponent(notificationId)}/read`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        throw new Error(`Notification read failed: HTTP ${response.status}`);
+      }
+      const summary = await response.json();
+      responseCaches.delete("Notifications");
+      return summary;
+    });
+    ipcMain.handle("notifications:mark-all-read", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/notifications/read-all", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`Notification read-all failed: HTTP ${response.status}`);
+      }
+      const summary = await response.json();
+      responseCaches.delete("Notifications");
+      return summary;
+    });
+    ipcMain.handle("notifications:push-test", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "codex",
+          level: "success",
+          title: "Codex 任务完成",
+          message: "WinPlate 已收到一条本地测试通知"
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`Notification push failed: HTTP ${response.status}`);
+      }
+      responseCaches.delete("Notifications");
+      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
     ipcMain.handle("deepseek:get-settings", async () => {

@@ -1,9 +1,10 @@
 import tempfile
 import unittest
+import base64
 import gzip
 import json
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
@@ -43,7 +44,10 @@ class DatabaseTests(unittest.TestCase):
                 )
         main.DATABASE_PATH = original_path
 
-    def test_build_github_status_maps_profile_repository_and_events(self):
+    def test_build_github_status_maps_profile_repository_and_contributions(self):
+        now = datetime.now(timezone.utc)
+        today = now.date().isoformat()
+        yesterday = (now.date() - timedelta(days=1)).isoformat()
         responses = {
             "/users/octocat": {
                 "login": "octocat",
@@ -56,16 +60,44 @@ class DatabaseTests(unittest.TestCase):
             "/users/octocat/repos?sort=pushed&direction=desc&per_page=100": [
                 {"name": "hello-world", "language": "Python", "stargazers_count": 9, "pushed_at": "2026-06-12T00:00:00Z"}
             ],
-            "/users/octocat/events/public?per_page=100": [],
         }
-        with patch.object(main, "github_request", side_effect=lambda path: responses[path]):
+        with (
+            patch.object(main, "github_request", side_effect=lambda path: responses[path]),
+            patch.object(main, "github_contribution_days", return_value={yesterday: 2, today: 3}),
+        ):
             result = main.build_github_status("octocat")
         self.assertEqual(result["username"], "@octocat")
         self.assertEqual(result["project"], "hello-world")
         self.assertEqual(result["repos"], 8)
         self.assertEqual(result["source"], "github")
         self.assertEqual(len(result["contributionMonths"]), 12)
-        self.assertEqual(result["contributionMonths"][-1]["commits"], 0)
+        self.assertEqual(result["contributionMonths"][-1]["commits"], 5)
+        self.assertEqual(result["commitsThisMonth"], 5)
+        self.assertEqual(result["streakDays"], 2)
+
+    def test_github_contribution_days_public_page_fallback_parses_counts(self):
+        html = """
+        <td data-date="2026-06-15" class="ContributionCalendar-day"></td>
+        <tool-tip>2 contributions on June 15th.</tool-tip>
+        <td data-date="2026-06-16" class="ContributionCalendar-day"></td>
+        <tool-tip>No contributions on June 16th.</tool-tip>
+        <td data-date="2026-06-17" class="ContributionCalendar-day"></td>
+        <tool-tip>1 contribution on June 17th.</tool-tip>
+        """
+        now = datetime(2026, 6, 17, tzinfo=timezone.utc)
+        with (
+            patch.object(main, "github_token", return_value=None),
+            patch.object(main, "github_public_page", return_value=html),
+        ):
+            result = main.github_contribution_days("octocat", now)
+        self.assertEqual(
+            result,
+            {
+                "2026-06-15": 2,
+                "2026-06-16": 0,
+                "2026-06-17": 1,
+            },
+        )
 
     def test_github_status_persists_and_restores_last_known_good_data(self):
         original_path = main.DATABASE_PATH
@@ -268,7 +300,7 @@ class DatabaseTests(unittest.TestCase):
             result = main.qweather_official_stats()
         request = mock_urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://example.com/metrics/v1/stats?credential=credential")
-        self.assertNotIn("Accept-encoding", request.headers)
+        self.assertEqual(request.headers["Accept-encoding"], "gzip")
         self.assertEqual(result, {
             "total": 12,
             "success": 9,
@@ -317,6 +349,161 @@ class DatabaseTests(unittest.TestCase):
         }
         self.assertEqual(main._sum_named_metric(payload, "success"), 12)
         self.assertEqual(main._sum_named_metric(payload, "errors"), 3)
+
+    def test_qweather_alerts_create_warning_notifications(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            payload = {
+                "alerts": [{
+                    "id": "a1",
+                    "headline": "大风蓝色预警",
+                    "description": "预计未来24小时有大风。",
+                    "severity": "moderate",
+                    "issuedTime": "2026-06-17T12:00:00+08:00",
+                }]
+            }
+            with patch.object(main, "qweather_jwt_request", return_value=payload) as request:
+                result = main.qweather_alerts(22.3193, 114.1694)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        request.assert_called_once_with("/weatheralert/v1/current/22.32/114.17", None)
+        self.assertEqual(result["alerts"][0]["title"], "大风蓝色预警")
+        self.assertEqual(summary["latest"]["id"], "qweather:a1")
+        self.assertEqual(summary["latest"]["level"], "warning")
+
+    def test_gmail_query_uses_recent_inbox_without_spam_or_trash(self):
+        self.assertEqual(main.GMAIL_QUERY, "in:inbox newer_than:30d -in:spam -in:trash")
+
+    def test_parse_gmail_message_handles_missing_headers_and_html_only_body(self):
+        html = "<p>Please <b>confirm</b> the launch checklist.</p>"
+        encoded = base64.urlsafe_b64encode(html.encode()).decode().rstrip("=")
+        result = main.parse_gmail_message({
+            "id": "m1",
+            "threadId": "t1",
+            "internalDate": "1780000000000",
+            "labelIds": ["INBOX", "IMPORTANT"],
+            "payload": {
+                "mimeType": "text/html",
+                "body": {"data": encoded},
+                "headers": [],
+            },
+        })
+        self.assertEqual(result["messageId"], "m1")
+        self.assertEqual(result["threadId"], "t1")
+        self.assertEqual(result["sender"], "Unknown sender")
+        self.assertEqual(result["subject"], "(无主题)")
+        self.assertEqual(result["summary"], "Please confirm the launch checklist.")
+        self.assertEqual(result["action"], "需处理")
+
+    def test_read_mail_outline_deduplicates_threads_and_limits_results(self):
+        messages = [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]
+        responses = {
+            "/users/me/messages": {"messages": messages},
+            "/users/me/messages/m1": {
+                "id": "m1",
+                "threadId": "t1",
+                "internalDate": "3",
+                "snippet": "first",
+                "labelIds": [],
+                "payload": {"headers": [{"name": "Subject", "value": "A"}, {"name": "From", "value": "a@example.com"}]},
+            },
+            "/users/me/messages/m2": {
+                "id": "m2",
+                "threadId": "t1",
+                "internalDate": "2",
+                "snippet": "duplicate",
+                "labelIds": [],
+                "payload": {"headers": [{"name": "Subject", "value": "B"}, {"name": "From", "value": "b@example.com"}]},
+            },
+            "/users/me/messages/m3": {
+                "id": "m3",
+                "threadId": "t2",
+                "internalDate": "1",
+                "snippet": "third",
+                "labelIds": [],
+                "payload": {"headers": [{"name": "Subject", "value": "C"}, {"name": "From", "value": "c@example.com"}]},
+            },
+        }
+        with patch.object(main, "gmail_api_get", side_effect=lambda path, params=None: responses[path]):
+            result = main.read_mail_outline_from_gmail()
+        self.assertEqual([item["messageId"] for item in result], ["m1", "m3"])
+
+    def test_mail_outline_returns_cached_payload_when_gmail_refresh_fails(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.persist_mail_outline([{
+                "messageId": "m1",
+                "threadId": "t1",
+                "sender": "a@example.com",
+                "subject": "Cached",
+                "sentAt": 1780000000000,
+                "snippet": "cached",
+                "summary": "cached summary",
+                "action": "查看",
+                "labels": ["INBOX"],
+            }])
+            with (
+                patch.object(main, "gmail_configured", return_value=True),
+                patch.object(main, "read_gmail_token", return_value={"access_token": "token"}),
+                patch.object(main, "read_mail_outline_from_gmail", side_effect=RuntimeError("offline")),
+            ):
+                result = main.mail_outline(force=True)
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["availability"], "cached")
+        self.assertEqual(result["items"][0]["subject"], "Cached")
+        self.assertEqual(result["error"], "offline")
+
+    def test_push_notification_persists_unread_summary_and_mark_read(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            created = main.push_notification(main.NotificationPayload(
+                source="codex",
+                level="success",
+                title="Done",
+                message="Task finished",
+                id="codex:test",
+            ))
+            summary = main.notification_summary()
+            self.assertEqual(created["id"], "codex:test")
+            self.assertEqual(summary["unreadCount"], 1)
+            self.assertEqual(summary["latest"]["title"], "Done")
+            summary = main.mark_notification_read("codex:test")
+            self.assertEqual(summary["unreadCount"], 0)
+        main.DATABASE_PATH = original_path
+
+    def test_mail_outline_syncs_new_mail_notifications(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            with (
+                patch.object(main, "gmail_configured", return_value=True),
+                patch.object(main, "read_gmail_token", return_value={"access_token": "token"}),
+                patch.object(main, "read_mail_outline_from_gmail", return_value=[{
+                    "messageId": "m1",
+                    "threadId": "t1",
+                    "sender": "a@example.com",
+                    "subject": "Launch",
+                    "sentAt": 1780000000000,
+                    "snippet": "hello",
+                    "summary": "hello",
+                    "action": "查看",
+                    "labels": ["INBOX"],
+                }]),
+            ):
+                result = main.mail_outline(force=True)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["availability"], "live")
+        self.assertEqual(summary["unreadCount"], 1)
+        self.assertEqual(summary["latest"]["id"], "mail:m1")
+        self.assertEqual(summary["latest"]["title"], "新邮件：Launch")
 
 
 if __name__ == "__main__":

@@ -41,10 +41,24 @@ let floatingPinned = false;
 let systemClockTimer = null;
 let tooltipHideTimer = null;
 let mainWindowMaximized = false;
+let sidebarCollapsed = false;
 let selectedContributionMonth = null;
+let githubRefreshInFlight = false;
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
 let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" };
+let mailSettings = { configured: false, connected: false, windowDays: 30 };
+let mailOutline = { source: "loading", availability: "loading", items: [], updatedAt: null };
+let mailRefreshInFlight = false;
+let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
+let notificationActionInFlight = false;
+let networkSpeed = {
+  downloadBytesPerSecond: 0,
+  uploadBytesPerSecond: 0,
+  status: "获取中",
+  error: "",
+  updatedAt: null
+};
 let qweatherUsage = { used: 0, total: 50000, remaining: 50000, percent: 0, today: 0, month: "" };
 let qweatherOfficialStats = null;
 let qweatherUsageMessage = "";
@@ -65,6 +79,16 @@ function applyMainTheme() {
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme;
   window.winplate.setWindowTheme(theme);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[character]));
 }
 
 async function setThemePreference(theme) {
@@ -307,6 +331,82 @@ function progressBar(percent, className) {
     </div>`;
 }
 
+function quotaStatusLamp(percent) {
+  const value = normalizePercent(percent);
+  const state = value === null
+    ? "unavailable"
+    : value <= 10
+      ? "critical"
+      : value <= 40
+        ? "warning"
+        : value < 95
+          ? "healthy"
+          : "full";
+  const labels = {
+    unavailable: "额度状态未知",
+    critical: "额度不足",
+    warning: "额度警告",
+    healthy: "额度充足",
+    full: "满额度"
+  };
+  return `<span class="quota-lamp quota-${state}" title="${labels[state]}" aria-label="${labels[state]}"></span>`;
+}
+
+function normalizedNotifications(summary = notificationSummary) {
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  return {
+    items,
+    latest: summary.latest || items[0] || null,
+    unreadCount: Math.max(0, Number(summary.unreadCount) || 0),
+    updatedAt: summary.updatedAt || null
+  };
+}
+
+function notificationSourceLabel(source) {
+  return {
+    mail: "Mail",
+    qweather: "QWeather",
+    codex: "Codex",
+    external: "WinPlate"
+  }[source] || source || "WinPlate";
+}
+
+function notificationLevelLabel(level) {
+  return {
+    info: "信息",
+    success: "完成",
+    warning: "提醒",
+    critical: "紧急"
+  }[level] || "信息";
+}
+
+function notificationStrip() {
+  const summary = normalizedNotifications();
+  const latest = summary.latest;
+  const unread = summary.unreadCount;
+  const title = latest ? latest.title : "暂无新通知";
+  return `
+    <button class="notification-strip ${unread ? "has-unread" : ""} no-drag" id="notification-strip" type="button" aria-label="打开通知中心">
+      ${notificationIcon}
+      <span class="notification-title">${escapeHtml(title)}</span>
+      ${unread ? `<span class="notification-badge" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>` : ""}
+    </button>`;
+}
+
+function formatNetworkSpeed(bytesPerSecond, compact = true) {
+  const value = Number(bytesPerSecond);
+  if (!Number.isFinite(value) || value < 0) return compact ? "---" : "---";
+  const kb = value / 1024;
+  if (kb < 1) return compact ? "0K" : "0 KB/s";
+  if (kb < 1000) return compact ? `${Math.round(kb)}K` : `${Math.round(kb)} KB/s`;
+  const mb = kb / 1024;
+  return compact ? `${mb.toFixed(mb >= 10 ? 0 : 1)}M` : `${mb.toFixed(mb >= 10 ? 0 : 1)} MB/s`;
+}
+
+function networkSpeedLabel() {
+  return `↓ ${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, true)}`;
+}
+
 function updateProgressBars(root = document) {
   root.querySelectorAll("[data-progress-value]").forEach((fill) => {
     const value = normalizePercent(fill.dataset.progressValue) ?? 0;
@@ -391,6 +491,23 @@ const codexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
     <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
     <path d="m8.25 10.25 2.25 2.25-2.25 2.25M12.75 14.75h3"/>
+  </svg>`;
+const refreshIcon = `
+  <svg class="refresh-button-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M21 12a9 9 0 0 1-15.64 6.12L3 16"/>
+    <path d="M3 21v-5h5"/>
+    <path d="M3 12a9 9 0 0 1 15.64-6.12L21 8"/>
+    <path d="M21 3v5h-5"/>
+  </svg>`;
+const mailIcon = `
+  <svg class="mail-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3.5" y="5.5" width="17" height="13" rx="2.5"></rect>
+    <path d="m4.5 7 7.5 6 7.5-6"></path>
+  </svg>`;
+const notificationIcon = `
+  <svg class="notification-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M18.25 9.75a6.25 6.25 0 0 0-12.5 0c0 5-2 5.75-2 5.75h16.5s-2-.75-2-5.75"></path>
+    <path d="M9.75 18.25a2.25 2.25 0 0 0 4.5 0"></path>
   </svg>`;
 
 function avatarMarkup(github, className = "") {
@@ -488,8 +605,15 @@ function githubContent() {
         ${stateNotice}
         <div class="github-page-heading">
           <div><p>GITHUB</p><h2>Contribution overview</h2><span>Live profile and repository activity for ${github.username}.</span></div>
-          <button class="github-refresh-button" id="refresh-github" type="button" aria-label="Refresh GitHub data">
-            <span>Refresh</span>
+          <button
+            class="refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
+            id="refresh-github"
+            type="button"
+            aria-label="刷新 GitHub 数据"
+            ${githubRefreshInFlight ? "disabled" : ""}
+          >
+            ${refreshIcon}
+            <span>${githubRefreshInFlight ? "刷新中" : "刷新"}</span>
           </button>
         </div>
         <article class="github-pinned-card">
@@ -499,7 +623,7 @@ function githubContent() {
         </article>
         <article class="github-contribution-card">
           <div class="github-card-heading">
-            <span>${activityCount} commits in ${selectedMonth.label}</span>
+            <span>${activityCount} contributions in ${selectedMonth.label}</span>
             <div class="github-month-navigation">
               <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
               <strong>${selectedMonth.label}</strong>
@@ -513,7 +637,7 @@ function githubContent() {
           <div class="github-card-heading"><span>Contribution activity</span><small>${selectedMonth.label}</small></div>
           <div class="github-activity-row">
             <span class="github-activity-icon">${previewIcons.commits}</span>
-            <div><strong>Created ${activityCount} commits</strong><small>Recent public push activity</small></div>
+            <div><strong>Made ${activityCount} contributions</strong><small>GitHub contribution calendar activity</small></div>
             <b>${activityCount}</b>
           </div>
           <div class="github-activity-row">
@@ -621,7 +745,6 @@ function renderFloating() {
   appRoot.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
       <section class="status-capsule">
-        <div class="drag-handle" aria-hidden="true"></div>
         <div class="status-layout">
           <div class="status-group app-status">
             <div class="module interactive-module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
@@ -635,8 +758,12 @@ function renderFloating() {
               <span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
+              ${quotaStatusLamp(statusData.codex.remainingPct)}
               <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
             </div>
+          </div>
+          <div class="status-group notification-status">
+            ${notificationStrip()}
           </div>
           <div class="status-group auxiliary-status">
             <div class="module interactive-module weather-module no-drag" id="weather-module">
@@ -648,6 +775,9 @@ function renderFloating() {
               <div class="module interactive-module heart-module no-drag" id="heart-module">
                 <span class="heart-icon">♥</span>
                 <strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
+              </div>
+              <div class="module interactive-module network-module no-drag" id="network-module">
+                <span class="network-speed">${networkSpeedLabel()}</span>
               </div>
               <div class="right-controls no-drag">
                 <button class="pin-button" id="pin-button" aria-label="Pin floating window" title="Pin / click-through">
@@ -679,6 +809,8 @@ function renderFloating() {
   const codexModule = document.querySelector(".codex-module");
   const weatherModule = document.querySelector("#weather-module");
   const heartModule = document.querySelector("#heart-module");
+  const networkModule = document.querySelector("#network-module");
+  bindNotificationStrip();
 
   function bindSystemTooltip(module, data) {
     module.addEventListener("mouseenter", () => {
@@ -783,6 +915,16 @@ function renderFloating() {
       `Updated: ${statusData.heart.updatedAt}`
     ]
   });
+  bindSystemTooltip(networkModule, () => ({
+    type: "network",
+    lines: networkSpeed.status === "获取失败"
+      ? ["网速获取失败"]
+      : [
+          `下载速度：${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, false)}`,
+          `上传速度：${formatNetworkSpeed(networkSpeed.uploadBytesPerSecond, false)}`,
+          `当前网络状态：${networkSpeed.status || "获取失败"}`
+        ]
+  }));
 
   pinButton.addEventListener("click", async (event) => {
     event.stopPropagation();
@@ -814,6 +956,37 @@ function renderFloating() {
   });
 }
 
+function bindNotificationStrip() {
+  const strip = document.querySelector("#notification-strip");
+  if (!strip || strip.dataset.bound === "true") return;
+  strip.dataset.bound = "true";
+  strip.addEventListener("mouseenter", () => {
+    clearTimeout(tooltipHideTimer);
+    const rect = strip.getBoundingClientRect();
+    window.winplate.showTooltip({
+      anchor: {
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        relativeToFloatingWindow: true
+      },
+      data: {
+        type: "notifications",
+        items: normalizedNotifications().items.slice(0, 5),
+        unreadCount: normalizedNotifications().unreadCount
+      }
+    });
+  });
+  strip.addEventListener("mouseleave", () => {
+    tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
+  });
+  strip.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    window.winplate.showMainWindow("Notifications");
+  });
+}
+
 function renderTooltip(data = {}) {
   document.body.className = "tooltip-body";
   if (data.type === "github") {
@@ -834,7 +1007,7 @@ function renderTooltip(data = {}) {
         </header>
         <div class="github-preview-stats">
           <div><span>${previewIcons.repos} Repos</span><strong>${github.repos}</strong></div>
-          <div><span>${previewIcons.commits} Commits</span><strong>${github.commitsThisMonth}</strong><small>This month</small></div>
+          <div><span>${previewIcons.commits} Contributions</span><strong>${github.commitsThisMonth}</strong><small>This month</small></div>
           <div><span>${previewIcons.streak} Streak</span><strong>${github.streakDays}</strong><small>days</small></div>
         </div>
         <section class="contribution-section">
@@ -870,6 +1043,7 @@ function renderTooltip(data = {}) {
         <div class="usage-compact-row">
           <span class="compact-title">${title}</span>
           <strong class="compact-percent">${percentage ?? "--"}%</strong>
+          ${quotaStatusLamp(percentage)}
           <div class="compact-bar" aria-hidden="true">
             <span data-progress-value="${percentage ?? 0}"></span>
           </div>
@@ -885,7 +1059,7 @@ function renderTooltip(data = {}) {
         </header>
         <div class="codex-tooltip-rows">
           ${usageRow(`${data.windowHours ?? 5}h`, fiveHour)}
-          ${usageRow("Weekly", weekly)}
+          ${usageRow("7d", weekly)}
         </div>
       </article>`;
     updateProgressBars(appRoot);
@@ -921,6 +1095,32 @@ function renderTooltip(data = {}) {
     return;
   }
 
+  if (data.type === "notifications") {
+    const items = Array.isArray(data.items) ? data.items.slice(0, 5) : [];
+    appRoot.innerHTML = `
+      <article class="notifications-tooltip" role="tooltip" aria-label="通知预览">
+        <header>
+          <strong>通知</strong>
+          <span>${Number(data.unreadCount) || 0} 未读</span>
+        </header>
+        <div class="notifications-tooltip-list">
+          ${items.length ? items.map((item) => `
+            <div class="notification-tooltip-row source-${escapeHtml(item.source)} level-${escapeHtml(item.level)}">
+              <div>
+                <b>${escapeHtml(item.title)}</b>
+                <small>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationLevelLabel(item.level))}</small>
+              </div>
+              ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
+            </div>`).join("") : `
+            <div class="notification-tooltip-empty">
+              ${notificationIcon}
+              <strong>暂无新通知</strong>
+            </div>`}
+        </div>
+      </article>`;
+    return;
+  }
+
   const lines = Array.isArray(data.lines) ? data.lines : [];
   appRoot.innerHTML = `
     <div class="system-tooltip" role="tooltip">
@@ -931,7 +1131,16 @@ function renderTooltip(data = {}) {
 function qweatherServiceCard(official, failures) {
   return `
     <article class="dashboard-card qweather-card">
-      <div class="qweather-card-heading"><div class="card-icon qweather-service-icon">${qweatherNavIcon}</div><span class="service-health"><i></i>服务正常</span></div>
+      <div class="qweather-card-heading">
+        <div class="card-icon qweather-service-icon">${qweatherNavIcon}</div>
+        <div class="card-actions">
+          <span class="service-health"><i></i>服务正常</span>
+          <button type="button" class="refresh-button qweather-verify-button" id="qweather-verify" aria-label="刷新 QWeather 官方用量">
+            ${refreshIcon}
+            <span>刷新</span>
+          </button>
+        </div>
+      </div>
       <span>QWeather API</span>
       <strong>${qweatherUsage.used} <em>/ ${qweatherUsage.total}</em></strong>
       <small>本月配额已使用 ${qweatherUsage.percent}%</small>
@@ -942,7 +1151,6 @@ function qweatherServiceCard(official, failures) {
         <div><span>失败</span><strong>${failures}</strong></div>
       </div>
       ${official}
-      <button type="button" class="qweather-verify-button" id="qweather-verify">官方校验</button>
     </article>`;
 }
 
@@ -957,7 +1165,7 @@ function dashboardGithubCard() {
   const github = normalizeGithub(statusData.github);
   const stats = [
     { icon: previewIcons.repos, label: "Repos", value: github.repos, meta: "" },
-    { icon: previewIcons.commits, label: "Commits", value: github.commitsThisMonth, meta: "This month" },
+    { icon: previewIcons.commits, label: "Contributions", value: github.commitsThisMonth, meta: "This month" },
     { icon: previewIcons.streak, label: "Streak", value: github.streakDays, meta: "days" }
   ];
   return `
@@ -1014,6 +1222,45 @@ function dashboardCodexRow(title, data) {
     </div>`;
 }
 
+function deepseekCurrencySymbol(currency) {
+  return currency === "CNY" ? "¥" : currency === "USD" ? "$" : "";
+}
+
+function formatDeepSeekBalance(balance) {
+  const value = Number(balance?.totalBalance);
+  if (!Number.isFinite(value)) return balance?.totalBalance || "--";
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function primaryDeepSeekBalance(deepseek = statusData.deepseek) {
+  const balances = Array.isArray(deepseek?.balances) ? deepseek.balances : [];
+  return balances[0] || null;
+}
+
+function dashboardDeepSeekBalanceColumn() {
+  const deepseek = statusData.deepseek || {};
+  const balance = primaryDeepSeekBalance(deepseek);
+  const amount = balance
+    ? `${deepseekCurrencySymbol(balance.currency)}${formatDeepSeekBalance(balance)}`
+    : "¥--";
+  const meta = balance
+    ? "Available balance"
+    : deepseek.configured
+      ? "Balance unavailable"
+      : "Configure API key";
+  return `
+    <div class="dashboard-codex-window dashboard-deepseek-window">
+      <div class="dashboard-codex-window-head">
+        <span>DeepSeek API</span>
+        <strong>${amount}</strong>
+      </div>
+      <small>${meta}</small>
+    </div>`;
+}
+
 function dashboardCodexCard() {
   const windows = statusData.codex.windows || {};
   const fiveHour = windows.fiveHour || statusData.codex;
@@ -1030,8 +1277,140 @@ function dashboardCodexCard() {
       <div class="dashboard-codex-windows">
         ${dashboardCodexRow("5 hours", fiveHour)}
         ${dashboardCodexRow("1 week", sevenDay)}
+        ${dashboardDeepSeekBalanceColumn()}
       </div>
     </article>`;
+}
+
+function mailStatusLabel(outline = mailOutline) {
+  if (mailRefreshInFlight) return "刷新中";
+  if (outline.availability === "live") return "Live";
+  if (outline.availability === "cached") return "缓存";
+  if (outline.availability === "unconnected") return "未连接";
+  if (outline.availability === "unconfigured") return "未配置";
+  if (outline.availability === "unavailable") return "不可用";
+  return "读取中";
+}
+
+function mailTimeLabel(sentAt) {
+  const value = Number(sentAt);
+  if (!Number.isFinite(value) || value <= 0) return "未知时间";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
+}
+
+function mailLabelPills(labels = []) {
+  const visibleLabels = labels
+    .filter((label) => ["UNREAD", "IMPORTANT", "STARRED"].includes(label) || label.startsWith("CATEGORY_"))
+    .slice(0, 3);
+  return visibleLabels.map((label) => {
+    const text = label
+      .replace("CATEGORY_", "")
+      .replace("UNREAD", "未读")
+      .replace("IMPORTANT", "重要")
+      .replace("STARRED", "星标")
+      .toLowerCase();
+    return `<span>${escapeHtml(text)}</span>`;
+  }).join("");
+}
+
+function mailItemCard(item) {
+  return `
+    <article class="mail-outline-item">
+      <div class="mail-outline-meta">
+        <strong>${escapeHtml(item.sender)}</strong>
+        <time>${mailTimeLabel(item.sentAt)}</time>
+      </div>
+      <h2>${escapeHtml(item.subject)}</h2>
+      <p>${escapeHtml(item.summary || item.snippet || "暂无可用摘要")}</p>
+      <footer>
+        <b>${escapeHtml(item.action || "查看")}</b>
+        <div class="mail-labels">${mailLabelPills(item.labels || [])}</div>
+      </footer>
+    </article>`;
+}
+
+function mailContent() {
+  const items = Array.isArray(mailOutline.items) ? mailOutline.items.slice(0, 20) : [];
+  const stateNotice = mailOutline.error
+    ? `<div class="mail-state-notice state-${escapeHtml(mailOutline.availability)}">${escapeHtml(mailOutline.error)}</div>`
+    : "";
+  const emptyMessage = mailOutline.availability === "unconnected"
+    ? "请先连接 Gmail，连接后会读取最近 30 天收件箱邮件大纲。"
+    : mailOutline.availability === "unconfigured"
+      ? "请先配置 GMAIL_CLIENT_ID 和 GMAIL_CLIENT_SECRET。"
+      : "最近 30 天收件箱暂无可展示邮件。";
+  const list = items.length
+    ? `<div class="mail-outline-list">${items.map(mailItemCard).join("")}</div>`
+    : `<div class="mail-empty-state">${mailIcon}<strong>${emptyMessage}</strong></div>`;
+  return `
+    <section class="mail-page">
+      <div class="mail-page-heading">
+        <div><p>MAIL</p><h1>邮件大纲</h1><span>最近 ${mailOutline.windowDays || mailSettings.windowDays || 30} 天收件箱摘要。</span></div>
+        <div class="mail-actions">
+          <button class="mail-connect-button" id="connect-gmail" type="button">${mailSettings.connected ? "重新连接" : "连接 Gmail"}</button>
+          <button
+            class="refresh-button mail-refresh-button ${mailRefreshInFlight ? "refreshing" : ""}"
+            id="refresh-mail"
+            type="button"
+            aria-label="刷新邮件大纲"
+            ${mailRefreshInFlight ? "disabled" : ""}
+          >
+            ${refreshIcon}
+            <span>${mailRefreshInFlight ? "刷新中" : "刷新"}</span>
+          </button>
+        </div>
+      </div>
+      <div class="mail-status-bar">
+        <span class="mail-status-pill state-${escapeHtml(mailOutline.availability)}">${mailStatusLabel()}</span>
+        <span>${escapeHtml(mailOutline.query || "in:inbox newer_than:30d -in:spam -in:trash")}</span>
+        <time>${relativeUpdatedAt(mailOutline.updatedAt)}</time>
+      </div>
+      ${stateNotice}
+      ${list}
+    </section>`;
+}
+
+function notificationContent() {
+  const summary = normalizedNotifications();
+  const items = summary.items;
+  const rows = items.length
+    ? `<div class="notification-page-list">${items.map((item) => `
+        <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(item.level)} ${item.unread ? "unread" : ""}">
+          <div class="notification-page-main">
+            <span class="notification-source">${escapeHtml(notificationSourceLabel(item.source))}</span>
+            <h2>${escapeHtml(item.title)}</h2>
+            ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
+            <footer>
+              <span>${escapeHtml(notificationLevelLabel(item.level))}</span>
+              <time>${relativeUpdatedAt(item.createdAt)}</time>
+            </footer>
+          </div>
+          <button class="notification-read-button" type="button" data-notification-read="${escapeHtml(item.id)}" ${item.unread ? "" : "disabled"}>
+            ${item.unread ? "标记已读" : "已读"}
+          </button>
+        </article>`).join("")}</div>`
+    : `<div class="notification-empty-state">${notificationIcon}<strong>暂无通知</strong><span>邮件、天气预警和 Codex 完成提示会出现在这里。</span></div>`;
+  return `
+    <section class="notifications-page">
+      <div class="notifications-page-heading">
+        <div><p>NOTIFICATIONS</p><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示。</span></div>
+        <div class="notification-actions">
+          <button class="notification-test-button" id="push-test-notification" type="button">测试通知</button>
+          <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${summary.unreadCount ? "" : "disabled"}>全部已读</button>
+        </div>
+      </div>
+      <div class="notification-status-bar">
+        <span>${summary.unreadCount} 未读</span>
+        <time>${relativeUpdatedAt(summary.updatedAt)}</time>
+      </div>
+      ${rows}
+    </section>`;
 }
 
 function dashboardContent(section) {
@@ -1059,6 +1438,8 @@ function dashboardContent(section) {
     Dashboard: `<div class="page-heading"><p>OVERVIEW</p><h1>Good afternoon, ${statusData.github.name}</h1><span>Your live workspace status at a glance.</span></div>${cards}`,
     GitHub: githubContent(),
     Codex: codexContent(),
+    Mail: mailContent(),
+    Notifications: notificationContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
     QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
     Settings: `<div class="settings-page"><div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
@@ -1125,6 +1506,32 @@ function dashboardContent(section) {
         </form>
       </section>
       <section class="settings-section">
+        <h2>Gmail</h2>
+        <form class="settings-panel weather-settings-panel mail-settings-panel" id="mail-settings-form">
+          <fieldset>
+            <legend><strong>Gmail OAuth</strong><small>来自 Google Cloud 的 OAuth 客户端，仅保存在 Windows 用户环境变量中</small></legend>
+            <label>
+              <span><strong>Client ID</strong><small>形如 *.apps.googleusercontent.com</small></span>
+              <input id="gmail-client-id" type="text" autocomplete="off" spellcheck="false" placeholder="${mailSettings.configured ? "已配置，重新填写可覆盖" : "请输入 Gmail Client ID"}">
+            </label>
+            <label>
+              <span><strong>Client Secret</strong><small>留空不会保存；首次配置必须填写</small></span>
+              <input id="gmail-client-secret" type="password" autocomplete="off" placeholder="${mailSettings.configured ? "已配置，重新填写可覆盖" : "请输入 Gmail Client Secret"}">
+            </label>
+          </fieldset>
+          <div class="weather-settings-actions">
+            <div class="weather-settings-statuses">
+              <small id="gmail-settings-status" class="${mailSettings.configured ? "configured" : ""}">OAuth client：${mailSettings.configured ? "已配置" : "未配置"}</small>
+              <small id="gmail-connection-status" class="${mailSettings.connected ? "configured" : ""}">Gmail connection：${mailSettings.connected ? "已连接" : "未连接"}</small>
+            </div>
+            <div class="mail-settings-actions">
+              <button type="submit">保存配置</button>
+              <button type="button" id="settings-connect-gmail">${mailSettings.connected ? "重新连接" : "连接 Gmail"}</button>
+            </div>
+          </div>
+        </form>
+      </section>
+      <section class="settings-section">
         <h2>通用</h2>
       <div class="settings-panel">
         <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
@@ -1162,15 +1569,6 @@ function codexContent() {
   const sevenDay = windows.sevenDay;
   const deepseek = statusData.deepseek || {};
   const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
-  const currencySymbol = (currency) => currency === "CNY" ? "¥" : currency === "USD" ? "$" : "";
-  const formatBalance = (balance) => {
-    const value = Number(balance?.totalBalance);
-    if (!Number.isFinite(value)) return balance?.totalBalance || "--";
-    return value.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
   const tokenUsage = deepseek.tokenUsage?.model === "deepseek-v4-pro"
     ? deepseek.tokenUsage
     : null;
@@ -1197,7 +1595,7 @@ function codexContent() {
           <div class="deepseek-balance-metric deepseek-wallet-metric">
             ${walletIcon}
             <div class="deepseek-wallet-balance">
-              <strong><span>${currencySymbol(balance.currency)}</span>${formatBalance(balance)}</strong>
+              <strong><span>${deepseekCurrencySymbol(balance.currency)}</span>${formatDeepSeekBalance(balance)}</strong>
               <small>Available balance</small>
             </div>
           </div>
@@ -1246,47 +1644,58 @@ function renderMain() {
     : null;
   document.body.className = "main-body";
   applyMainTheme();
-  const sections = ["Dashboard", "GitHub", "Codex", "Heart", "QWeather", "Settings"];
+  const sections = ["Dashboard", "GitHub", "Codex", "Mail", "Notifications", "Heart", "QWeather"];
   appRoot.innerHTML = `
     <div class="main-window-shell">
       <header class="app-titlebar">
-        <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""><span>WinPlate</span></div>
+        <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""></div>
+        <div class="titlebar-drag-region" aria-hidden="true"></div>
         <div class="window-controls">
           <button id="window-minimize" aria-label="最小化"><span></span></button>
           <button id="window-maximize" aria-label="${mainWindowMaximized ? "还原" : "最大化"}"><span class="${mainWindowMaximized ? "restore-icon" : ""}"></span></button>
           <button id="window-close" class="close" aria-label="关闭"><span></span></button>
         </div>
       </header>
-      <div class="workspace">
-      <aside class="sidebar">
-        <div class="brand">
-          <span>Workspace</span>
-          <strong>Live Overview</strong>
-          <small>Quick access to your active modules</small>
-        </div>
-        <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i>${item}</button>`).join("")}</nav>
-        <div class="sidebar-status"><span></span><div><strong>All systems normal</strong><small>Codex CLI status active</small></div></div>
-      </aside>
-      <main class="main-content">
-        <header>
-          <div><span class="live-dot"></span> LIVE STATUS</div>
-          <time class="system-clock" id="system-clock">
-            <span class="system-date"></span>
-            <span class="system-time"></span>
-          </time>
-        </header>
-        <section id="page-content">${dashboardContent(currentSection)}</section>
-      </main>
-      </div>
-    </div>`;
+      <div class="workspace ${sidebarCollapsed ? "sidebar-collapsed" : ""}">
+        <aside class="sidebar">
+          <div class="sidebar-top">
+            <div class="sidebar-brand-row">
+              <div class="sidebar-brand"><span>WinPlate</span></div>
+              <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="${sidebarCollapsed ? "展开侧栏" : "关闭边栏"}" aria-expanded="${!sidebarCollapsed}" data-tooltip="${sidebarCollapsed ? "展开边栏" : "关闭边栏"}">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="4.5" y="4.5" width="15" height="15" rx="4"></rect>
+                  <path d="M10 5v14"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i><span class="nav-label">${item}</span></button>`).join("")}</nav>
+          <div class="sidebar-footer">
+            <button class="sidebar-settings ${currentSection === "Settings" ? "active" : ""}" data-section="Settings" title="Settings" aria-label="设置">
+              <i>⚙</i>
+              <span class="nav-label">设置</span>
+            </button>
+          </div>
+        </aside>
+        <main class="main-content">
+          <header>
+            <div><span class="live-dot"></span> LIVE STATUS</div>
+            <time class="system-clock" id="system-clock">
+              <span class="system-date"></span>
+              <span class="system-time"></span>
+            </time>
+          </header>
+          <section id="page-content">${dashboardContent(currentSection)}</section>
+        </main>
+      </div>`;
   updateProgressBars(appRoot);
   if (previousScrollPosition) {
     document.querySelector(".main-content").scrollTo(previousScrollPosition);
   }
 
-  document.querySelectorAll("nav button").forEach((button) => {
+  document.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelector("nav button.active").classList.remove("active");
+      document.querySelectorAll("[data-section].active").forEach((activeButton) => activeButton.classList.remove("active"));
       button.classList.add("active");
       currentSection = button.dataset.section;
       document.querySelector("#page-content").innerHTML = dashboardContent(button.dataset.section);
@@ -1296,6 +1705,8 @@ function renderMain() {
       bindDeepSeekSettings();
       bindGithubControls();
       bindQWeatherUsageControls();
+      bindMailControls();
+      bindNotificationControls();
     });
   });
   bindThemeControls();
@@ -1303,7 +1714,18 @@ function renderMain() {
   bindDeepSeekSettings();
   bindGithubControls();
   bindQWeatherUsageControls();
+  bindMailControls();
+  bindNotificationControls();
   document.querySelector("#window-minimize").addEventListener("click", () => window.winplate.minimizeWindow());
+  document.querySelector("#sidebar-toggle").addEventListener("click", () => {
+    sidebarCollapsed = !sidebarCollapsed;
+    const workspace = document.querySelector(".workspace");
+    workspace.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+    const toggle = document.querySelector("#sidebar-toggle");
+    toggle.setAttribute("aria-label", sidebarCollapsed ? "展开侧栏" : "关闭边栏");
+    toggle.setAttribute("aria-expanded", String(!sidebarCollapsed));
+    toggle.dataset.tooltip = sidebarCollapsed ? "展开边栏" : "关闭边栏";
+  });
   document.querySelector("#window-maximize").addEventListener("click", async () => {
     mainWindowMaximized = await window.winplate.toggleMaximizeWindow();
     updateMaximizeButton();
@@ -1334,6 +1756,8 @@ function updateMainStatusDom() {
     bindAvatarFallbacks(pageContent);
     bindGithubControls();
     bindQWeatherUsageControls();
+    bindMailControls();
+    bindNotificationControls();
     updateProgressBars(pageContent);
     return;
   }
@@ -1353,6 +1777,8 @@ function updateMainStatusDom() {
     bindAvatarFallbacks(pageContent);
     bindGithubControls();
     bindQWeatherUsageControls();
+    bindMailControls();
+    bindNotificationControls();
   }
   updateProgressBars(pageContent);
 }
@@ -1368,7 +1794,6 @@ function updateFloatingStatusDom() {
   template.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
       <section class="status-capsule">
-        <div class="drag-handle" aria-hidden="true"></div>
         <div class="status-layout">
           <div class="status-group app-status">
             <div class="module interactive-module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
@@ -1379,8 +1804,12 @@ function updateFloatingStatusDom() {
               ${codexIcon}<span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
+              ${quotaStatusLamp(statusData.codex.remainingPct)}
               <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
             </div>
+          </div>
+          <div class="status-group notification-status">
+            ${notificationStrip()}
           </div>
           <div class="status-group auxiliary-status">
             <div class="module interactive-module weather-module no-drag" id="weather-module">
@@ -1392,6 +1821,9 @@ function updateFloatingStatusDom() {
               <div class="module interactive-module heart-module no-drag" id="heart-module">
                 <span class="heart-icon">♥</span><strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
+              <div class="module interactive-module network-module no-drag" id="network-module">
+                <span class="network-speed">${networkSpeedLabel()}</span>
+              </div>
               <div class="right-controls no-drag">${shell.querySelector(".right-controls")?.innerHTML || ""}</div>
             </div>
           </div>
@@ -1401,6 +1833,37 @@ function updateFloatingStatusDom() {
   syncDomNode(shell, template.content.firstElementChild);
   updateProgressBars(shell);
   bindAvatarFallbacks(shell);
+  bindNotificationStrip();
+}
+
+async function refreshNetworkSpeed() {
+  if (view === "tooltip" || !window.winplate?.getNetworkSpeed) {
+    return;
+  }
+  try {
+    networkSpeed = {
+      ...networkSpeed,
+      ...await window.winplate.getNetworkSpeed()
+    };
+  } catch (error) {
+    networkSpeed = {
+      downloadBytesPerSecond: null,
+      uploadBytesPerSecond: null,
+      status: "获取失败",
+      error: error.message,
+      updatedAt: Date.now()
+    };
+  }
+  if (view === "floating") {
+    const label = document.querySelector("#network-module .network-speed");
+    if (label) {
+      label.textContent = networkSpeedLabel();
+    }
+    const module = document.querySelector("#network-module");
+    if (module) {
+      module.classList.toggle("network-error", networkSpeed.status && networkSpeed.status !== "正常" && networkSpeed.status !== "获取中");
+    }
+  }
 }
 
 function bindQWeatherUsageControls() {
@@ -1408,7 +1871,8 @@ function bindQWeatherUsageControls() {
   if (!button) return;
   button.onclick = async () => {
     button.disabled = true;
-    button.textContent = "校验中...";
+    button.classList.add("refreshing");
+    button.querySelector("span:last-child").textContent = "刷新中";
     qweatherUsageMessage = "";
     try {
       qweatherOfficialStats = await window.winplate.refreshQWeatherOfficialStats();
@@ -1422,12 +1886,176 @@ function bindQWeatherUsageControls() {
   };
 }
 
+function bindMailControls() {
+  const form = document.querySelector("#mail-settings-form");
+  if (form) {
+    const clientIdInput = form.querySelector("#gmail-client-id");
+    const clientSecretInput = form.querySelector("#gmail-client-secret");
+    const oauthStatus = form.querySelector("#gmail-settings-status");
+    const connectionStatus = form.querySelector("#gmail-connection-status");
+    const saveButton = form.querySelector("button[type='submit']");
+    const setMailSettingsStatus = (message, className = "") => {
+      oauthStatus.textContent = `OAuth client：${message}`;
+      oauthStatus.className = className;
+      connectionStatus.textContent = `Gmail connection：${mailSettings.connected ? "已连接" : "未连接"}`;
+      connectionStatus.className = mailSettings.connected ? "configured" : "";
+    };
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      saveButton.disabled = true;
+      setMailSettingsStatus("正在保存...");
+      try {
+        mailSettings = await window.winplate.saveMailSettings({
+          clientId: clientIdInput.value,
+          clientSecret: clientSecretInput.value
+        });
+        clientIdInput.value = "";
+        clientSecretInput.value = "";
+        clientIdInput.placeholder = "已配置，重新填写可覆盖";
+        clientSecretInput.placeholder = "已配置，重新填写可覆盖";
+        mailOutline = await window.winplate.getMailOutline();
+        setMailSettingsStatus("已配置", "configured");
+      } catch (error) {
+        setMailSettingsStatus(error.message || "保存失败", "error");
+      } finally {
+        saveButton.disabled = false;
+        updateMainStatusDom();
+      }
+    };
+  }
+  const connectButtons = document.querySelectorAll("#connect-gmail, #settings-connect-gmail");
+  connectButtons.forEach((button) => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await window.winplate.connectGmail();
+        mailSettings = await window.winplate.getMailSettings();
+      } catch (error) {
+        mailOutline = {
+          ...mailOutline,
+          availability: "unavailable",
+          error: error.message || "Gmail 连接失败"
+        };
+      } finally {
+        button.disabled = false;
+        updateMainStatusDom();
+      }
+    };
+  });
+  const refreshButton = document.querySelector("#refresh-mail");
+  if (!refreshButton) return;
+  refreshButton.onclick = async () => {
+    if (mailRefreshInFlight) return;
+    mailRefreshInFlight = true;
+    updateMainStatusDom();
+    try {
+      mailOutline = await window.winplate.refreshMailOutline();
+      mailSettings = await window.winplate.getMailSettings();
+    } catch (error) {
+      mailOutline = {
+        ...mailOutline,
+        availability: "unavailable",
+        error: error.message || "邮件刷新失败"
+      };
+    } finally {
+      mailRefreshInFlight = false;
+      updateMainStatusDom();
+    }
+  };
+}
+
+function bindNotificationControls() {
+  const markAllButton = document.querySelector("#mark-all-notifications-read");
+  if (markAllButton) {
+    markAllButton.onclick = async () => {
+      if (notificationActionInFlight) return;
+      notificationActionInFlight = true;
+      markAllButton.disabled = true;
+      try {
+        notificationSummary = await window.winplate.markAllNotificationsRead();
+      } catch (error) {
+        console.error("Failed to mark notifications read:", error);
+      } finally {
+        notificationActionInFlight = false;
+        updateMainStatusDom();
+      }
+    };
+  }
+  const testButton = document.querySelector("#push-test-notification");
+  if (testButton) {
+    testButton.onclick = async () => {
+      if (notificationActionInFlight) return;
+      notificationActionInFlight = true;
+      testButton.disabled = true;
+      try {
+        notificationSummary = await window.winplate.pushTestNotification();
+      } catch (error) {
+        console.error("Failed to push test notification:", error);
+      } finally {
+        notificationActionInFlight = false;
+        updateMainStatusDom();
+      }
+    };
+  }
+  document.querySelectorAll("[data-notification-read]").forEach((button) => {
+    button.onclick = async () => {
+      if (notificationActionInFlight || button.disabled) return;
+      notificationActionInFlight = true;
+      button.disabled = true;
+      try {
+        notificationSummary = await window.winplate.markNotificationRead(button.dataset.notificationRead);
+      } catch (error) {
+        console.error("Failed to mark notification read:", error);
+      } finally {
+        notificationActionInFlight = false;
+        updateMainStatusDom();
+      }
+    };
+  });
+}
+
 async function hydrateQWeatherUsage() {
   if (view !== "main") return;
   try {
     qweatherUsage = await window.winplate.getQWeatherUsage();
   } catch (error) {
     qweatherUsageMessage = `本地用量读取失败：${error.message}`;
+  }
+}
+
+async function hydrateNotifications() {
+  try {
+    notificationSummary = await window.winplate.getNotifications();
+  } catch (error) {
+    notificationSummary = {
+      ...notificationSummary,
+      latest: null,
+      unreadCount: 0,
+      items: [],
+      error: error.message || "通知读取失败"
+    };
+  }
+}
+
+async function refreshQWeatherAlerts() {
+  try {
+    await window.winplate.refreshQWeatherAlerts();
+  } catch (error) {
+    console.warn("QWeather alerts unavailable:", error.message);
+  }
+}
+
+async function hydrateMail() {
+  if (view !== "main") return;
+  try {
+    mailSettings = await window.winplate.getMailSettings();
+    mailOutline = await window.winplate.getMailOutline();
+  } catch (error) {
+    mailOutline = {
+      ...mailOutline,
+      availability: "unavailable",
+      error: error.message || "邮件大纲读取失败"
+    };
   }
 }
 
@@ -1448,12 +2076,11 @@ function bindGithubControls() {
   const refreshButton = document.querySelector("#refresh-github");
   if (!refreshButton) return;
   refreshButton.addEventListener("click", async () => {
-    refreshButton.disabled = true;
-    refreshButton.classList.add("refreshing");
-    refreshButton.querySelector("span").textContent = "Refreshing";
+    if (githubRefreshInFlight) return;
+    githubRefreshInFlight = true;
+    updateMainStatusDom();
     try {
       statusData.github = normalizeGithub(await window.winplate.refreshGithub(), statusData.github);
-      updateMainStatusDom();
     } catch (error) {
       console.error("GitHub refresh failed:", error);
       statusData.github = normalizeGithub({
@@ -1462,6 +2089,8 @@ function bindGithubControls() {
         availability: "unavailable",
         stateMessage: "Refresh failed; showing last known data."
       }, statusData.github);
+    } finally {
+      githubRefreshInFlight = false;
       updateMainStatusDom();
     }
   });
@@ -1499,6 +2128,8 @@ async function refreshStatus() {
       ...await window.winplate.getDeepSeekUsage()
     };
     await hydrateQWeatherUsage();
+    await hydrateMail();
+    await hydrateNotifications();
     if (!locationWeatherPromise && navigator.geolocation) {
       locationWeatherPromise = new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -1517,6 +2148,8 @@ async function refreshStatus() {
     const locatedWeather = await locationWeatherPromise;
     if (locatedWeather) {
       statusData.weather = { ...statusData.weather, ...locatedWeather };
+      await refreshQWeatherAlerts();
+      await hydrateNotifications();
     }
   } catch (error) {
     console.error("FastAPI unavailable, showing offline status:", error);
@@ -1535,12 +2168,16 @@ async function refreshStatus() {
 
 if (view === "main") {
   renderMain();
-  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage()]).then(refreshStatus);
+  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateMail(), hydrateNotifications()]).then(refreshStatus);
 } else {
   refreshStatus();
 }
 if (view !== "tooltip") {
   setInterval(refreshStatus, 30_000);
+  if (view === "floating") {
+    refreshNetworkSpeed();
+    setInterval(refreshNetworkSpeed, 2_000);
+  }
 } else {
   renderTooltip();
   window.winplate.onTooltipUpdate(renderTooltip);
