@@ -1,4 +1,4 @@
-const { app, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, clipboard, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const {
@@ -147,6 +147,14 @@ if (!gotLock) {
       if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
         shell.openExternal(url);
       }
+    });
+    ipcMain.handle("mail:open", async (_event, payload = {}) => {
+      const subject = typeof payload.subject === "string" ? payload.subject.trim() : "";
+      if (subject) {
+        clipboard.writeText(subject.slice(0, 160));
+      }
+      await shell.openExternal("https://mail.qq.com/");
+      return { opened: true };
     });
     ipcMain.handle("github:refresh", async () => {
       const response = await fetch("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });

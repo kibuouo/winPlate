@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("winplate", {
   getMailOutline: () => ipcRenderer.invoke("mail:get-outline"),
   refreshMailOutline: () => ipcRenderer.invoke("mail:refresh"),
   connectMail: () => ipcRenderer.invoke("mail:connect"),
+  openMail: (payload) => ipcRenderer.invoke("mail:open", payload),
   getNotifications: () => ipcRenderer.invoke("notifications:get"),
   markNotificationRead: (id) => ipcRenderer.invoke("notifications:mark-read", id),
   markAllNotificationsRead: () => ipcRenderer.invoke("notifications:mark-all-read"),

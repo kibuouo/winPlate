@@ -13,6 +13,7 @@ const iconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
 const CODEX_TOOLTIP_SIZE = { width: 232, height: 128 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
+const NETWORK_TOOLTIP_SIZE = { width: 244, height: 132 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 const NOTIFICATION_TOOLTIP_SIZE = { width: 320, height: 238 };
 let floatingPinned = false;
@@ -139,6 +140,8 @@ function showTooltipWindow({ anchor, data }) {
         ? { width: 292, height: 276 }
         : data.type === "notifications"
           ? NOTIFICATION_TOOLTIP_SIZE
+          : data.type === "network"
+            ? NETWORK_TOOLTIP_SIZE
         : SYSTEM_TOOLTIP_SIZE;
   let placement = "below";
   let x = Math.round(absoluteAnchor.x + 22);
@@ -256,20 +259,28 @@ function closeMainWindow() {
   mainWindow?.close();
 }
 
+function normalizeMainSection(section) {
+  return typeof section === "string" && section.trim()
+    ? section
+    : "Dashboard";
+}
+
 function showMainWindow(section = "Dashboard") {
+  const targetSection = normalizeMainSection(section);
+
   if (!mainWindow) {
     createMainWindow();
   }
 
   if (mainWindow.webContents.isLoading()) {
     mainWindow.__showWhenReady = true;
-    mainWindow.__pendingSection = section;
+    mainWindow.__pendingSection = targetSection;
     return;
   }
 
   mainWindow.show();
   mainWindow.focus();
-  mainWindow.webContents.send("main:navigate", section);
+  mainWindow.webContents.send("main:navigate", targetSection);
 }
 
 function showFloatingWindow() {

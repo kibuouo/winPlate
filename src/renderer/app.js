@@ -407,6 +407,32 @@ function networkSpeedLabel() {
   return `↓ ${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, true)}`;
 }
 
+function networkSpeedMarkup() {
+  return `<span class="network-speed-arrow">↓</span><span class="network-speed-value">${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, true)}</span>`;
+}
+
+function networkStatusKind(status, downloadBytesPerSecond = 0, uploadBytesPerSecond = 0) {
+  if (status === "获取失败" || status === "无连接") return "error";
+  if (status === "网络弱" || status === "延迟高" || status === "API 不稳定") return "warning";
+  const download = Number(downloadBytesPerSecond) || 0;
+  const upload = Number(uploadBytesPerSecond) || 0;
+  if (download < 1024 && upload < 1024) return "idle";
+  return "normal";
+}
+
+function syncNetworkModuleState(module) {
+  if (!module) return;
+  const kind = networkStatusKind(
+    networkSpeed.status,
+    networkSpeed.downloadBytesPerSecond,
+    networkSpeed.uploadBytesPerSecond
+  );
+  module.classList.toggle("is-idle", kind === "idle");
+  module.classList.toggle("is-warning", kind === "warning");
+  module.classList.toggle("is-error", kind === "error");
+  module.classList.toggle("network-error", kind === "error");
+}
+
 function updateProgressBars(root = document) {
   root.querySelectorAll("[data-progress-value]").forEach((fill) => {
     const value = normalizePercent(fill.dataset.progressValue) ?? 0;
@@ -675,6 +701,12 @@ const qweatherNavIcon = `
     <path d="M7.25 18.75h10a4 4 0 0 0 .45-7.97A5.75 5.75 0 0 0 7.08 9.3a4.75 4.75 0 0 0 .17 9.45Z"></path>
   </svg>`;
 
+const settingsNavIcon = `
+  <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.6 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 8.6a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"></path>
+  </svg>`;
+
 function weatherDateTime(now = new Date()) {
   const time = new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -777,7 +809,7 @@ function renderFloating() {
                 <strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
               <div class="module interactive-module network-module no-drag" id="network-module">
-                <span class="network-speed">${networkSpeedLabel()}</span>
+                <span class="network-speed">${networkSpeedMarkup()}</span>
               </div>
               <div class="right-controls no-drag">
                 <button class="pin-button" id="pin-button" aria-label="Pin floating window" title="Pin / click-through">
@@ -917,13 +949,14 @@ function renderFloating() {
   });
   bindSystemTooltip(networkModule, () => ({
     type: "network",
-    lines: networkSpeed.status === "获取失败"
-      ? ["网速获取失败"]
-      : [
-          `下载速度：${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, false)}`,
-          `上传速度：${formatNetworkSpeed(networkSpeed.uploadBytesPerSecond, false)}`,
-          `当前网络状态：${networkSpeed.status || "获取失败"}`
-        ]
+    status: networkSpeed.status || "获取失败",
+    statusKind: networkStatusKind(
+      networkSpeed.status,
+      networkSpeed.downloadBytesPerSecond,
+      networkSpeed.uploadBytesPerSecond
+    ),
+    download: formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, false),
+    upload: formatNetworkSpeed(networkSpeed.uploadBytesPerSecond, false)
   }));
 
   pinButton.addEventListener("click", async (event) => {
@@ -1116,6 +1149,33 @@ function renderTooltip(data = {}) {
               ${notificationIcon}
               <strong>暂无新通知</strong>
             </div>`}
+        </div>
+      </article>`;
+    return;
+  }
+
+  if (data.type === "network") {
+    const statusKind = ["normal", "warning", "error", "idle"].includes(data.statusKind)
+      ? data.statusKind
+      : "error";
+    appRoot.innerHTML = `
+      <article class="network-tooltip" role="tooltip" aria-label="网络状态">
+        <header class="network-tooltip-header">
+          <span class="network-label">网络状态</span>
+          <span class="network-status ${statusKind}">
+            <i class="network-status-dot" aria-hidden="true"></i>
+            <strong>${escapeHtml(data.status || "获取失败")}</strong>
+          </span>
+        </header>
+        <div class="network-row">
+          <span class="network-icon-download">↓</span>
+          <span class="network-label">下载速度</span>
+          <strong class="network-value network-value-download">${escapeHtml(data.download || "---")}</strong>
+        </div>
+        <div class="network-row">
+          <span class="network-icon-upload">↑</span>
+          <span class="network-label">上传速度</span>
+          <strong class="network-value network-value-upload">${escapeHtml(data.upload || "---")}</strong>
         </div>
       </article>`;
     return;
@@ -1337,7 +1397,7 @@ function mailItemCard(item) {
       <h2>${escapeHtml(item.subject)}</h2>
       <p>${escapeHtml(item.summary || item.snippet || "暂无可用摘要")}</p>
       <footer>
-        <b>${escapeHtml(item.action || "查看")}</b>
+        <button class="mail-open-button" type="button" data-mail-subject="${escapeHtml(item.subject)}">${escapeHtml(item.action || "查看")}</button>
         <div class="mail-labels">${mailLabelPills(item.labels || [])}</div>
       </footer>
     </article>`;
@@ -1681,7 +1741,7 @@ function renderMain() {
           <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i><span class="nav-label">${item}</span></button>`).join("")}</nav>
           <div class="sidebar-footer">
             <button class="sidebar-settings ${currentSection === "Settings" ? "active" : ""}" data-section="Settings" title="Settings" aria-label="设置">
-              <i>⚙</i>
+              <i>${settingsNavIcon}</i>
               <span class="nav-label">设置</span>
             </button>
           </div>
@@ -1831,7 +1891,7 @@ function updateFloatingStatusDom() {
                 <span class="heart-icon">♥</span><strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
               <div class="module interactive-module network-module no-drag" id="network-module">
-                <span class="network-speed">${networkSpeedLabel()}</span>
+                <span class="network-speed">${networkSpeedMarkup()}</span>
               </div>
               <div class="right-controls no-drag">${shell.querySelector(".right-controls")?.innerHTML || ""}</div>
             </div>
@@ -1866,12 +1926,10 @@ async function refreshNetworkSpeed() {
   if (view === "floating") {
     const label = document.querySelector("#network-module .network-speed");
     if (label) {
-      label.textContent = networkSpeedLabel();
+      label.innerHTML = networkSpeedMarkup();
     }
     const module = document.querySelector("#network-module");
-    if (module) {
-      module.classList.toggle("network-error", networkSpeed.status && networkSpeed.status !== "正常" && networkSpeed.status !== "获取中");
-    }
+    syncNetworkModuleState(module);
   }
 }
 
@@ -1896,6 +1954,20 @@ function bindQWeatherUsageControls() {
 }
 
 function bindMailControls() {
+  document.querySelectorAll(".mail-open-button").forEach((button) => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await window.winplate.openMail({
+          subject: button.dataset.mailSubject || ""
+        });
+      } catch (error) {
+        console.error("Failed to open mail:", error);
+      } finally {
+        button.disabled = false;
+      }
+    };
+  });
   const form = document.querySelector("#mail-settings-form");
   if (form) {
     const addressInput = form.querySelector("#qq-mail-address");
