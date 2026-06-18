@@ -252,26 +252,33 @@ if (!gotLock) {
       fetchJsonCached("Mail settings", "http://127.0.0.1:8765/api/mail/settings", MAIL_CACHE_TTL_MS)
     ));
     ipcMain.handle("mail:save-settings", async (_event, settings) => {
-      const clientId = typeof settings?.clientId === "string" ? settings.clientId.trim() : "";
-      const clientSecret = typeof settings?.clientSecret === "string" ? settings.clientSecret.trim() : "";
-      if (!clientId || !/^[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(clientId)) {
-        throw new Error("Gmail Client ID 格式无效");
+      const address = typeof settings?.address === "string" ? settings.address.trim() : "";
+      const authCode = typeof settings?.authCode === "string" ? settings.authCode.trim() : "";
+      if (!address || !/^[^@\s]+@qq\.com$/i.test(address)) {
+        throw new Error("QQ 邮箱地址格式无效");
       }
-      if (!clientSecret) {
-        throw new Error("Gmail Client Secret 不能为空");
+      if (!authCode) {
+        throw new Error("QQ 邮箱授权码不能为空");
       }
       await Promise.all([
-        writeUserEnvironment("GMAIL_CLIENT_ID", clientId),
-        writeUserEnvironment("GMAIL_CLIENT_SECRET", clientSecret)
+        writeUserEnvironment("QQ_MAIL_ADDRESS", address),
+        writeUserEnvironment("QQ_MAIL_AUTH_CODE", authCode),
+        writeUserEnvironment("QQ_MAIL_IMAP_HOST", "imap.qq.com"),
+        writeUserEnvironment("QQ_MAIL_IMAP_PORT", "993"),
+        writeUserEnvironment("QQ_MAIL_SMTP_HOST", "smtp.qq.com"),
+        writeUserEnvironment("QQ_MAIL_SMTP_PORT", "465")
       ]);
       responseCaches.delete("Mail settings");
       responseCaches.delete("Mail outline");
       return {
         configured: true,
-        connected: false,
-        scope: "https://www.googleapis.com/auth/gmail.readonly",
-        query: "in:inbox newer_than:30d -in:spam -in:trash",
+        connected: true,
+        address,
+        protocol: "IMAP",
+        query: "IMAP INBOX SINCE 30 days",
         windowDays: 30,
+        imap: { host: "imap.qq.com", port: 993, secure: true },
+        smtp: { host: "smtp.qq.com", port: 465, secure: true },
         updatedAt: null
       };
     });
@@ -290,17 +297,15 @@ if (!gotLock) {
       return outline;
     });
     ipcMain.handle("mail:connect", async () => {
-      const response = await fetch("http://127.0.0.1:8765/api/mail/oauth/start", { method: "POST" });
+      const response = await fetch("http://127.0.0.1:8765/api/mail/connect", { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail || `Mail OAuth failed: HTTP ${response.status}`);
+        throw new Error(payload?.detail || `QQ 邮箱连接失败: HTTP ${response.status}`);
       }
       const payload = await response.json();
-      if (!/^https:\/\/accounts\.google\.com\//.test(payload.authorizationUrl || "")) {
-        throw new Error("Mail OAuth returned an invalid authorization URL");
-      }
-      await shell.openExternal(payload.authorizationUrl);
-      return { opened: true };
+      responseCaches.delete("Mail settings");
+      responseCaches.delete("Mail outline");
+      return payload;
     });
     ipcMain.handle("notifications:get", () => (
       fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)

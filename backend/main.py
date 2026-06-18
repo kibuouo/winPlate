@@ -1,9 +1,9 @@
 import gzip
-import base64
-import secrets
+import imaplib
 import json
 import os
 import re
+import email.utils
 import sqlite3
 import threading
 import time
@@ -12,6 +12,9 @@ from contextlib import closing
 from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from email import message_from_bytes, policy
+from email.header import decode_header, make_header
+from email.message import Message
 from html import escape, unescape
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -23,7 +26,6 @@ import jwt
 from uvicorn.config import LOGGING_CONFIG
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 
@@ -39,15 +41,16 @@ QWEATHER_CACHE_SECONDS = 600
 QWEATHER_MONTHLY_LIMIT = 50000
 _weather_cache: dict[str, tuple[float, dict]] = {}
 _weather_cache_lock = threading.Lock()
-GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-GMAIL_QUERY = "in:inbox newer_than:30d -in:spam -in:trash"
-GMAIL_MAX_RESULTS = 20
-GMAIL_CANDIDATE_RESULTS = 50
-GMAIL_OAUTH_REDIRECT_URI = "http://127.0.0.1:8765/api/mail/oauth/callback"
-GMAIL_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GMAIL_API_URL = "https://gmail.googleapis.com/gmail/v1"
-GMAIL_TOKEN_REFRESH_SKEW_SECONDS = 60
+MAIL_QUERY = "IMAP INBOX SINCE 30 days"
+MAIL_WINDOW_DAYS = 30
+MAIL_MAX_RESULTS = 20
+MAIL_CANDIDATE_RESULTS = 50
+QQ_IMAP_HOST = "imap.qq.com"
+QQ_IMAP_PORT = 993
+QQ_IMAP_SECURE = True
+QQ_SMTP_HOST = "smtp.qq.com"
+QQ_SMTP_PORT = 465
+QQ_SMTP_SECURE = True
 
 
 def build_log_config() -> dict:
@@ -130,63 +133,23 @@ def utc_epoch_seconds() -> int:
     return int(time.time())
 
 
-def gmail_client_config() -> tuple[str | None, str | None]:
-    return (
-        environment_setting("GMAIL_CLIENT_ID"),
-        environment_setting("GMAIL_CLIENT_SECRET"),
-    )
-
-
-def gmail_configured() -> bool:
-    client_id, client_secret = gmail_client_config()
-    return bool(client_id and client_secret)
-
-
-def save_gmail_oauth_state(state: str, now: int | None = None) -> None:
-    current = now or utc_epoch_seconds()
-    with closing(connect()) as connection:
-        connection.execute(
-            "DELETE FROM gmail_oauth_states WHERE created_at < ?",
-            (current - 600,),
-        )
-        connection.execute(
-            "INSERT OR REPLACE INTO gmail_oauth_states (state, created_at) VALUES (?, ?)",
-            (state, current),
-        )
-        connection.commit()
-
-
-def consume_gmail_oauth_state(state: str, now: int | None = None) -> bool:
-    current = now or utc_epoch_seconds()
-    with closing(connect()) as connection:
-        row = connection.execute(
-            "SELECT created_at FROM gmail_oauth_states WHERE state = ?",
-            (state,),
-        ).fetchone()
-        connection.execute("DELETE FROM gmail_oauth_states WHERE state = ?", (state,))
-        connection.execute(
-            "DELETE FROM gmail_oauth_states WHERE created_at < ?",
-            (current - 600,),
-        )
-        connection.commit()
-    return bool(row and current - int(row["created_at"]) <= 600)
-
-
-def build_gmail_authorization_url(state: str) -> str:
-    client_id, _client_secret = gmail_client_config()
-    if not client_id:
-        raise RuntimeError("GMAIL_CLIENT_ID is not configured")
-    params = {
-        "client_id": client_id,
-        "redirect_uri": GMAIL_OAUTH_REDIRECT_URI,
-        "response_type": "code",
-        "scope": GMAIL_SCOPE,
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": state,
-        "include_granted_scopes": "true",
+def qq_mail_config() -> dict:
+    return {
+        "address": environment_setting("QQ_MAIL_ADDRESS"),
+        "authCode": environment_setting("QQ_MAIL_AUTH_CODE"),
+        "protocol": "IMAP",
+        "imapHost": environment_setting("QQ_MAIL_IMAP_HOST", QQ_IMAP_HOST),
+        "imapPort": int(environment_setting("QQ_MAIL_IMAP_PORT", str(QQ_IMAP_PORT)) or QQ_IMAP_PORT),
+        "imapSecure": QQ_IMAP_SECURE,
+        "smtpHost": environment_setting("QQ_MAIL_SMTP_HOST", QQ_SMTP_HOST),
+        "smtpPort": int(environment_setting("QQ_MAIL_SMTP_PORT", str(QQ_SMTP_PORT)) or QQ_SMTP_PORT),
+        "smtpSecure": QQ_SMTP_SECURE,
     }
-    return f"{GMAIL_AUTH_URL}?{urlencode(params)}"
+
+
+def mail_configured() -> bool:
+    config = qq_mail_config()
+    return bool(config["address"] and config["authCode"])
 
 
 def json_request(url: str, data: dict[str, str] | None = None, headers: dict[str, str] | None = None, timeout: int = 10) -> dict:
@@ -214,181 +177,68 @@ def json_request(url: str, data: dict[str, str] | None = None, headers: dict[str
     return payload
 
 
-def exchange_gmail_code(code: str) -> dict:
-    client_id, client_secret = gmail_client_config()
-    if not client_id or not client_secret:
-        raise RuntimeError("Gmail OAuth client is not configured")
-    payload = json_request(
-        GMAIL_TOKEN_URL,
-        {
-            "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": GMAIL_OAUTH_REDIRECT_URI,
-            "grant_type": "authorization_code",
-        },
-    )
-    if not payload.get("access_token"):
-        raise RuntimeError("OAuth token response did not include an access token")
-    return payload
-
-
-def save_gmail_token(payload: dict, now: int | None = None) -> None:
-    current = now or utc_epoch_seconds()
-    expires_in = int(payload.get("expires_in") or 3600)
-    with closing(connect()) as connection:
-        existing = connection.execute(
-            "SELECT refresh_token FROM gmail_oauth_tokens WHERE account = 'me'"
-        ).fetchone()
-        refresh_token = payload.get("refresh_token") or (existing["refresh_token"] if existing else None)
-        connection.execute(
-            """
-            INSERT INTO gmail_oauth_tokens (account, access_token, refresh_token, expires_at, scope, updated_at)
-            VALUES ('me', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(account) DO UPDATE SET
-                access_token = excluded.access_token,
-                refresh_token = excluded.refresh_token,
-                expires_at = excluded.expires_at,
-                scope = excluded.scope,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                str(payload["access_token"]),
-                refresh_token,
-                current + expires_in,
-                str(payload.get("scope") or GMAIL_SCOPE),
-            ),
-        )
-        connection.commit()
-
-
-def read_gmail_token() -> dict | None:
-    with closing(connect()) as connection:
-        row = connection.execute(
-            "SELECT access_token, refresh_token, expires_at, scope, updated_at FROM gmail_oauth_tokens WHERE account = 'me'"
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def refresh_gmail_access_token(refresh_token: str) -> dict:
-    client_id, client_secret = gmail_client_config()
-    if not client_id or not client_secret:
-        raise RuntimeError("Gmail OAuth client is not configured")
-    payload = json_request(
-        GMAIL_TOKEN_URL,
-        {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        },
-    )
-    payload["refresh_token"] = refresh_token
-    return payload
-
-
-def gmail_access_token() -> str:
-    token = read_gmail_token()
-    if not token:
-        raise RuntimeError("Gmail is not connected")
-    if int(token["expires_at"]) - GMAIL_TOKEN_REFRESH_SKEW_SECONDS <= utc_epoch_seconds():
-        refresh_token = token.get("refresh_token")
-        if not refresh_token:
-            raise RuntimeError("Gmail refresh token is unavailable; reconnect Gmail")
-        payload = refresh_gmail_access_token(str(refresh_token))
-        save_gmail_token(payload)
-        token = read_gmail_token()
-    if not token:
-        raise RuntimeError("Gmail token is unavailable")
-    return str(token["access_token"])
-
-
-def gmail_api_get(path: str, params: dict[str, str | int] | None = None) -> dict:
-    token = gmail_access_token()
-    query = f"?{urlencode(params or {})}" if params else ""
-    return json_request(
-        f"{GMAIL_API_URL}{path}{query}",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=12,
-    )
-
-
-def gmail_settings() -> dict:
-    token = read_gmail_token()
+def mail_settings() -> dict:
+    config = qq_mail_config()
+    configured = mail_configured()
     return {
-        "configured": gmail_configured(),
-        "connected": bool(token),
-        "scope": token.get("scope") if token else GMAIL_SCOPE,
-        "query": GMAIL_QUERY,
-        "windowDays": 30,
-        "updatedAt": token.get("updated_at") if token else None,
+        "configured": configured,
+        "connected": configured,
+        "address": config["address"] if configured else "",
+        "protocol": config["protocol"],
+        "query": MAIL_QUERY,
+        "windowDays": MAIL_WINDOW_DAYS,
+        "imap": {
+            "host": config["imapHost"],
+            "port": config["imapPort"],
+            "secure": config["imapSecure"],
+        },
+        "smtp": {
+            "host": config["smtpHost"],
+            "port": config["smtpPort"],
+            "secure": config["smtpSecure"],
+        },
+        "updatedAt": None,
     }
 
 
-def gmail_oauth_start() -> dict:
-    if not gmail_configured():
-        raise RuntimeError("请先配置 GMAIL_CLIENT_ID 和 GMAIL_CLIENT_SECRET")
-    state = secrets.token_urlsafe(24)
-    save_gmail_oauth_state(state)
-    return {"authorizationUrl": build_gmail_authorization_url(state)}
-
-
-def gmail_oauth_callback_html(code: str | None, state: str | None, error: str | None = None) -> str:
-    if error:
-        title = "Gmail 连接失败"
-        message = error
-    else:
-        try:
-            if not code or not state or not consume_gmail_oauth_state(state):
-                raise RuntimeError("OAuth state 无效或已过期，请回到 WinPlate 重新连接")
-            save_gmail_token(exchange_gmail_code(code))
-            title = "Gmail 已连接"
-            message = "你可以关闭这个页面并回到 WinPlate 刷新 Mail 板块。"
-        except RuntimeError as oauth_error:
-            title = "Gmail 连接失败"
-            message = str(oauth_error)
-    return f"""<!doctype html>
-<html lang="zh-CN">
-  <head><meta charset="utf-8"><title>{escape(title)}</title></head>
-  <body style="font-family: system-ui, sans-serif; padding: 32px;">
-    <h1>{escape(title)}</h1>
-    <p>{escape(message)}</p>
-  </body>
-</html>"""
-
-
-def header_value(headers: list[dict], name: str, default: str = "") -> str:
-    for header in headers:
-        if str(header.get("name", "")).lower() == name.lower():
-            return str(header.get("value") or default)
-    return default
-
-
-def decode_gmail_body(data: str | None) -> str:
-    if not data:
-        return ""
+def qq_imap_connection(config: dict | None = None) -> imaplib.IMAP4_SSL:
+    mail_config = config or qq_mail_config()
+    address = mail_config.get("address")
+    auth_code = mail_config.get("authCode")
+    if not address or not auth_code:
+        raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
     try:
-        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", "replace")
-    except (ValueError, UnicodeDecodeError):
-        return ""
+        connection = imaplib.IMAP4_SSL(
+            str(mail_config.get("imapHost") or QQ_IMAP_HOST),
+            int(mail_config.get("imapPort") or QQ_IMAP_PORT),
+            timeout=12,
+        )
+        connection.login(str(address), str(auth_code))
+        return connection
+    except (imaplib.IMAP4.error, OSError, TimeoutError) as error:
+        raise RuntimeError(f"QQ 邮箱 IMAP 连接失败：{error}") from error
 
 
-def first_text_part(payload: dict | None) -> str:
-    if not isinstance(payload, dict):
-        return ""
-    mime_type = payload.get("mimeType")
-    if mime_type in {"text/plain", "text/html"}:
-        return decode_gmail_body(payload.get("body", {}).get("data"))
-    for part in payload.get("parts") or []:
-        text = first_text_part(part)
-        if text:
-            return text
-    return ""
+def connect_qq_mail() -> dict:
+    connection = qq_imap_connection()
+    try:
+        connection.select("INBOX", readonly=True)
+    finally:
+        try:
+            connection.logout()
+        except imaplib.IMAP4.error:
+            pass
+    return {"connected": True, **mail_settings()}
 
 
 def clean_mail_text(value: str, limit: int = 220) -> str:
     text = unescape(re.sub(r"<[^>]+>", " ", value or ""))
     text = re.sub(r"\s+", " ", text).strip()
+    return text[:limit].rstrip()
+
+
+def clean_mail_header_text(value: str, limit: int = 220) -> str:
+    text = unescape(re.sub(r"\s+", " ", value or "")).strip()
     return text[:limit].rstrip()
 
 
@@ -403,27 +253,68 @@ def classify_mail_action(subject: str, snippet: str, label_ids: list[str]) -> st
     return "归档参考"
 
 
-def parse_gmail_message(message: dict) -> dict:
-    payload = message.get("payload") if isinstance(message, dict) else {}
-    headers = payload.get("headers", []) if isinstance(payload, dict) else []
-    label_ids = [str(label) for label in message.get("labelIds", [])] if isinstance(message, dict) else []
-    snippet = clean_mail_text(str(message.get("snippet") or ""))
-    body_text = clean_mail_text(first_text_part(payload), limit=220)
-    summary_source = snippet or body_text
-    summary = summary_source if summary_source else "暂无可用摘要"
-    subject = clean_mail_text(header_value(headers, "Subject", "(无主题)"), limit=160) or "(无主题)"
-    sender = clean_mail_text(header_value(headers, "From", "Unknown sender"), limit=160) or "Unknown sender"
+def decode_mail_header(value: str | None, default: str = "") -> str:
+    if not value:
+        return default
     try:
-        sent_at = int(message.get("internalDate") or 0)
-    except (TypeError, ValueError):
+        return str(make_header(decode_header(str(value))))
+    except (UnicodeDecodeError, ValueError, LookupError):
+        return value
+
+
+def extract_message_text(message: Message, limit: int = 220) -> str:
+    if message.is_multipart():
+        for part in message.walk():
+            content_type = part.get_content_type()
+            disposition = str(part.get("Content-Disposition") or "").lower()
+            if content_type in {"text/plain", "text/html"} and "attachment" not in disposition:
+                text = extract_message_text(part, limit)
+                if text:
+                    return text
+        return ""
+    try:
+        payload = message.get_content()
+    except (KeyError, LookupError, UnicodeDecodeError):
+        payload_bytes = message.get_payload(decode=True) or b""
+        charset = message.get_content_charset() or "utf-8"
+        payload = payload_bytes.decode(charset, "replace")
+    return clean_mail_text(str(payload), limit=limit)
+
+
+def parse_imap_message(uid: str, raw_message: bytes, flags: list[str] | None = None) -> dict:
+    message = message_from_bytes(raw_message, policy=policy.default)
+    label_ids = ["INBOX"]
+    normalized_flags = {flag.upper() for flag in (flags or [])}
+    if "\\SEEN" not in normalized_flags:
+        label_ids.append("UNREAD")
+    subject = clean_mail_text(decode_mail_header(message.get("Subject"), "(无主题)"), limit=160) or "(无主题)"
+    from_value = message.get("From")
+    if hasattr(from_value, "addresses") and from_value.addresses:
+        first_address = from_value.addresses[0]
+        display_name = first_address.display_name
+        address = first_address.addr_spec
+        from_header = f"{display_name} <{address}>".strip() if display_name else address
+    else:
+        from_header = str(from_value or "Unknown sender")
+        display_name, address = email.utils.parseaddr(from_header)
+    sender = clean_mail_header_text(f"{display_name} <{address}>".strip() if display_name else address or from_header, limit=160) or "Unknown sender"
+    summary = extract_message_text(message, limit=220) or "暂无可用摘要"
+    sent_at = 0
+    try:
+        sent_datetime = email.utils.parsedate_to_datetime(message.get("Date"))
+        if sent_datetime:
+            if sent_datetime.tzinfo is None:
+                sent_datetime = sent_datetime.replace(tzinfo=timezone.utc)
+            sent_at = int(sent_datetime.timestamp() * 1000)
+    except (TypeError, ValueError, OverflowError):
         sent_at = 0
     return {
-        "messageId": str(message.get("id") or ""),
-        "threadId": str(message.get("threadId") or ""),
+        "messageId": uid,
+        "threadId": uid,
         "sender": sender,
         "subject": subject,
         "sentAt": sent_at,
-        "snippet": snippet,
+        "snippet": summary,
         "summary": summary,
         "action": classify_mail_action(subject, summary, label_ids),
         "labels": label_ids,
@@ -550,7 +441,7 @@ def sync_mail_notifications(items: list[dict]) -> None:
             message=str(item.get("sender") or item.get("summary") or ""),
             created_at=int(item.get("sentAt") or 0) or None,
             external_url=(
-                f"https://mail.google.com/mail/u/0/#inbox/{item.get('threadId')}"
+                "https://mail.qq.com/"
                 if item.get("threadId") else None
             ),
         )
@@ -625,7 +516,7 @@ def cached_mail_outline() -> list[dict]:
             ORDER BY sent_at DESC
             LIMIT ?
             """,
-            (GMAIL_MAX_RESULTS,),
+            (MAIL_MAX_RESULTS,),
         ).fetchall()
     items = []
     for row in rows:
@@ -648,78 +539,105 @@ def cached_mail_outline() -> list[dict]:
     return items
 
 
-def read_mail_outline_from_gmail() -> list[dict]:
-    messages_payload = gmail_api_get(
-        "/users/me/messages",
-        {"q": GMAIL_QUERY, "maxResults": GMAIL_CANDIDATE_RESULTS},
-    )
-    candidates = messages_payload.get("messages") or []
-    outlines = []
-    seen_threads = set()
-    for candidate in candidates:
-        message_id = candidate.get("id") if isinstance(candidate, dict) else None
-        if not message_id:
-            continue
-        message = gmail_api_get(
-            f"/users/me/messages/{quote(str(message_id), safe='')}",
-            {
-                "format": "full",
-                "metadataHeaders": "From",
-            },
-        )
-        outline = parse_gmail_message(message)
-        thread_id = outline["threadId"]
-        if thread_id and thread_id in seen_threads:
-            continue
-        if thread_id:
-            seen_threads.add(thread_id)
-        outlines.append(outline)
-        if len(outlines) >= GMAIL_MAX_RESULTS:
-            break
+def imap_ids(payload: list[bytes]) -> list[str]:
+    if not payload or not payload[0]:
+        return []
+    return [item.decode("ascii", "ignore") for item in payload[0].split() if item]
+
+
+def parse_imap_flags(fetch_header: bytes) -> list[str]:
+    match = re.search(rb"FLAGS \(([^)]*)\)", fetch_header or b"")
+    if not match:
+        return []
+    return [flag.decode("ascii", "ignore") for flag in match.group(1).split()]
+
+
+def read_mail_outline_from_qq() -> tuple[list[dict], int]:
+    since = datetime.fromtimestamp(utc_epoch_seconds() - MAIL_WINDOW_DAYS * 86400).strftime("%d-%b-%Y")
+    connection = qq_imap_connection()
+    try:
+        status, _ = connection.select("INBOX", readonly=True)
+        if status != "OK":
+            raise RuntimeError("QQ 邮箱 INBOX 打开失败")
+        _unread_status, unread_payload = connection.uid("SEARCH", None, "UNSEEN")
+        unread_count = len(imap_ids(unread_payload))
+        _search_status, search_payload = connection.uid("SEARCH", None, "SINCE", since)
+        candidates = imap_ids(search_payload)[-MAIL_CANDIDATE_RESULTS:]
+        candidates.reverse()
+        outlines = []
+        for uid in candidates:
+            status, fetched = connection.uid("FETCH", uid, "(RFC822 FLAGS)")
+            if status != "OK":
+                continue
+            raw_message = None
+            flags = []
+            for part in fetched:
+                if isinstance(part, tuple):
+                    flags = parse_imap_flags(part[0])
+                    raw_message = part[1]
+                    break
+            if not raw_message:
+                continue
+            outlines.append(parse_imap_message(uid, raw_message, flags))
+            if len(outlines) >= MAIL_MAX_RESULTS:
+                break
+    except (imaplib.IMAP4.error, OSError, TimeoutError) as error:
+        raise RuntimeError(f"QQ 邮箱 IMAP 读取失败：{error}") from error
+    finally:
+        try:
+            connection.logout()
+        except imaplib.IMAP4.error:
+            pass
     outlines.sort(key=lambda item: item.get("sentAt", 0), reverse=True)
-    return outlines
+    return outlines, unread_count
 
 
 def mail_outline(force: bool = False) -> dict:
-    if not gmail_configured():
+    if not mail_configured():
         return {
             "source": "unconfigured",
             "availability": "unconfigured",
-            "query": GMAIL_QUERY,
-            "windowDays": 30,
+            "query": MAIL_QUERY,
+            "windowDays": MAIL_WINDOW_DAYS,
             "items": cached_mail_outline(),
             "updatedAt": None,
-            "error": "Gmail OAuth client is not configured",
+            "unreadCount": 0,
+            "error": "请先配置 QQ 邮箱地址和授权码",
         }
-    if not read_gmail_token():
-        return {
-            "source": "unconnected",
-            "availability": "unconnected",
-            "query": GMAIL_QUERY,
-            "windowDays": 30,
-            "items": cached_mail_outline(),
-            "updatedAt": None,
-        }
+    if not force:
+        cached = cached_mail_outline()
+        if cached:
+            return {
+                "source": "qq-mail-cache",
+                "availability": "cached",
+                "query": MAIL_QUERY,
+                "windowDays": MAIL_WINDOW_DAYS,
+                "items": cached,
+                "unreadCount": None,
+                "updatedAt": max((item.get("cachedAt", 0) for item in cached), default=None),
+            }
     try:
-        items = read_mail_outline_from_gmail()
+        items, unread_count = read_mail_outline_from_qq()
         persist_mail_outline(items)
         sync_mail_notifications(items)
         return {
-            "source": "gmail",
+            "source": "qq-mail",
             "availability": "live",
-            "query": GMAIL_QUERY,
-            "windowDays": 30,
+            "query": MAIL_QUERY,
+            "windowDays": MAIL_WINDOW_DAYS,
             "items": items,
+            "unreadCount": unread_count,
             "updatedAt": utc_epoch_seconds() * 1000,
         }
     except RuntimeError as error:
         cached = cached_mail_outline()
         return {
-            "source": "gmail-cache" if cached else "unavailable",
+            "source": "qq-mail-cache" if cached else "unavailable",
             "availability": "cached" if cached else "unavailable",
-            "query": GMAIL_QUERY,
-            "windowDays": 30,
+            "query": MAIL_QUERY,
+            "windowDays": MAIL_WINDOW_DAYS,
             "items": cached,
+            "unreadCount": None,
             "updatedAt": max((item.get("cachedAt", 0) for item in cached), default=None),
             "error": str(error),
         }
@@ -758,26 +676,6 @@ def initialize_database() -> None:
             CREATE TABLE IF NOT EXISTS qweather_usage_daily (
                 day TEXT PRIMARY KEY,
                 request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS gmail_oauth_tokens (
-                account TEXT PRIMARY KEY,
-                access_token TEXT NOT NULL,
-                refresh_token TEXT,
-                expires_at INTEGER NOT NULL,
-                scope TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS gmail_oauth_states (
-                state TEXT PRIMARY KEY,
-                created_at INTEGER NOT NULL
             )
             """
         )
@@ -930,15 +828,15 @@ def qweather_request(path: str, params: dict[str, str]) -> dict:
     record_qweather_request()
     try:
         with urlopen(request, timeout=10) as response:
-            body = response.read()
-            if response.headers.get("Content-Encoding", "").lower() == "gzip" or body.startswith(b"\x1f\x8b"):
-                body = gzip.decompress(body)
-            payload = json.loads(body.decode("utf-8"))
+            payload = _decode_qweather_json(
+                response.read(),
+                getattr(response, "headers", {}).get("Content-Encoding", ""),
+            )
     except HTTPError as error:
         raise RuntimeError(f"QWeather API returned HTTP {error.code}") from error
     except (URLError, TimeoutError) as error:
         raise RuntimeError(f"QWeather API unavailable: {error}") from error
-    except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise RuntimeError(f"QWeather API returned an invalid response: {error}") from error
     if not isinstance(payload, dict) or payload.get("code") != "200":
         code = payload.get("code", "invalid response") if isinstance(payload, dict) else "invalid response"
@@ -953,26 +851,10 @@ def record_qweather_request(now: datetime | None = None) -> None:
     with closing(connect()) as connection:
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS qweather_usage (
-                month TEXT PRIMARY KEY,
-                request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        connection.execute(
-            """
             INSERT INTO qweather_usage (month, request_count) VALUES (?, 1)
             ON CONFLICT(month) DO UPDATE SET request_count = request_count + 1
             """,
             (month,),
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS qweather_usage_daily (
-                day TEXT PRIMARY KEY,
-                request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
         )
         connection.execute(
             """
@@ -989,26 +871,10 @@ def qweather_usage(now: datetime | None = None) -> dict:
     month = current.strftime("%Y-%m")
     day = current.strftime("%Y-%m-%d")
     with closing(connect()) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS qweather_usage (
-                month TEXT PRIMARY KEY,
-                request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
         row = connection.execute(
             "SELECT request_count FROM qweather_usage WHERE month = ?",
             (month,),
         ).fetchone()
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS qweather_usage_daily (
-                day TEXT PRIMARY KEY,
-                request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
         daily_row = connection.execute(
             "SELECT request_count FROM qweather_usage_daily WHERE day = ?",
             (day,),
@@ -1211,13 +1077,15 @@ def weather_status(location: str | None = None, force: bool = False) -> dict:
     return data
 
 
-def persist_weather_location(latitude: float, longitude: float) -> None:
+def persist_weather_location(latitude: float, longitude: float, display_location: str | None = None) -> None:
     payload = {
         "latitude": latitude,
         "longitude": longitude,
         "query": f"{longitude:.6f},{latitude:.6f}",
         "updatedAt": utc_epoch_seconds() * 1000,
     }
+    if display_location:
+        payload["displayLocation"] = display_location
     with closing(connect()) as connection:
         connection.execute(
             """
@@ -1247,7 +1115,22 @@ def read_weather_location() -> dict | None:
     longitude = payload.get("longitude")
     if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
         return None
-    return {"latitude": float(latitude), "longitude": float(longitude)}
+    result = {"latitude": float(latitude), "longitude": float(longitude)}
+    display_location = clean_mail_text(str(payload.get("displayLocation") or ""), limit=80)
+    if display_location:
+        result["displayLocation"] = display_location
+    return result
+
+
+def localized_weather_alert_title(title: str, display_location: str | None = None) -> str:
+    safe_title = clean_mail_text(title, limit=180) or "天气预警"
+    safe_location = clean_mail_text(str(display_location or ""), limit=80)
+    if not safe_location or safe_location in safe_title:
+        return safe_title
+    primary_location = safe_location.split(",", 1)[0].strip()
+    if primary_location and primary_location in safe_title:
+        return safe_title
+    return clean_mail_text(f"{safe_location}：{safe_title}", limit=180)
 
 
 def qweather_alerts(latitude: float | None = None, longitude: float | None = None) -> dict:
@@ -1259,6 +1142,7 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         location = stored
     lat = float(location["latitude"])
     lon = float(location["longitude"])
+    display_location = str(location.get("displayLocation") or "").strip()
     if not -90 <= lat <= 90 or not -180 <= lon <= 180:
         raise RuntimeError("Invalid weather alert coordinates")
     payload = qweather_jwt_request(f"/weatheralert/v1/current/{lat:.2f}/{lon:.2f}", None)
@@ -1270,7 +1154,10 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         if not isinstance(alert, dict):
             continue
         alert_id = str(alert.get("id") or alert.get("alertId") or alert.get("identifier") or "")
-        title = clean_mail_text(str(alert.get("headline") or alert.get("title") or "天气预警"), limit=180)
+        title = localized_weather_alert_title(
+            str(alert.get("headline") or alert.get("title") or "天气预警"),
+            display_location,
+        )
         message = clean_mail_text(str(alert.get("description") or alert.get("text") or ""), limit=360)
         severity = str(alert.get("severity") or alert.get("color") or "warning").lower()
         level = "critical" if severity in {"red", "extreme", "severe"} else "warning"
@@ -1608,9 +1495,11 @@ def refresh_weather(location: WeatherLocation | None = None) -> dict:
         if location:
             if not -90 <= location.latitude <= 90 or not -180 <= location.longitude <= 180:
                 raise HTTPException(status_code=422, detail="Invalid coordinates")
-            persist_weather_location(location.latitude, location.longitude)
             query = f"{location.longitude:.6f},{location.latitude:.6f}"
-        return weather_status(query, force=True)
+        data = weather_status(query, force=True)
+        if location:
+            persist_weather_location(location.latitude, location.longitude, data.get("location"))
+        return data
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
@@ -1638,20 +1527,15 @@ def get_weather_alerts() -> dict:
 
 @api.get("/api/mail/settings")
 def get_mail_settings() -> dict:
-    return gmail_settings()
+    return mail_settings()
 
 
-@api.post("/api/mail/oauth/start")
-def start_mail_oauth() -> dict:
+@api.post("/api/mail/connect")
+def connect_mail() -> dict:
     try:
-        return gmail_oauth_start()
+        return connect_qq_mail()
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-
-
-@api.get("/api/mail/oauth/callback", response_class=HTMLResponse)
-def mail_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> str:
-    return gmail_oauth_callback_html(code, state, error)
 
 
 @api.get("/api/mail/outline")

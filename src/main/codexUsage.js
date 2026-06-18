@@ -49,6 +49,8 @@ function parseWindow(lines, labelPattern, fallbackLine) {
   };
 }
 
+// Legacy parser kept for older `codex status` text output tests.
+// Runtime usage now reads JSON rate limits from `codex app-server`.
 function parseCodexStatus(text) {
   const plain = stripAnsi(text)
     .replace(/\r/g, "")

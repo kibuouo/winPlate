@@ -1154,6 +1154,14 @@ function qweatherServiceCard(official, failures) {
     </article>`;
 }
 
+function heartCard() {
+  return `
+    <article class="dashboard-card heart-card">
+      <div class="card-icon">♥</div><span>Heart Rate</span>
+      <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
+    </article>`;
+}
+
 function dashboardContributionMonth(github) {
   const lastMonth = github.contributionMonths?.[github.contributionMonths.length - 1];
   const label = lastMonth?.label || github.contributionMonth;
@@ -1341,9 +1349,9 @@ function mailContent() {
     ? `<div class="mail-state-notice state-${escapeHtml(mailOutline.availability)}">${escapeHtml(mailOutline.error)}</div>`
     : "";
   const emptyMessage = mailOutline.availability === "unconnected"
-    ? "请先连接 Gmail，连接后会读取最近 30 天收件箱邮件大纲。"
+    ? "请先连接 QQ 邮箱，连接后会读取最近 30 天收件箱邮件大纲。"
     : mailOutline.availability === "unconfigured"
-      ? "请先配置 GMAIL_CLIENT_ID 和 GMAIL_CLIENT_SECRET。"
+      ? "请先配置 QQ 邮箱地址和授权码。"
       : "最近 30 天收件箱暂无可展示邮件。";
   const list = items.length
     ? `<div class="mail-outline-list">${items.map(mailItemCard).join("")}</div>`
@@ -1353,7 +1361,7 @@ function mailContent() {
       <div class="mail-page-heading">
         <div><p>MAIL</p><h1>邮件大纲</h1><span>最近 ${mailOutline.windowDays || mailSettings.windowDays || 30} 天收件箱摘要。</span></div>
         <div class="mail-actions">
-          <button class="mail-connect-button" id="connect-gmail" type="button">${mailSettings.connected ? "重新连接" : "连接 Gmail"}</button>
+          <button class="mail-connect-button" id="connect-mail" type="button">${mailSettings.connected ? "重新连接" : "连接 QQ 邮箱"}</button>
           <button
             class="refresh-button mail-refresh-button ${mailRefreshInFlight ? "refreshing" : ""}"
             id="refresh-mail"
@@ -1368,7 +1376,7 @@ function mailContent() {
       </div>
       <div class="mail-status-bar">
         <span class="mail-status-pill state-${escapeHtml(mailOutline.availability)}">${mailStatusLabel()}</span>
-        <span>${escapeHtml(mailOutline.query || "in:inbox newer_than:30d -in:spam -in:trash")}</span>
+        <span>${escapeHtml(mailOutline.query || "IMAP INBOX SINCE 30 days")}</span>
         <time>${relativeUpdatedAt(mailOutline.updatedAt)}</time>
       </div>
       ${stateNotice}
@@ -1422,10 +1430,7 @@ function dashboardContent(section) {
     <div class="dashboard-grid">
       ${dashboardGithubCard()}
       ${dashboardCodexCard()}
-      <article class="dashboard-card heart-card">
-        <div class="card-icon">♥</div><span>Heart Rate</span>
-        <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
-      </article>
+      ${heartCard()}
       ${qweatherServiceCard(official, failures)}
     </div>`;
   const qweatherCards = `
@@ -1440,7 +1445,7 @@ function dashboardContent(section) {
     Codex: codexContent(),
     Mail: mailContent(),
     Notifications: notificationContent(),
-    Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
+    Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${heartCard()}`,
     QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
     Settings: `<div class="settings-page"><div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
       <section class="settings-section">
@@ -1506,27 +1511,31 @@ function dashboardContent(section) {
         </form>
       </section>
       <section class="settings-section">
-        <h2>Gmail</h2>
+        <h2>QQ 邮箱</h2>
         <form class="settings-panel weather-settings-panel mail-settings-panel" id="mail-settings-form">
           <fieldset>
-            <legend><strong>Gmail OAuth</strong><small>来自 Google Cloud 的 OAuth 客户端，仅保存在 Windows 用户环境变量中</small></legend>
+            <legend><strong>QQ 邮箱 IMAP</strong><small>邮箱地址和授权码仅保存在 Windows 用户环境变量中</small></legend>
             <label>
-              <span><strong>Client ID</strong><small>形如 *.apps.googleusercontent.com</small></span>
-              <input id="gmail-client-id" type="text" autocomplete="off" spellcheck="false" placeholder="${mailSettings.configured ? "已配置，重新填写可覆盖" : "请输入 Gmail Client ID"}">
+              <span><strong>邮箱地址</strong><small>例如 123456@qq.com</small></span>
+              <input id="qq-mail-address" type="email" autocomplete="off" spellcheck="false" value="${escapeHtml(mailSettings.address || "")}" placeholder="请输入 QQ 邮箱地址">
             </label>
             <label>
-              <span><strong>Client Secret</strong><small>留空不会保存；首次配置必须填写</small></span>
-              <input id="gmail-client-secret" type="password" autocomplete="off" placeholder="${mailSettings.configured ? "已配置，重新填写可覆盖" : "请输入 Gmail Client Secret"}">
+              <span><strong>授权码</strong><small>开启 POP3/IMAP/SMTP 服务后生成，账号密码变更后需重新获取</small></span>
+              <input id="qq-mail-auth-code" type="password" autocomplete="off" placeholder="${mailSettings.configured ? "已配置，重新填写可覆盖" : "请输入 QQ 邮箱授权码"}">
+            </label>
+            <label>
+              <span><strong>协议</strong><small>读取邮件使用 IMAP，发送邮件预留 SMTP 配置</small></span>
+              <input id="qq-mail-protocol" type="text" value="${escapeHtml(mailSettings.protocol || "IMAP")}" disabled>
             </label>
           </fieldset>
           <div class="weather-settings-actions">
             <div class="weather-settings-statuses">
-              <small id="gmail-settings-status" class="${mailSettings.configured ? "configured" : ""}">OAuth client：${mailSettings.configured ? "已配置" : "未配置"}</small>
-              <small id="gmail-connection-status" class="${mailSettings.connected ? "configured" : ""}">Gmail connection：${mailSettings.connected ? "已连接" : "未连接"}</small>
+              <small id="mail-settings-status" class="${mailSettings.configured ? "configured" : ""}">QQ 邮箱配置：${mailSettings.configured ? "已配置" : "未配置"}</small>
+              <small id="mail-connection-status" class="${mailSettings.connected ? "configured" : ""}">IMAP：${mailSettings.connected ? "已连接" : "未连接"}</small>
             </div>
             <div class="mail-settings-actions">
               <button type="submit">保存配置</button>
-              <button type="button" id="settings-connect-gmail">${mailSettings.connected ? "重新连接" : "连接 Gmail"}</button>
+              <button type="button" id="settings-connect-mail">${mailSettings.connected ? "重新连接" : "连接 QQ 邮箱"}</button>
             </div>
           </div>
         </form>
@@ -1889,15 +1898,15 @@ function bindQWeatherUsageControls() {
 function bindMailControls() {
   const form = document.querySelector("#mail-settings-form");
   if (form) {
-    const clientIdInput = form.querySelector("#gmail-client-id");
-    const clientSecretInput = form.querySelector("#gmail-client-secret");
-    const oauthStatus = form.querySelector("#gmail-settings-status");
-    const connectionStatus = form.querySelector("#gmail-connection-status");
+    const addressInput = form.querySelector("#qq-mail-address");
+    const authCodeInput = form.querySelector("#qq-mail-auth-code");
+    const mailStatus = form.querySelector("#mail-settings-status");
+    const connectionStatus = form.querySelector("#mail-connection-status");
     const saveButton = form.querySelector("button[type='submit']");
     const setMailSettingsStatus = (message, className = "") => {
-      oauthStatus.textContent = `OAuth client：${message}`;
-      oauthStatus.className = className;
-      connectionStatus.textContent = `Gmail connection：${mailSettings.connected ? "已连接" : "未连接"}`;
+      mailStatus.textContent = `QQ 邮箱配置：${message}`;
+      mailStatus.className = className;
+      connectionStatus.textContent = `IMAP：${mailSettings.connected ? "已连接" : "未连接"}`;
       connectionStatus.className = mailSettings.connected ? "configured" : "";
     };
     form.onsubmit = async (event) => {
@@ -1906,13 +1915,12 @@ function bindMailControls() {
       setMailSettingsStatus("正在保存...");
       try {
         mailSettings = await window.winplate.saveMailSettings({
-          clientId: clientIdInput.value,
-          clientSecret: clientSecretInput.value
+          address: addressInput.value,
+          authCode: authCodeInput.value
         });
-        clientIdInput.value = "";
-        clientSecretInput.value = "";
-        clientIdInput.placeholder = "已配置，重新填写可覆盖";
-        clientSecretInput.placeholder = "已配置，重新填写可覆盖";
+        addressInput.value = mailSettings.address || "";
+        authCodeInput.value = "";
+        authCodeInput.placeholder = "已配置，重新填写可覆盖";
         mailOutline = await window.winplate.getMailOutline();
         setMailSettingsStatus("已配置", "configured");
       } catch (error) {
@@ -1923,18 +1931,18 @@ function bindMailControls() {
       }
     };
   }
-  const connectButtons = document.querySelectorAll("#connect-gmail, #settings-connect-gmail");
+  const connectButtons = document.querySelectorAll("#connect-mail, #settings-connect-mail");
   connectButtons.forEach((button) => {
     button.onclick = async () => {
       button.disabled = true;
       try {
-        await window.winplate.connectGmail();
+        await window.winplate.connectMail();
         mailSettings = await window.winplate.getMailSettings();
       } catch (error) {
         mailOutline = {
           ...mailOutline,
           availability: "unavailable",
-          error: error.message || "Gmail 连接失败"
+          error: error.message || "QQ 邮箱连接失败"
         };
       } finally {
         button.disabled = false;
