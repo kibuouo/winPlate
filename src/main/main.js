@@ -1,4 +1,4 @@
-const { app, clipboard, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const {
@@ -148,13 +148,27 @@ if (!gotLock) {
         shell.openExternal(url);
       }
     });
-    ipcMain.handle("mail:open", async (_event, payload = {}) => {
-      const subject = typeof payload.subject === "string" ? payload.subject.trim() : "";
-      if (subject) {
-        clipboard.writeText(subject.slice(0, 160));
-      }
+    ipcMain.handle("mail:open", async () => {
       await shell.openExternal("https://mail.qq.com/");
       return { opened: true };
+    });
+    ipcMain.handle("email:read-message", async (_event, uid) => {
+      const messageUid = typeof uid === "string" || typeof uid === "number" ? String(uid).trim() : "";
+      if (!messageUid) {
+        throw new Error("邮件 UID 不能为空");
+      }
+      const response = await fetch(
+        `http://127.0.0.1:8765/api/mail/messages/${encodeURIComponent(messageUid)}/read`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail || `邮件读取失败: HTTP ${response.status}`);
+      }
+      const message = await response.json();
+      responseCaches.delete("Mail outline");
+      responseCaches.delete("Notifications");
+      return message;
     });
     ipcMain.handle("github:refresh", async () => {
       const response = await fetch("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });

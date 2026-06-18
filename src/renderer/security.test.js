@@ -73,7 +73,7 @@ test("mail outline escapes external email fields before rendering", () => {
   assert.match(mailItemCard, /escapeHtml\(item\.summary/);
 });
 
-test("mail outline view action is wired to the preload mail opener", () => {
+test("mail outline view action reads the message by uid in-app", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
   const mailItemCard = renderer.slice(
@@ -85,10 +85,37 @@ test("mail outline view action is wired to the preload mail opener", () => {
     renderer.indexOf("function bindNotificationControls")
   );
 
-  assert.match(preload, /openMail: \(payload\) => ipcRenderer\.invoke\("mail:open", payload\)/);
+  assert.match(preload, /"email:read-message": \(uid\) => ipcRenderer\.invoke\("email:read-message", uid\)/);
   assert.match(mailItemCard, /class="mail-open-button"/);
-  assert.match(mailItemCard, /data-mail-subject="\$\{escapeHtml\(item\.subject\)\}"/);
-  assert.match(mailControls, /window\.winplate\.openMail/);
+  assert.match(mailItemCard, /data-mail-uid="\$\{escapeHtml\(uid\)\}"/);
+  assert.match(mailControls, /window\.winplate\["email:read-message"\]\(uid\)/);
+  assert.doesNotMatch(mailControls, /button\.dataset\.mailSubject/);
+});
+
+test("mail detail renders message body inside a sandboxed srcdoc iframe", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const iframeDocument = renderer.slice(
+    renderer.indexOf("function mailIframeDocument"),
+    renderer.indexOf("function mailDetailBody")
+  );
+  const mailDetailBody = renderer.slice(
+    renderer.indexOf("function mailDetailBody"),
+    renderer.indexOf("function mailDetailDrawer")
+  );
+
+  assert.match(iframeDocument, /<!doctype html>/);
+  assert.match(iframeDocument, /Content-Security-Policy/);
+  assert.match(iframeDocument, /script-src 'none'/);
+  assert.match(iframeDocument, /object-src 'none'/);
+  assert.match(iframeDocument, /connect-src 'none'/);
+  assert.match(iframeDocument, /style-src 'unsafe-inline'/);
+  assert.match(iframeDocument, /img-src https: http: data: cid:/);
+  assert.match(iframeDocument, /img \{ max-width: 100%; height: auto; \}/);
+  assert.match(iframeDocument, /table \{ max-width: 100%; \}/);
+  assert.match(mailDetailBody, /class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc=/);
+  assert.match(mailDetailBody, /mailIframeDocument\(message\.htmlBody, false\)/);
+  assert.match(mailDetailBody, /mailIframeDocument\(message\.textBody, true\)/);
+  assert.doesNotMatch(mailDetailBody, /sanitizeMailHtml/);
 });
 
 test("notifications escape pushed titles and messages before rendering", () => {

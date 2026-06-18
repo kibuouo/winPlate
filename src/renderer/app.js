@@ -50,6 +50,7 @@ let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" }
 let mailSettings = { configured: false, connected: false, windowDays: 30 };
 let mailOutline = { source: "loading", availability: "loading", items: [], updatedAt: null };
 let mailRefreshInFlight = false;
+let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
 let notificationActionInFlight = false;
 let networkSpeed = {
@@ -1387,9 +1388,94 @@ function mailLabelPills(labels = []) {
   }).join("");
 }
 
-function mailItemCard(item) {
+function mailIframeDocument(body = "", isPlainText = false) {
+  const content = isPlainText
+    ? `<pre class="mail-plain-text">${escapeHtml(body)}</pre>`
+    : String(body || "");
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src https: http: data: cid:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; min-width: 0; background: #fff; color: #111827; }
+    body { overflow-wrap: anywhere; }
+    img { max-width: 100%; height: auto; }
+    table { max-width: 100%; }
+    .mail-plain-text {
+      margin: 0;
+      padding: 18px 20px;
+      color: #111827;
+      font: 13px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>${content}</body>
+</html>`;
+}
+
+function mailDetailBody(message = {}) {
+  if (message.textBody) {
+    return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
+  }
+  if (message.htmlBody) {
+    return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
+  }
+  return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
+}
+
+function mailDetailDrawer() {
+  if (!mailDetail.open) return "";
+  const message = mailDetail.message || {};
+  const title = mailDetail.loading ? "正在读取邮件..." : mailDetail.error ? "邮件读取失败" : message.subject || "邮件详情";
+  const body = mailDetail.loading
+    ? `<div class="mail-detail-state">正在加载正文...</div>`
+    : mailDetail.error
+      ? `<div class="mail-detail-state error">${escapeHtml(mailDetail.error)}</div>`
+      : mailDetailBody(message);
+  const attachments = Array.isArray(message.attachments) && message.attachments.length
+    ? `<div class="mail-attachments">
+        <strong>附件</strong>
+        ${message.attachments.map((item) => `
+          <span>${escapeHtml(item.filename || "attachment")} · ${escapeHtml(item.contentType || "file")} · ${Math.ceil((Number(item.size) || 0) / 1024)} KB</span>
+        `).join("")}
+      </div>`
+    : "";
   return `
-    <article class="mail-outline-item">
+    <aside class="mail-detail-drawer" aria-label="邮件详情">
+      <header>
+        <div>
+          <span>邮件详情</span>
+          <h2>${escapeHtml(title)}</h2>
+        </div>
+        <button class="mail-detail-close" type="button" aria-label="关闭邮件详情">×</button>
+      </header>
+      ${mailDetail.error || mailDetail.loading ? "" : `
+        <dl class="mail-detail-meta">
+          <div><dt>发件人</dt><dd>${escapeHtml(message.from || message.sender || "")}</dd></div>
+          <div><dt>收件人</dt><dd>${escapeHtml(message.to || "")}</dd></div>
+          <div><dt>时间</dt><dd>${escapeHtml(message.date || mailTimeLabel(message.sentAt))}</dd></div>
+          <div><dt>状态</dt><dd>${message.unread ? "未读" : "已读"}</dd></div>
+        </dl>
+      `}
+      <section class="mail-detail-body">${body}</section>
+      ${attachments}
+      <footer>
+        <button class="mail-mark-read-button" type="button" disabled>${message.unread ? "标记已读" : "已读"}</button>
+        <button class="mail-open-external-button" type="button">在 QQ 邮箱中打开</button>
+      </footer>
+    </aside>`;
+}
+
+function mailItemCard(item) {
+  const uid = item.uid || item.messageId || item.threadId || "";
+  const labels = Array.isArray(item.labels) ? item.labels : [];
+  const unread = item.unread || labels.includes("UNREAD");
+  return `
+    <article class="mail-outline-item ${unread ? "unread" : ""}">
       <div class="mail-outline-meta">
         <strong>${escapeHtml(item.sender)}</strong>
         <time>${mailTimeLabel(item.sentAt)}</time>
@@ -1397,8 +1483,8 @@ function mailItemCard(item) {
       <h2>${escapeHtml(item.subject)}</h2>
       <p>${escapeHtml(item.summary || item.snippet || "暂无可用摘要")}</p>
       <footer>
-        <button class="mail-open-button" type="button" data-mail-subject="${escapeHtml(item.subject)}">${escapeHtml(item.action || "查看")}</button>
-        <div class="mail-labels">${mailLabelPills(item.labels || [])}</div>
+        <button class="mail-open-button" type="button" data-mail-uid="${escapeHtml(uid)}" ${uid ? "" : "disabled"}>${escapeHtml(item.action || "查看")}</button>
+        <div class="mail-labels">${mailLabelPills(labels)}</div>
       </footer>
     </article>`;
 }
@@ -1441,6 +1527,7 @@ function mailContent() {
       </div>
       ${stateNotice}
       ${list}
+      ${mailDetailDrawer()}
     </section>`;
 }
 
@@ -1954,17 +2041,62 @@ function bindQWeatherUsageControls() {
 }
 
 function bindMailControls() {
+  const closeButton = document.querySelector(".mail-detail-close");
+  if (closeButton) {
+    closeButton.onclick = () => {
+      mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
+      updateMainStatusDom();
+    };
+  }
+  const externalButton = document.querySelector(".mail-open-external-button");
+  if (externalButton) {
+    externalButton.onclick = async () => {
+      externalButton.disabled = true;
+      try {
+        await window.winplate.openMail();
+      } catch (error) {
+        console.error("Failed to open QQ mail:", error);
+      } finally {
+        externalButton.disabled = false;
+      }
+    };
+  }
   document.querySelectorAll(".mail-open-button").forEach((button) => {
     button.onclick = async () => {
+      const uid = button.dataset.mailUid || "";
+      if (!uid) return;
       button.disabled = true;
+      mailDetail = { open: true, loading: true, uid, message: null, error: "" };
+      updateMainStatusDom();
       try {
-        await window.winplate.openMail({
-          subject: button.dataset.mailSubject || ""
-        });
+        const message = await window.winplate["email:read-message"](uid);
+        mailDetail = { open: true, loading: false, uid, message, error: "" };
+        mailOutline = {
+          ...mailOutline,
+          items: (mailOutline.items || []).map((item) => {
+            const itemUid = item.uid || item.messageId || item.threadId;
+            if (String(itemUid) !== String(uid)) return item;
+            const labels = Array.isArray(item.labels) ? item.labels.filter((label) => label !== "UNREAD") : [];
+            return {
+              ...item,
+              labels,
+              unread: false,
+              action: message.action || "归档参考"
+            };
+          })
+        };
+        notificationSummary = await window.winplate.getNotifications();
       } catch (error) {
-        console.error("Failed to open mail:", error);
+        mailDetail = {
+          open: true,
+          loading: false,
+          uid,
+          message: null,
+          error: error.message || "邮件正文加载失败"
+        };
       } finally {
         button.disabled = false;
+        updateMainStatusDom();
       }
     };
   });

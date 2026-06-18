@@ -410,6 +410,7 @@ class DatabaseTests(unittest.TestCase):
         message["Date"] = "Thu, 18 Jun 2026 10:20:30 +0800"
         message.set_content("<p>Please <b>confirm</b> the launch checklist.</p>", subtype="html")
         result = main.parse_imap_message("m1", message.as_bytes(), [])
+        self.assertEqual(result["uid"], "m1")
         self.assertEqual(result["messageId"], "m1")
         self.assertEqual(result["threadId"], "m1")
         self.assertEqual(result["sender"], "Kiko <kiko@qq.com>")
@@ -417,6 +418,21 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["summary"], "Please confirm the launch checklist.")
         self.assertEqual(result["action"], "查看")
         self.assertIn("UNREAD", result["labels"])
+        self.assertTrue(result["unread"])
+
+    def test_message_body_parts_prefers_text_and_lists_attachments(self):
+        message = EmailMessage()
+        message["Subject"] = "Launch"
+        message["From"] = "Kiko <kiko@qq.com>"
+        message.set_content("Plain body")
+        message.add_alternative("<p>HTML body</p><script>alert(1)</script>", subtype="html")
+        message.add_attachment(b"hello", maintype="text", subtype="plain", filename="note.txt")
+        parsed = main.message_from_bytes(message.as_bytes(), policy=main.policy.default)
+        text_body, html_body, attachments = main.message_body_parts(parsed)
+        self.assertEqual(text_body, "Plain body")
+        self.assertIn("<p>HTML body</p>", html_body)
+        self.assertEqual(attachments[0]["filename"], "note.txt")
+        self.assertEqual(attachments[0]["size"], 5)
 
     def test_parse_imap_flags_detects_seen_mail(self):
         self.assertEqual(main.parse_imap_flags(b"1 (UID 1 FLAGS (\\Seen \\Flagged) RFC822 {1}"), ["\\Seen", "\\Flagged"])

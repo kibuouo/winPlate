@@ -95,7 +95,7 @@ api = FastAPI(title="WinPlate API", version="0.1.0")
 api.add_middleware(
     CORSMiddleware,
     allow_origins=["null"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -281,6 +281,40 @@ def extract_message_text(message: Message, limit: int = 220) -> str:
     return clean_mail_text(str(payload), limit=limit)
 
 
+def message_body_parts(message: Message) -> tuple[str, str, list[dict]]:
+    text_parts = []
+    html_parts = []
+    attachments = []
+    parts = message.walk() if message.is_multipart() else [message]
+    for part in parts:
+        if part.is_multipart():
+            continue
+        content_type = part.get_content_type()
+        disposition = str(part.get("Content-Disposition") or "").lower()
+        filename = decode_mail_header(part.get_filename() or "")
+        if filename or "attachment" in disposition:
+            payload = part.get_payload(decode=True) or b""
+            attachments.append({
+                "filename": clean_mail_header_text(filename or "attachment", limit=180),
+                "contentType": content_type,
+                "size": len(payload),
+            })
+            continue
+        if content_type not in {"text/plain", "text/html"}:
+            continue
+        try:
+            payload = part.get_content()
+        except (KeyError, LookupError, UnicodeDecodeError):
+            payload_bytes = part.get_payload(decode=True) or b""
+            charset = part.get_content_charset() or "utf-8"
+            payload = payload_bytes.decode(charset, "replace")
+        if content_type == "text/plain":
+            text_parts.append(str(payload).strip())
+        else:
+            html_parts.append(str(payload).strip())
+    return "\n\n".join(part for part in text_parts if part), "\n\n".join(part for part in html_parts if part), attachments
+
+
 def parse_imap_message(uid: str, raw_message: bytes, flags: list[str] | None = None) -> dict:
     message = message_from_bytes(raw_message, policy=policy.default)
     label_ids = ["INBOX"]
@@ -309,6 +343,7 @@ def parse_imap_message(uid: str, raw_message: bytes, flags: list[str] | None = N
     except (TypeError, ValueError, OverflowError):
         sent_at = 0
     return {
+        "uid": uid,
         "messageId": uid,
         "threadId": uid,
         "sender": sender,
@@ -318,6 +353,7 @@ def parse_imap_message(uid: str, raw_message: bytes, flags: list[str] | None = N
         "summary": summary,
         "action": classify_mail_action(subject, summary, label_ids),
         "labels": label_ids,
+        "unread": "UNREAD" in label_ids,
     }
 
 
@@ -525,6 +561,7 @@ def cached_mail_outline() -> list[dict]:
         except (TypeError, json.JSONDecodeError):
             labels = []
         items.append({
+            "uid": row["message_id"],
             "messageId": row["message_id"],
             "threadId": row["thread_id"],
             "sender": row["sender"],
@@ -534,9 +571,34 @@ def cached_mail_outline() -> list[dict]:
             "summary": row["summary"],
             "action": row["action"],
             "labels": labels if isinstance(labels, list) else [],
+            "unread": "UNREAD" in labels if isinstance(labels, list) else False,
             "cachedAt": int(row["updated_at"]),
         })
     return items
+
+
+def update_cached_mail_read_state(uid: str, unread: bool) -> None:
+    with closing(connect()) as connection:
+        row = connection.execute(
+            "SELECT labels FROM mail_outline_cache WHERE message_id = ?",
+            (uid,),
+        ).fetchone()
+        if row:
+            try:
+                labels = json.loads(row["labels"])
+            except (TypeError, json.JSONDecodeError):
+                labels = []
+            if not isinstance(labels, list):
+                labels = []
+            labels = [label for label in labels if label != "UNREAD"]
+            if unread and "UNREAD" not in labels:
+                labels.append("UNREAD")
+            action = "查看" if unread else "归档参考"
+            connection.execute(
+                "UPDATE mail_outline_cache SET labels = ?, action = ?, updated_at = ? WHERE message_id = ?",
+                (json.dumps(labels), action, utc_epoch_seconds() * 1000, uid),
+            )
+        connection.commit()
 
 
 def imap_ids(payload: list[bytes]) -> list[str]:
@@ -590,6 +652,62 @@ def read_mail_outline_from_qq() -> tuple[list[dict], int]:
             pass
     outlines.sort(key=lambda item: item.get("sentAt", 0), reverse=True)
     return outlines, unread_count
+
+
+def read_mail_message(uid: str, mark_read: bool = True) -> dict:
+    safe_uid = str(uid or "").strip()
+    if not safe_uid or not re.fullmatch(r"[0-9A-Za-z._:-]{1,80}", safe_uid):
+        raise RuntimeError("邮件 UID 无效")
+    if not mail_configured():
+        raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
+    connection = qq_imap_connection()
+    try:
+        status, _ = connection.select("INBOX", readonly=not mark_read)
+        if status != "OK":
+            raise RuntimeError("QQ 邮箱 INBOX 打开失败")
+        status, fetched = connection.uid("FETCH", safe_uid, "(RFC822 FLAGS)")
+        if status != "OK":
+            raise RuntimeError("邮件读取失败")
+        raw_message = None
+        flags = []
+        for part in fetched:
+            if isinstance(part, tuple):
+                flags = parse_imap_flags(part[0])
+                raw_message = part[1]
+                break
+        if not raw_message:
+            raise RuntimeError("邮件不存在或已无法读取")
+        parsed = parse_imap_message(safe_uid, raw_message, flags)
+        message = message_from_bytes(raw_message, policy=policy.default)
+        text_body, html_body, attachments = message_body_parts(message)
+        unread_before = bool(parsed.get("unread"))
+        unread_after = unread_before
+        if mark_read and unread_before:
+            store_status, _ = connection.uid("STORE", safe_uid, "+FLAGS.SILENT", r"(\Seen)")
+            if store_status == "OK":
+                unread_after = False
+                parsed["labels"] = [label for label in parsed["labels"] if label != "UNREAD"]
+                parsed["action"] = classify_mail_action(parsed["subject"], parsed["summary"], parsed["labels"])
+                update_cached_mail_read_state(safe_uid, unread=False)
+                mark_notification_read(f"mail:{safe_uid}")
+        return {
+            **parsed,
+            "from": parsed["sender"],
+            "to": clean_mail_header_text(decode_mail_header(message.get("To"), ""), limit=320),
+            "date": clean_mail_header_text(decode_mail_header(message.get("Date"), ""), limit=120),
+            "textBody": text_body,
+            "htmlBody": html_body,
+            "attachments": attachments,
+            "unread": unread_after,
+            "markedRead": unread_before and not unread_after,
+        }
+    except (imaplib.IMAP4.error, OSError, TimeoutError) as error:
+        raise RuntimeError(f"QQ 邮箱 IMAP 读取失败：{error}") from error
+    finally:
+        try:
+            connection.logout()
+        except imaplib.IMAP4.error:
+            pass
 
 
 def mail_outline(force: bool = False) -> dict:
@@ -1546,6 +1664,14 @@ def get_mail_outline() -> dict:
 @api.post("/api/mail/refresh")
 def refresh_mail_outline() -> dict:
     return mail_outline(force=True)
+
+
+@api.post("/api/mail/messages/{uid}/read")
+def read_mail_message_detail(uid: str) -> dict:
+    try:
+        return read_mail_message(uid, mark_read=True)
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @api.get("/api/notifications")
