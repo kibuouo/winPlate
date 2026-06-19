@@ -1,8 +1,116 @@
 # WinPlate
 
-Electron desktop UI with a local FastAPI and SQLite backend.
+<div align="center">
 
-## Development
+Windows 桌面悬浮状态板，聚合 GitHub、Codex、天气、通知、邮件与网络信息。
+
+轻量常驻、信息集中、交互直接，适合把高频状态放回桌面可见区域。
+
+</div>
+
+<p align="center">
+  <img src="./assets/winplate-ui-preview.png" alt="WinPlate 软件界面预览" width="690" />
+</p>
+
+<p align="center">
+  <strong>Electron</strong> + <strong>FastAPI</strong> + <strong>SQLite</strong>
+</p>
+
+## 项目简介
+
+WinPlate 是一个面向 Windows 的悬浮状态面板。它将开发者日常最常看的几类信息收拢到一个紧凑的胶囊界面中，包括：
+
+- GitHub 账号状态与贡献信息
+- Codex 使用额度与重置时间
+- 和风天气与位置选择
+- 系统通知与智能通知摘要
+- QQ 邮箱 IMAP 摘要
+- 心率占位模块与网络速率显示
+
+相比频繁切换网页、客户端和系统面板，WinPlate 更强调“抬眼即见”的桌面信息密度。
+
+## 软件界面展示
+
+上图展示的是 WinPlate 的悬浮主胶囊界面，整体布局分为三层：
+
+- 左侧为 GitHub、Codex 等高频开发状态
+- 中间为智能通知摘要区，突出当前最值得关注的信息
+- 右侧为天气、心率、网络和设置入口等辅助信息
+
+界面设计重点：
+
+- 信息块足够紧凑，但仍保持清晰分组
+- 核心数值使用强对比强调，适合桌面快速扫读
+- 悬浮窗适合长期常驻，不会像完整应用窗口那样打断工作流
+
+## 核心能力
+
+### 1. GitHub 状态聚合
+
+- 拉取公开 GitHub 资料、仓库信息与贡献日历
+- 支持缓存与失败回退，避免 GitHub 接口偶发波动影响展示
+- 可结合 Token 提升请求额度并启用官方 GraphQL 贡献数据
+
+### 2. Codex 使用情况读取
+
+- Electron 主进程独立启动隐藏 Codex CLI PTY
+- 通过 `/status` 提取额度剩余百分比与重置时间
+- 结果缓存 30 秒，避免频繁拉起命令造成干扰
+
+### 3. 天气与位置管理
+
+- 由本地 FastAPI 后端统一请求 QWeather
+- 支持系统定位、手动城市选择与环境变量兜底
+- 包含天气用量统计与预警通知同步逻辑
+
+### 4. 智能通知摘要
+
+- 聚合原始通知并按来源、优先级、风险变化做归类
+- 对天气预警、GitHub 动态、开发任务状态做统一视图整理
+- 支持未读数、批量已读、清空与测试通知注入
+
+### 5. 邮件摘要与收件箱接入
+
+- 支持 QQ 邮箱 IMAP 连接
+- 提供邮件列表摘要、正文读取与已读同步
+- 让邮件提醒进入同一个桌面信息面板
+
+### 6. 桌面悬浮体验
+
+- 独立浮窗显示，不必总停留在主应用页
+- 主界面与悬浮态共享数据源
+- 适合做常驻桌面开发状态总览
+
+## 技术架构
+
+```text
+Electron Main
+  |- 启动桌面窗口 / 托盘 / 悬浮窗
+  |- 读取 Codex CLI 状态
+  |- 管理系统交互与 IPC
+  |
+  |- FastAPI Backend (backend/main.py)
+      |- GitHub 数据拉取
+      |- QWeather 天气与预警
+      |- QQ Mail IMAP 摘要
+      |- SQLite 本地缓存与状态持久化
+      |- 通知归档与聚合
+  |
+  |- Renderer
+      |- Dashboard 主界面
+      |- Floating 悬浮界面
+      |- Settings / Mail / Notifications / QWeather 交互
+```
+
+## 快速开始
+
+### 环境要求
+
+- Windows
+- Python 3.x
+- Node.js
+
+### 开发启动
 
 ```powershell
 npm run venv:create
@@ -11,22 +119,40 @@ npm install
 npm run dev
 ```
 
-Electron starts `backend/main.py`, waits for `http://127.0.0.1:8765/api/health`,
-then creates the main and floating windows. The renderer refreshes
-`GET /api/status` every 30 seconds.
+启动流程如下：
 
-Codex usage is read separately by the Electron main process. It starts a hidden
-Codex CLI PTY, sends `/status`, parses the primary remaining percentage and
-reset text, and caches the result for 30 seconds. The UI treats a longer bar as
-more quota remaining.
+1. Electron 拉起本地 Python 后端 `backend/main.py`
+2. 等待 `http://127.0.0.1:8765/api/health` 返回正常
+3. 创建主窗口与悬浮窗口
+4. 前端每 30 秒刷新一次综合状态
 
-Electron automatically uses `.venv\Scripts\python.exe` when it exists, so the
-virtual environment does not need to be activated before `npm run dev`.
-`WINPLATE_PYTHON` can override the interpreter path when needed.
+如果仓库根目录存在 `.venv\Scripts\python.exe`，Electron 会优先使用它；不需要先手动激活虚拟环境。
 
-GitHub profile data is loaded from the public GitHub REST API. Contribution
-calendar data is loaded from GitHub's contribution calendar endpoints. The default account is
-`kibuouo`; override it and optionally provide a token before starting WinPlate:
+如需手动激活：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+## 常用脚本
+
+```powershell
+npm run dev
+npm run check
+npm run backend:test
+```
+
+说明：
+
+- `npm run dev`：启动 Electron 开发环境
+- `npm run check`：执行主进程、渲染层语法检查与 Node 测试
+- `npm run backend:test`：运行后端 Python 单元测试
+
+## 配置说明
+
+### GitHub
+
+默认 GitHub 账号为 `kibuouo`。如需切换：
 
 ```powershell
 $env:WINPLATE_GITHUB_USERNAME = "your-login"
@@ -34,21 +160,14 @@ $env:GITHUB_TOKEN = "github_pat_..."
 npm run dev
 ```
 
-`GITHUB_TOKEN` is optional for public profiles, but avoids the low unauthenticated
-API rate limit and enables the official GraphQL contribution calendar API.
-GitHub responses are cached for five minutes unless refreshed explicitly.
+说明：
 
-To activate the environment manually in PowerShell:
+- `WINPLATE_GITHUB_USERNAME`：指定展示的 GitHub 用户
+- `GITHUB_TOKEN`：可选，但推荐配置，用于提升速率限制并启用 GraphQL 贡献数据
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+### QWeather
 
-## QWeather
-
-Weather data is loaded by the Python backend and cached for ten minutes. Create
-a project and API key in the [QWeather console](https://console.qweather.com/),
-copy its API Host, then start WinPlate with:
+天气数据由本地后端请求 QWeather，并在本地缓存 10 分钟。
 
 ```powershell
 [Environment]::SetEnvironmentVariable("QWEATHER_API_KEY", "your-api-key", "User")
@@ -56,25 +175,54 @@ copy its API Host, then start WinPlate with:
 npm run dev
 ```
 
-WinPlate requests the Windows location permission and sends only the resulting
-coordinates to the local backend. `QWEATHER_LOCATION` is optional and is used
-as a fallback when system location is unavailable. It accepts a city name or
-location ID. There is no default fallback location; if system location is
-unavailable and `QWEATHER_LOCATION` is empty, the UI prompts you to configure
-one instead of showing weather for an unrelated city. The API key stays in the
-local backend and is never sent to the renderer. Restart WinPlate after
-changing these values.
+补充说明：
 
-## Future Packaging
+- `QWEATHER_LOCATION` 可作为系统定位失败时的后备位置
+- 如果未授权定位且未配置后备位置，界面会提示手动设置城市
+- API Key 保留在本地后端，不会暴露到渲染层
 
-The backend is intentionally isolated behind `src/main/pythonService.js`.
-For production packaging, build it as a one-file executable:
+### Python 解释器覆盖
+
+如果你不想使用默认 `.venv`，可以显式指定解释器：
+
+```powershell
+$env:WINPLATE_PYTHON = "C:\path\to\python.exe"
+npm run dev
+```
+
+## 项目结构
+
+```text
+winPlate/
+|- assets/        图标与 README 展示资源
+|- backend/       FastAPI、天气、GitHub、邮件、SQLite
+|- src/main/      Electron 主进程、窗口、托盘、状态读取
+|- src/preload/   预加载桥接层
+|- src/renderer/  主界面、悬浮态、设置页与样式
+|- src/shared/    共享 mock 数据与常量
+```
+
+## 当前定位
+
+这个项目更像一个“桌面开发状态中枢”，而不只是一个天气或 GitHub 小组件。它把多来源信息压缩到同一个稳定、轻量、低打扰的桌面入口中。
+
+适合的使用场景：
+
+- 一边开发一边关注 GitHub / Codex / 邮件变化
+- 想在桌面常驻看到天气与网络速率
+- 希望把通知整合成更有优先级的摘要，而不是散落在多个应用里
+
+## 打包方向
+
+后端已经通过 `src/main/pythonService.js` 与 Electron 主进程解耦，后续可以打包为单文件可执行程序：
 
 ```powershell
 python -m pip install pyinstaller
 pyinstaller --onefile --name winplate-backend backend/main.py
 ```
 
-Package the resulting executable as an Electron extra resource, then update
-`pythonService.js` to launch that executable in packaged builds and
-`backend/main.py` during development.
+后续只需将生成的后端可执行文件作为 Electron 资源一并打包，并在生产模式切换启动入口即可。
+
+## 版本
+
+当前项目版本：`v0.1.0`

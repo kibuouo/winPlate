@@ -1,5 +1,6 @@
 const PENDING_SENDS = Symbol("pendingDidFinishLoadSends");
 const LOAD_DISPATCH_BOUND = Symbol("didFinishLoadDispatchBound");
+const LOAD_LISTENER_BASELINE = Symbol("didFinishLoadListenerBaseline");
 
 function canSendToWindow(targetWindow) {
   return Boolean(
@@ -16,9 +17,12 @@ function monitorDidFinishLoadListeners(targetWindow, reason = "unknown") {
   }
 
   const count = targetWindow.webContents.listenerCount("did-finish-load");
-  if (count > 1) {
+  const baseline = targetWindow[LOAD_LISTENER_BASELINE] ?? 0;
+  const expected = baseline + (targetWindow[LOAD_DISPATCH_BOUND] ? 1 : 0);
+  if (count > expected) {
     console.warn(
-      `[windowMessaging] did-finish-load listener count=${count} on window`
+      `[windowMessaging] did-finish-load listener count grew to ${count}`
+      + ` (baseline=${baseline}, expected<=${expected}) on window`
       + ` "${targetWindow.getTitle?.() || "untitled"}" during ${reason}`
     );
   }
@@ -33,6 +37,7 @@ function flushPendingSends(targetWindow) {
   const pendingSends = targetWindow[PENDING_SENDS];
   targetWindow[LOAD_DISPATCH_BOUND] = false;
   targetWindow[PENDING_SENDS] = new Map();
+  targetWindow[LOAD_LISTENER_BASELINE] = undefined;
 
   for (const { channel, payload } of pendingSends.values()) {
     if (!canSendToWindow(targetWindow)) {
@@ -56,6 +61,10 @@ function sendToWindow(targetWindow, channel, payload) {
     targetWindow[PENDING_SENDS] = new Map();
   }
   targetWindow[PENDING_SENDS].set(channel, { channel, payload });
+
+  if (typeof targetWindow[LOAD_LISTENER_BASELINE] !== "number") {
+    targetWindow[LOAD_LISTENER_BASELINE] = targetWindow.webContents.listenerCount("did-finish-load");
+  }
 
   if (!targetWindow[LOAD_DISPATCH_BOUND]) {
     targetWindow[LOAD_DISPATCH_BOUND] = true;
