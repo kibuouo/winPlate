@@ -52,6 +52,10 @@ let mailOutline = { source: "loading", availability: "loading", items: [], updat
 let mailRefreshInFlight = false;
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
+let smartBrief = { items: [], generatedAt: null, source: "empty" };
+let smartBriefIndex = 0;
+let smartBriefCarouselTimer = null;
+let smartBriefCarouselPaused = false;
 let notificationActionInFlight = false;
 let networkSpeed = {
   downloadBytesPerSecond: 0,
@@ -246,18 +250,41 @@ async function bindDeepSeekSettings() {
   const keyInput = form.querySelector("#deepseek-api-key");
   const baseUrlInput = form.querySelector("#deepseek-base-url");
   const status = form.querySelector("#deepseek-settings-status");
+  const chatStatus = form.querySelector("#deepseek-chat-status");
   const button = form.querySelector("button[type='submit']");
+  const testButton = form.querySelector("#deepseek-test-chat");
   const setStatus = (text, className = "") => {
     status.textContent = `DeepSeek API：${text}`;
     status.className = className;
+  };
+  const setChatStatus = (text, className = "") => {
+    if (!chatStatus) return;
+    chatStatus.textContent = `AI 调用：${text}`;
+    chatStatus.className = className;
   };
   try {
     deepseekSettings = await window.winplate.getDeepSeekSettings();
     baseUrlInput.value = deepseekSettings.baseUrl;
     keyInput.placeholder = deepseekSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
     setStatus(deepseekSettings.hasApiKey ? "已配置" : "未配置", deepseekSettings.hasApiKey ? "configured" : "");
+    setChatStatus(deepseekSettings.hasApiKey ? "可测试" : "未配置", deepseekSettings.hasApiKey ? "" : "error");
   } catch {
     setStatus("读取失败", "error");
+    setChatStatus("读取失败", "error");
+  }
+  if (testButton) {
+    testButton.onclick = async () => {
+      testButton.disabled = true;
+      setChatStatus("测试中...");
+      try {
+        const result = await window.winplate.testDeepSeekChat();
+        setChatStatus(result?.message || "AI 调用正常", "configured");
+      } catch (error) {
+        setChatStatus(error.message || "测试失败", "error");
+      } finally {
+        testButton.disabled = false;
+      }
+    };
   }
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -275,6 +302,7 @@ async function bindDeepSeekSettings() {
         statusData.deepseek.status === "Normal" ? "已配置，余额读取正常" : "已保存，余额暂不可用",
         statusData.deepseek.status === "Normal" ? "configured" : "error"
       );
+      setChatStatus("可测试");
     } catch (error) {
       setStatus(error.message || "保存失败", "error");
     } finally {
@@ -381,17 +409,40 @@ function notificationLevelLabel(level) {
   }[level] || "信息";
 }
 
+function smartBriefItems() {
+  return Array.isArray(smartBrief.items) ? smartBrief.items.filter((item) => item?.text) : [];
+}
+
+function currentSmartBriefItem() {
+  const items = smartBriefItems();
+  if (!items.length) return null;
+  return items[Math.abs(smartBriefIndex) % items.length];
+}
+
 function notificationStrip() {
   const summary = normalizedNotifications();
   const latest = summary.latest;
   const unread = summary.unreadCount;
-  const title = latest ? latest.title : "暂无新通知";
+  const briefItem = currentSmartBriefItem();
+  const title = briefItem?.text || (latest ? latest.title : "暂无新通知");
+  const level = briefItem?.level || latest?.level || "info";
   return `
-    <button class="notification-strip ${unread ? "has-unread" : ""} no-drag" id="notification-strip" type="button" aria-label="打开通知中心">
+    <button class="notification-strip ${unread ? "has-unread" : ""} level-${escapeHtml(level)} no-drag" id="notification-strip" type="button" aria-label="打开通知中心">
       ${notificationIcon}
       <span class="notification-title">${escapeHtml(title)}</span>
       ${unread ? `<span class="notification-badge" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>` : ""}
     </button>`;
+}
+
+function startSmartBriefCarousel() {
+  clearInterval(smartBriefCarouselTimer);
+  smartBriefCarouselTimer = null;
+  if (view !== "floating" || smartBriefItems().length <= 1) return;
+  smartBriefCarouselTimer = setInterval(() => {
+    if (smartBriefCarouselPaused || smartBriefItems().length <= 1) return;
+    smartBriefIndex = (smartBriefIndex + 1) % smartBriefItems().length;
+    updateFloatingStatusDom();
+  }, 6_000);
 }
 
 function formatNetworkSpeed(bytesPerSecond, compact = true) {
@@ -995,6 +1046,7 @@ function bindNotificationStrip() {
   if (!strip || strip.dataset.bound === "true") return;
   strip.dataset.bound = "true";
   strip.addEventListener("mouseenter", () => {
+    smartBriefCarouselPaused = true;
     clearTimeout(tooltipHideTimer);
     const rect = strip.getBoundingClientRect();
     window.winplate.showTooltip({
@@ -1013,6 +1065,7 @@ function bindNotificationStrip() {
     });
   });
   strip.addEventListener("mouseleave", () => {
+    smartBriefCarouselPaused = false;
     tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
   });
   strip.addEventListener("click", async (event) => {
@@ -1652,7 +1705,12 @@ function dashboardContent(section) {
             </label>
           </fieldset>
           <div class="weather-settings-actions">
-            <div class="weather-settings-statuses"><small id="deepseek-settings-status">DeepSeek API：正在读取...</small></div>
+            <div class="weather-settings-statuses">
+              <small id="deepseek-settings-status">DeepSeek API：正在读取...</small>
+              <small id="deepseek-chat-status">AI 调用：正在读取...</small>
+              <small class="configured">智能通知：开启</small>
+            </div>
+            <button type="button" id="deepseek-test-chat">测试 AI 调用</button>
             <button type="submit">保存配置</button>
           </div>
         </form>
@@ -1725,19 +1783,22 @@ function codexContent() {
   const sevenDay = windows.sevenDay;
   const deepseek = statusData.deepseek || {};
   const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
-  const tokenUsage = deepseek.tokenUsage?.model === "deepseek-v4-pro"
-    ? deepseek.tokenUsage
-    : null;
+  const tokenUsage = deepseek.tokenUsage || {};
   const tokenValue = (value) => Number.isFinite(Number(value))
     ? `${Number(value).toLocaleString("en-US")} tokens`
     : "--";
+  const tokenGroup = (label, usage) => `
+      <section class="deepseek-token-group">
+        <header><span>${label}</span><strong>${tokenValue(usage?.totalTokens)}</strong></header>
+        <div><i class="cache-hit"></i><span>输入（命中缓存）</span><strong>${tokenValue(usage?.cacheHitTokens)}</strong></div>
+        <div><i class="cache-miss"></i><span>输入（未命中缓存）</span><strong>${tokenValue(usage?.cacheMissTokens)}</strong></div>
+        <div><i class="output"></i><span>输出</span><strong>${tokenValue(usage?.outputTokens)}</strong></div>
+      </section>`;
   const tokenPanel = `
     <div class="deepseek-token-panel">
-      <header><strong>缓存命中率</strong></header>
-      <span class="deepseek-api-notice">暂未提供接口<i aria-hidden="true"></i></span>
-      <div><i class="cache-hit"></i><span>输入（命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheHitTokens)}</strong></div>
-      <div><i class="cache-miss"></i><span>输入（未命中缓存）</span><strong>${tokenValue(tokenUsage?.cacheMissTokens)}</strong></div>
-      <div><i class="output"></i><span>输出</span><strong>${tokenValue(tokenUsage?.outputTokens)}</strong></div>
+      <header><strong>Token 用量</strong><span>本应用累计</span></header>
+      ${tokenGroup("今日", tokenUsage.today)}
+      ${tokenGroup("总计", tokenUsage.total)}
     </div>`;
   const walletIcon = `
     <svg class="deepseek-wallet-icon" viewBox="0 0 48 48" aria-hidden="true">
@@ -2086,6 +2147,7 @@ function bindMailControls() {
           })
         };
         notificationSummary = await window.winplate.getNotifications();
+        await hydrateSmartBrief({ force: true });
       } catch (error) {
         mailDetail = {
           open: true,
@@ -2163,6 +2225,7 @@ function bindMailControls() {
     try {
       mailOutline = await window.winplate.refreshMailOutline();
       mailSettings = await window.winplate.getMailSettings();
+      await hydrateNotifications();
     } catch (error) {
       mailOutline = {
         ...mailOutline,
@@ -2185,6 +2248,7 @@ function bindNotificationControls() {
       markAllButton.disabled = true;
       try {
         notificationSummary = await window.winplate.markAllNotificationsRead();
+        await hydrateSmartBrief({ force: true });
       } catch (error) {
         console.error("Failed to mark notifications read:", error);
       } finally {
@@ -2201,6 +2265,7 @@ function bindNotificationControls() {
       testButton.disabled = true;
       try {
         notificationSummary = await window.winplate.pushTestNotification();
+        await hydrateSmartBrief({ force: true });
       } catch (error) {
         console.error("Failed to push test notification:", error);
       } finally {
@@ -2216,6 +2281,7 @@ function bindNotificationControls() {
       button.disabled = true;
       try {
         notificationSummary = await window.winplate.markNotificationRead(button.dataset.notificationRead);
+        await hydrateSmartBrief({ force: true });
       } catch (error) {
         console.error("Failed to mark notification read:", error);
       } finally {
@@ -2238,6 +2304,7 @@ async function hydrateQWeatherUsage() {
 async function hydrateNotifications() {
   try {
     notificationSummary = await window.winplate.getNotifications();
+    await hydrateSmartBrief();
   } catch (error) {
     notificationSummary = {
       ...notificationSummary,
@@ -2246,7 +2313,27 @@ async function hydrateNotifications() {
       items: [],
       error: error.message || "通知读取失败"
     };
+    smartBrief = { items: [], generatedAt: null, source: "empty" };
   }
+}
+
+async function hydrateSmartBrief({ force = false } = {}) {
+  if (!window.winplate?.getSmartBrief) return;
+  try {
+    const nextBrief = force && window.winplate.refreshSmartBrief
+      ? await window.winplate.refreshSmartBrief()
+      : await window.winplate.getSmartBrief();
+    smartBrief = {
+      items: Array.isArray(nextBrief?.items) ? nextBrief.items : [],
+      generatedAt: nextBrief?.generatedAt || null,
+      source: nextBrief?.source || "empty"
+    };
+    if (smartBriefIndex >= smartBriefItems().length) smartBriefIndex = 0;
+  } catch (error) {
+    smartBrief = { items: [], generatedAt: null, source: "fallback" };
+    console.warn("Smart brief unavailable:", error.message);
+  }
+  startSmartBriefCarousel();
 }
 
 async function refreshQWeatherAlerts() {

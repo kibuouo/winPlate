@@ -134,3 +134,17 @@ test("notifications escape pushed titles and messages before rendering", () => {
   assert.match(notificationTooltip, /escapeHtml\(item\.title\)/);
   assert.match(notificationTooltip, /escapeHtml\(item\.message\)/);
 });
+
+test("DeepSeek balance card renders local token usage instead of unavailable placeholder", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const codexContent = renderer.slice(
+    renderer.indexOf("function codexContent()"),
+    renderer.indexOf("function renderMain()")
+  );
+
+  assert.match(codexContent, /Token 用量/);
+  assert.match(codexContent, /tokenUsage\.today/);
+  assert.match(codexContent, /tokenUsage\.total/);
+  assert.match(codexContent, /本应用累计/);
+  assert.doesNotMatch(codexContent, /暂未提供接口/);
+});

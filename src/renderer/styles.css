@@ -60,16 +60,21 @@ button { font: inherit; }
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: 108px minmax(200px, 1fr) 100px;
+  grid-template-columns: 92px minmax(0, 1fr) 80px;
   grid-template-rows: repeat(2, 30px);
   align-items: center;
-  gap: 8px 8px;
+  gap: 8px 5px;
 }
 .status-group { min-width: 0; display: flex; align-items: center; gap: 12px; }
 .app-status,
 .auxiliary-status { display: contents; }
 .github-module { grid-column: 1; grid-row: 1; }
 .weather-module { grid-column: 1; grid-row: 2; }
+.github-module,
+.weather-module {
+  width: calc(100% + 8px);
+  transform: translateX(-5px);
+}
 .codex-module { grid-column: 2; grid-row: 1; }
 .notification-status { grid-column: 2; grid-row: 2; width: 100%; }
 .system-status {
@@ -170,6 +175,7 @@ html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
 .notification-icon {
   width: 18px;
   height: 18px;
+  margin-left: 2px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -183,13 +189,13 @@ html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
   max-width: none;
   min-width: 0;
   height: 30px;
-  padding: 0 9px;
+  padding: 0 7px;
   display: flex;
   align-items: center;
   gap: 7px;
   color: #d4d4d8;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 12px;
   background: transparent;
   cursor: pointer;
 }
@@ -220,10 +226,10 @@ html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
   font-variant-numeric: tabular-nums;
 }
 .usage-track {
-  flex: 1 1 66px;
+  flex: 1 1 76px;
   width: auto;
-  min-width: 48px;
-  max-width: 78px;
+  min-width: 58px;
+  max-width: 92px;
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
@@ -276,32 +282,32 @@ html[data-theme="light"] .themed-weather-icon { filter: brightness(0); }
   grid-row: 1;
   min-width: 0;
   overflow: hidden;
-  width: max-content;
+  width: 58px;
   max-width: 100%;
   justify-self: end;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
   gap: 5px;
   padding-inline: 7px;
 }
 .heart-module .metric {
-  width: 3ch;
-  min-width: 3ch;
+  width: auto;
+  min-width: 0;
   overflow: hidden;
   text-align: right;
   text-overflow: clip;
 }
-.heart-icon { color: #fb7185; font-size: 15px; filter: drop-shadow(0 0 6px rgba(251,113,133,.45)); }
+.heart-icon { width: 16px; color: #fb7185; font-size: 15px; line-height: 1; text-align: center; filter: drop-shadow(0 0 6px rgba(251,113,133,.45)); }
 .network-module {
   box-sizing: border-box;
   grid-column: 1;
   grid-row: 2;
-  width: max-content;
+  width: 58px;
   max-width: 100%;
   justify-self: end;
   min-width: 0;
   overflow: hidden;
-  justify-content: flex-end;
-  gap: 5px;
   height: 30px;
   padding: 0 7px;
   border-radius: 12px;
@@ -326,15 +332,22 @@ html[data-theme="light"] .themed-weather-icon { filter: brightness(0); }
   background: rgba(248, 113, 113, .1);
 }
 .network-speed {
+  width: 100%;
   min-width: 0;
   max-width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
   overflow: hidden;
   text-align: right;
   text-overflow: clip;
   white-space: nowrap;
 }
 .network-speed-arrow {
+  width: 16px;
   color: #7dd3fc;
+  text-align: center;
 }
 .network-module.is-warning .network-speed-arrow {
   color: #facc15;
@@ -1387,18 +1400,20 @@ html[data-theme="light"] .mail-detail-frame {
 .deepseek-wallet-balance small { color: var(--text-muted); font-size: 12px; }
 .deepseek-date-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .deepseek-date-total > strong { color: var(--text-soft); font-size: 11px; font-weight: 650; }
-.deepseek-token-panel { position: relative; min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 6px; border-left: 1px solid var(--border); }
-.deepseek-token-panel header, .deepseek-token-panel > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.deepseek-token-panel { position: relative; min-width: 0; padding: 0 24px; display: grid; align-content: center; gap: 10px; border-left: 1px solid var(--border); }
+.deepseek-token-panel header, .deepseek-token-panel .deepseek-token-group > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .deepseek-token-panel header { margin-bottom: 1px; }
 .deepseek-token-panel header strong { font-size: 13px; }
 .deepseek-token-panel header span { color: var(--text-soft); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.deepseek-api-notice { position: absolute; top: 0; right: 24px; display: flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 12px; font-weight: 650; }
-.deepseek-api-notice i { width: 7px; height: 7px; border-radius: 50%; background: #facc15; box-shadow: 0 0 10px rgba(250,204,21,.55); }
-.deepseek-token-panel > div { grid-template-columns: 12px minmax(0, 1fr) auto; color: var(--text-soft); font-size: 12px; }
-.deepseek-token-panel > div i { width: 9px; height: 9px; border-radius: 2px; background: #bae6fd; }
-.deepseek-token-panel > div i.cache-miss { background: #60a5fa; }
-.deepseek-token-panel > div i.output { background: #1677ff; }
-.deepseek-token-panel > div strong { color: var(--text-soft); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.deepseek-token-group { display: grid; gap: 5px; }
+.deepseek-token-group header { margin: 0; }
+.deepseek-token-group header span { color: var(--text-muted); font-size: 11px; }
+.deepseek-token-group header strong { color: var(--text-soft); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.deepseek-token-group > div { grid-template-columns: 12px minmax(0, 1fr) auto; color: var(--text-soft); font-size: 11px; }
+.deepseek-token-group > div i { width: 9px; height: 9px; border-radius: 2px; background: #bae6fd; }
+.deepseek-token-group > div i.cache-miss { background: #60a5fa; }
+.deepseek-token-group > div i.output { background: #1677ff; }
+.deepseek-token-group > div strong { color: var(--text-soft); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .deepseek-usage-panel .codex-cli-status { margin-top: 16px; }
 .deepseek-empty { position: relative; padding-bottom: 40px; }
 .deepseek-empty > small { position: absolute; right: 28px; bottom: 14px; left: 28px; color: var(--text-muted); font-size: 11px; }

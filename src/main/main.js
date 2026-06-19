@@ -26,6 +26,12 @@ const {
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
   readDeepSeekUsage
 } = require("./deepseekUsage");
+const { callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
+const {
+  readDeepSeekTokenUsage,
+  recordDeepSeekTokenUsage
+} = require("./deepseekTokenUsage");
+const { createSmartBriefService } = require("./smartBriefService");
 const {
   readAppearanceSettings,
   writeAppearanceSettings
@@ -40,6 +46,7 @@ const MAIL_CACHE_TTL_MS = 60_000;
 const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
+let smartBriefService = null;
 
 function setResponseCache(key, value) {
   responseCaches.delete(key);
@@ -101,6 +108,14 @@ async function writeUserEnvironment(name, value) {
   await execFileAsync("reg.exe", [
     "add", "HKCU\\Environment", "/v", name, "/t", "REG_SZ", "/d", value, "/f"
   ], { windowsHide: true });
+}
+
+async function recordDeepSeekTokenUsageSafely(usage, feature = "unknown") {
+  try {
+    await recordDeepSeekTokenUsage(app.getPath("userData"), usage, { feature });
+  } catch (error) {
+    console.warn("deepseek token usage record failed:", error.message);
+  }
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -332,6 +347,25 @@ if (!gotLock) {
     ipcMain.handle("notifications:get", () => (
       fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
     ));
+    smartBriefService = createSmartBriefService({
+      readNotifications: () => (
+        fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
+      ),
+      callChat: async (options) => {
+        const [apiKey, baseUrl] = await Promise.all([
+          readUserEnvironment("DEEPSEEK_API_KEY"),
+          readUserEnvironment("DEEPSEEK_BASE_URL")
+        ]);
+        return callDeepSeekChat({
+          ...options,
+          apiKey,
+          baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL,
+          onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, options.feature || "unknown")
+        });
+      }
+    });
+    ipcMain.handle("notifications:get-smart-brief", () => smartBriefService.getCurrentBrief());
+    ipcMain.handle("notifications:refresh-smart-brief", () => smartBriefService.refreshBrief({ force: true }));
     ipcMain.handle("notifications:mark-read", async (_event, id) => {
       const notificationId = typeof id === "string" ? id.trim() : "";
       if (!notificationId) {
@@ -346,6 +380,9 @@ if (!gotLock) {
       }
       const summary = await response.json();
       responseCaches.delete("Notifications");
+      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
+        console.warn("smart brief refresh failed:", error.message);
+      });
       return summary;
     });
     ipcMain.handle("notifications:mark-all-read", async () => {
@@ -355,6 +392,9 @@ if (!gotLock) {
       }
       const summary = await response.json();
       responseCaches.delete("Notifications");
+      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
+        console.warn("smart brief refresh failed:", error.message);
+      });
       return summary;
     });
     ipcMain.handle("notifications:push-test", async () => {
@@ -372,6 +412,9 @@ if (!gotLock) {
         throw new Error(`Notification push failed: HTTP ${response.status}`);
       }
       responseCaches.delete("Notifications");
+      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
+        console.warn("smart brief refresh failed:", error.message);
+      });
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
@@ -410,10 +453,25 @@ if (!gotLock) {
         readUserEnvironment("DEEPSEEK_API_KEY"),
         readUserEnvironment("DEEPSEEK_BASE_URL")
       ]);
-      return readDeepSeekUsage({
+      const usage = await readDeepSeekUsage({
         ...options,
         apiKey,
         baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL
+      });
+      return {
+        ...usage,
+        tokenUsage: await readDeepSeekTokenUsage(app.getPath("userData"))
+      };
+    });
+    ipcMain.handle("deepseek:test-chat", async () => {
+      const [apiKey, baseUrl] = await Promise.all([
+        readUserEnvironment("DEEPSEEK_API_KEY"),
+        readUserEnvironment("DEEPSEEK_BASE_URL")
+      ]);
+      return testDeepSeekChat({
+        apiKey,
+        baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL,
+        onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, "testChat")
       });
     });
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));
