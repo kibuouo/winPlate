@@ -1,4 +1,4 @@
-const { app, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const {
@@ -47,6 +47,14 @@ const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 let smartBriefService = null;
+
+function broadcastStatusRefresh() {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send("status:refresh");
+    }
+  });
+}
 
 function setResponseCache(key, value) {
   responseCaches.delete(key);
@@ -216,7 +224,35 @@ if (!gotLock) {
       }
       responseCaches.delete("Status");
       responseCaches.delete("QWeather alerts");
-      return response.json();
+      const weather = await response.json();
+      broadcastStatusRefresh();
+      return weather;
+    });
+    ipcMain.handle("weather:search-locations", async (_event, query) => {
+      const q = encodeURIComponent(String(query || "").trim());
+      if (!q) return { locations: [] };
+      return fetchJsonCached(
+        `QWeather location search:${q}`,
+        `http://127.0.0.1:8765/api/weather/locations/search?q=${q}`,
+        30_000
+      );
+    });
+    ipcMain.handle("weather:set-manual-location", async (_event, location) => {
+      const response = await fetch("http://127.0.0.1:8765/api/weather/location/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(location || {})
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const detail = payload?.detail ? `: ${payload.detail}` : "";
+        throw new Error(`Weather location failed: HTTP ${response.status}${detail}`);
+      }
+      responseCaches.delete("Status");
+      responseCaches.delete("QWeather alerts");
+      const weather = await response.json();
+      broadcastStatusRefresh();
+      return weather;
     });
     ipcMain.handle("weather:get-settings", async () => {
       const [apiKey, apiHost, projectId, credentialId, privateKey] = await Promise.all([

@@ -203,6 +203,25 @@ function hasOfficialWeatherSettings(settings = weatherSettings) {
   return Boolean(settings.projectId && settings.credentialId && settings.hasPrivateKey);
 }
 
+function weatherLocationSourceLabel(source) {
+  return {
+    manual: "手动城市",
+    system: "系统定位",
+    ip: "IP 猜测（实验性）",
+    env: "环境变量"
+  }[source] || "未配置";
+}
+
+function relativeWeatherLocationTime(updatedAt) {
+  const value = Number(updatedAt);
+  if (!Number.isFinite(value)) return "未知";
+  const minutes = Math.max(0, Math.round((Date.now() - value) / 60_000));
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
+}
+
 function updateWeatherSettingsStatuses(form, serviceState, officialState) {
   const serviceStatus = form.querySelector("#weather-service-status");
   const officialStatus = form.querySelector("#weather-official-status");
@@ -281,6 +300,117 @@ async function bindWeatherSettings() {
       saveButton.disabled = false;
     }
   });
+}
+
+function bindWeatherLocationSettings() {
+  const queryInput = document.querySelector("#weather-location-query");
+  const resultsBox = document.querySelector("#weather-location-results");
+  const status = document.querySelector("#weather-location-status");
+  const systemButton = document.querySelector("#weather-system-location");
+  if (!queryInput || !resultsBox || !status) return;
+  let searchTimer = null;
+  const setStatus = (text, className = "") => {
+    status.textContent = text;
+    status.className = `weather-location-status ${className}`.trim();
+  };
+  const selectLocation = async (item) => {
+    resultsBox.innerHTML = "";
+    queryInput.value = item.displayName || item.name || "";
+    queryInput.disabled = true;
+    setStatus("正在保存城市...");
+    try {
+      const weather = await window.winplate.setManualWeatherLocation({
+        locationId: item.id,
+        name: item.name,
+        adm1: item.adm1,
+        latitude: item.lat == null ? null : Number(item.lat),
+        longitude: item.lon == null ? null : Number(item.lon)
+      });
+      statusData.weather = { ...statusData.weather, ...weather };
+      setStatus("已保存手动城市", "configured");
+      await refreshStatus();
+    } catch (error) {
+      setStatus(error.message || "保存城市失败", "error");
+    } finally {
+      queryInput.disabled = false;
+    }
+  };
+  const renderResults = (locations) => {
+    if (!locations.length) {
+      resultsBox.innerHTML = '<div class="weather-location-empty">没有找到城市</div>';
+      return;
+    }
+    resultsBox.innerHTML = locations.map((item, index) => `
+      <button type="button" data-weather-location-index="${index}">
+        <strong>${escapeHtml(item.name || item.displayName || item.id)}</strong>
+        <span>${escapeHtml(item.displayName || "")}</span>
+      </button>
+    `).join("");
+    resultsBox.querySelectorAll("[data-weather-location-index]").forEach((button) => {
+      button.onclick = () => selectLocation(locations[Number(button.dataset.weatherLocationIndex)]);
+    });
+  };
+  queryInput.oninput = () => {
+    clearTimeout(searchTimer);
+    const query = queryInput.value.trim();
+    if (!query) {
+      resultsBox.innerHTML = "";
+      setStatus("手动城市、系统定位可用；IP 猜测为实验性，不推荐。");
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      setStatus("正在搜索城市...");
+      try {
+        const payload = await window.winplate.searchWeatherLocations(query);
+        renderResults(Array.isArray(payload.locations) ? payload.locations : []);
+        setStatus("点击候选城市即可保存为手动城市。");
+      } catch (error) {
+        resultsBox.innerHTML = "";
+        setStatus(error.message || "城市搜索失败", "error");
+      }
+    }, 250);
+  };
+  if (systemButton) {
+    systemButton.onclick = async () => {
+      systemButton.disabled = true;
+      setStatus("正在请求系统定位...");
+      try {
+        const weather = await refreshSelectedWeatherLocation({ force: true, allowSystem: true });
+        if (!weather) throw new Error("系统定位失败，请手动选择城市。");
+        setStatus("已保存系统定位", "configured");
+        await refreshStatus();
+      } catch (error) {
+        setStatus(error.message || "系统定位失败，请手动选择城市。", "error");
+      } finally {
+        systemButton.disabled = false;
+      }
+    };
+  }
+}
+
+function renderWeatherLocationSettings() {
+  const weather = statusData.weather || {};
+  return `
+    <fieldset class="weather-location-settings">
+      <legend><strong>定位方式</strong><small>推荐使用手动城市；IP 定位可能受代理 / VPN 影响，建议使用手动城市。</small></legend>
+      <div class="weather-location-current">
+        <span>当前城市：${escapeHtml(weather.location || "未配置")}</span>
+        <span>定位方式：${escapeHtml(weatherLocationSourceLabel(weather.locationSource))}</span>
+        <span>上次更新：${escapeHtml(relativeWeatherLocationTime(weather.updatedAt))}</span>
+      </div>
+      <label>
+        <span><strong>手动城市</strong><small>搜索 QWeather 城市并保存 LocationID，最稳定</small></span>
+        <div class="weather-location-search">
+          <input id="weather-location-query" type="search" autocomplete="off" placeholder="输入城市名，例如 广州">
+          <div id="weather-location-results" class="weather-location-results" aria-live="polite"></div>
+        </div>
+      </label>
+      <div class="weather-location-actions">
+        <span>系统定位需要授权，成功后会本地缓存经纬度和城市名。</span>
+        <button type="button" id="weather-system-location">使用系统定位</button>
+      </div>
+      <small id="weather-location-status" class="weather-location-status">手动城市、系统定位可用；IP 猜测为实验性，不推荐。</small>
+    </fieldset>`;
 }
 
 async function bindDeepSeekSettings() {
@@ -1755,6 +1885,7 @@ function dashboardContent(section) {
               <input id="qweather-api-host" type="text" autocomplete="off" spellcheck="false">
             </label>
           </fieldset>
+          ${renderWeatherLocationSettings()}
           <fieldset>
             <legend><strong>官方用量统计</strong><small>可选，用于读取 QWeather 官方调用统计</small></legend>
             <label>
@@ -2055,6 +2186,7 @@ function renderMain() {
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
       bindWeatherSettings();
+      bindWeatherLocationSettings();
       bindDeepSeekSettings();
       bindGithubControls();
       bindQWeatherUsageControls();
@@ -2064,6 +2196,7 @@ function renderMain() {
   });
   bindThemeControls();
   bindWeatherSettings();
+  bindWeatherLocationSettings();
   bindDeepSeekSettings();
   bindGithubControls();
   bindQWeatherUsageControls();
@@ -2275,7 +2408,7 @@ function bindWeatherLocationControls() {
   };
 }
 
-async function refreshSelectedWeatherLocation({ force = false } = {}) {
+async function refreshSelectedWeatherLocation({ force = false, allowSystem = false } = {}) {
   const option = selectedWeatherLocationOption();
   if (!force && locationWeatherPromise) {
     return locationWeatherPromise;
@@ -2291,7 +2424,7 @@ async function refreshSelectedWeatherLocation({ force = false } = {}) {
     }
     return locatedWeather;
   }
-  if (!navigator.geolocation) {
+  if (!allowSystem || !navigator.geolocation) {
     return null;
   }
   locationWeatherPromise = new Promise((resolve, reject) => {
@@ -2686,6 +2819,9 @@ if (view === "main") {
   refreshStatus();
 }
 if (view !== "tooltip") {
+  window.winplate?.onStatusRefresh?.(() => {
+    refreshStatus();
+  });
   setInterval(refreshStatus, 30_000);
   if (view === "floating") {
     refreshNetworkSpeed();

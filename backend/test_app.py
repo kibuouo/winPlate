@@ -232,7 +232,11 @@ class DatabaseTests(unittest.TestCase):
                 result = main.status()
         main.DATABASE_PATH = original_path
         self.assertEqual(result["weather"], {"source": "qweather", "location": "武汉"})
-        weather_status.assert_called_once_with("114.305500,30.592800")
+        weather_status.assert_called_once_with(
+            "114.31,30.59",
+            display_location="武汉",
+            location_source="system",
+        )
 
     def test_refresh_weather_uses_longitude_latitude_order(self):
         with (
@@ -241,8 +245,111 @@ class DatabaseTests(unittest.TestCase):
         ):
             result = main.refresh_weather(main.WeatherLocation(latitude=22.3193, longitude=114.1694))
         self.assertEqual(result, {"source": "qweather", "location": "香港"})
-        weather_status.assert_called_once_with("114.169400,22.319300", force=True)
-        persist_weather_location.assert_called_once_with(22.3193, 114.1694, "香港")
+        weather_status.assert_called_once_with("114.17,22.32", force=True, location_source="system")
+        persist_weather_location.assert_called_once()
+
+    def test_refresh_weather_persists_system_source_and_two_decimal_query(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            data = {
+                "source": "qweather",
+                "location": "广州, 广东省",
+                "locationId": "101280101",
+                "resolvedLocation": {"name": "广州", "adm1": "广东省"},
+            }
+            with patch.object(main, "weather_status", return_value=data):
+                main.refresh_weather(main.WeatherLocation(latitude=23.1291, longitude=113.2644))
+            stored = main.read_weather_location()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(stored["source"], "system")
+        self.assertEqual(stored["query"], "113.26,23.13")
+        self.assertEqual(stored["locationId"], "101280101")
+        self.assertEqual(stored["displayLocation"], "广州, 广东省")
+
+    def test_manual_weather_location_saves_location_id_and_status_uses_it(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            with patch.object(main, "weather_status", return_value={"source": "qweather", "location": "广州, 广东省"}):
+                main.set_manual_weather_location(main.ManualWeatherLocation(
+                    locationId="101280101",
+                    name="广州",
+                    adm1="广东省",
+                    latitude=23.13,
+                    longitude=113.26,
+                ))
+            stored = main.read_weather_location()
+            with (
+                patch.object(main, "QWEATHER_LOCATION", ""),
+                patch.object(main, "github_status", return_value={"source": "github"}),
+                patch.object(main, "environment_setting", return_value="configured-key"),
+                patch.object(main, "weather_status", return_value={"source": "qweather", "location": "广州"}) as weather_status,
+            ):
+                result = main.status()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(stored["source"], "manual")
+        self.assertEqual(stored["query"], "101280101")
+        self.assertEqual(result["weather"]["location"], "广州")
+        weather_status.assert_called_once_with(
+            "101280101",
+            display_location="广州, 广东省",
+            location_source="manual",
+        )
+
+    def test_status_weather_failure_does_not_clear_stored_location(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.persist_weather_location(
+                23.13,
+                113.26,
+                "广州, 广东省",
+                source="manual",
+                query="101280101",
+                location_id="101280101",
+                name="广州",
+                adm1="广东省",
+            )
+            with (
+                patch.object(main, "QWEATHER_LOCATION", ""),
+                patch.object(main, "github_status", return_value={"source": "github"}),
+                patch.object(main, "environment_setting", return_value="configured-key"),
+                patch.object(main, "weather_status", side_effect=RuntimeError("boom")),
+            ):
+                result = main.status()
+            stored = main.read_weather_location()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["weather"]["source"], "unavailable")
+        self.assertEqual(stored["query"], "101280101")
+
+    def test_build_weather_status_location_id_skips_city_lookup(self):
+        calls = []
+
+        def fake_qweather_request(path, params):
+            calls.append((path, params))
+            if path == "/v7/weather/now":
+                return {"code": "200", "updateTime": "2026-06-13T12:00+08:00", "now": {
+                    "obsTime": "2026-06-13T11:55+08:00", "temp": "30", "feelsLike": "35",
+                    "icon": "305", "text": "小雨", "humidity": "81", "precip": "0.3",
+                    "pressure": "1005", "vis": "12", "windDir": "东南风", "windScale": "3",
+                }}
+            if path == "/v7/weather/24h":
+                return {"code": "200", "hourly": [{"pop": "75"}]}
+            if path == "/v7/weather/3d":
+                return {"code": "200", "daily": [
+                    {"fxDate": "2026-06-13", "iconDay": "305", "textDay": "阵雨", "textNight": "多云", "tempMax": "31", "tempMin": "27", "precip": "2"},
+                ]}
+            raise AssertionError(f"Unexpected path: {path}")
+
+        with patch.object(main, "qweather_request", side_effect=fake_qweather_request):
+            result = main.build_weather_status("101280101", display_location="广州, 广东省")
+        self.assertEqual(result["locationId"], "101280101")
+        self.assertEqual(result["location"], "广州, 广东省")
+        self.assertNotIn("/geo/v2/city/lookup", [path for path, _params in calls])
 
     def test_qweather_request_decompresses_gzip_response(self):
         payload = {"code": "200", "location": []}

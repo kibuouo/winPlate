@@ -1035,6 +1035,20 @@ html[data-theme="light"] .qweather-card .large-track > span {
 .weather-settings-actions button { padding: 9px 16px; color: #fff; border: 0; border-radius: 9px; background: var(--accent); font-weight: 650; cursor: pointer; }
 .weather-settings-actions button:hover { background: color-mix(in srgb, var(--accent) 86%, #000 14%); }
 .weather-settings-actions button:disabled { cursor: wait; opacity: .6; }
+.weather-location-settings { display: grid; gap: 0; }
+.weather-location-current { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 12px 22px; color: var(--text-muted); border-bottom: 1px solid var(--border); font-size: 12px; }
+.weather-location-search { display: grid; gap: 8px; }
+.weather-location-results { display: grid; gap: 6px; }
+.weather-location-results button { display: grid; gap: 2px; width: 100%; padding: 8px 10px; color: var(--text); text-align: left; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.weather-location-results button:hover { border-color: var(--accent); }
+.weather-location-results span, .weather-location-empty { color: var(--text-muted); font-size: 11px; }
+.weather-location-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 22px; border-bottom: 1px solid var(--border); }
+.weather-location-actions span, .weather-location-status { color: var(--text-muted); font-size: 12px; }
+.weather-location-actions button { padding: 8px 13px; color: #fff; border: 0; border-radius: 8px; background: var(--accent); font-weight: 650; cursor: pointer; white-space: nowrap; }
+.weather-location-actions button:disabled { cursor: wait; opacity: .6; }
+.weather-location-status { display: block; padding: 10px 22px; }
+.weather-location-status.configured { color: #10b981; }
+.weather-location-status.error { color: #f87171; }
 .settings-page .weather-settings-panel fieldset + fieldset { border-top-width: 5px; }
 .settings-page .weather-settings-panel legend { gap: 3px; padding: 11px 18px 9px; }
 .settings-page .weather-settings-panel legend strong { font-size: 12px; }
@@ -1434,8 +1448,8 @@ html[data-theme="light"] .mail-detail-frame {
 .deepseek-wallet-icon { width: 76px; height: 76px; color: #3b73f6; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 14px 18px rgba(37,99,235,.16)); }
 .deepseek-wallet-art { display: grid; place-items: center; min-height: 94px; }
 .deepseek-wallet-balance { width: 100%; display: grid; gap: 6px; min-width: 0; }
-.deepseek-wallet-balance strong { display: flex; align-items: baseline; gap: 12px; color: var(--text); white-space: nowrap; font-size: 52px; font-weight: 750; line-height: 1; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
-.deepseek-wallet-balance strong span { font-size: 43px; font-weight: 750; }
+.deepseek-wallet-balance strong { display: flex; align-items: baseline; gap: 10px; color: var(--text); white-space: nowrap; font-size: 36px; font-weight: 750; line-height: 1; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
+.deepseek-wallet-balance strong span { font-size: 30px; font-weight: 750; letter-spacing: -.035em; }
 .deepseek-health-pill { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 34px; padding: 7px 15px; color: #16a34a; border: 1px solid rgba(34,197,94,.22); border-radius: 999px; background: rgba(34,197,94,.12); font-size: 14px; font-weight: 800; white-space: nowrap; word-break: keep-all; }
 .deepseek-health-pill i { width: 16px; height: 16px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px rgba(34,197,94,.34); }
 .deepseek-health-pill.inactive { color: #f97316; border-color: rgba(249,115,22,.24); background: rgba(249,115,22,.10); }
