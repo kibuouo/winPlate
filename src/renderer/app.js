@@ -69,6 +69,45 @@ let qweatherOfficialStats = null;
 let qweatherUsageMessage = "";
 let qweatherOfficialStatus = null;
 const THEME_STORAGE_KEY = "winplate-theme";
+const WEATHER_LOCATION_STORAGE_KEY = "winplate-weather-location";
+const WEATHER_LOCATION_REGIONS = [
+  { id: "auto", label: "自动定位", cities: [{ id: "auto", label: "系统定位" }] },
+  { id: "beijing", label: "北京市", cities: [{ id: "beijing", label: "北京", latitude: 39.9042, longitude: 116.4074 }] },
+  { id: "tianjin", label: "天津市", cities: [{ id: "tianjin", label: "天津", latitude: 39.3434, longitude: 117.3616 }] },
+  { id: "hebei", label: "河北省", cities: [{ id: "shijiazhuang", label: "石家庄", latitude: 38.0428, longitude: 114.5149 }, { id: "tangshan", label: "唐山", latitude: 39.6309, longitude: 118.1802 }, { id: "qinhuangdao", label: "秦皇岛", latitude: 39.9354, longitude: 119.6005 }] },
+  { id: "shanxi", label: "山西省", cities: [{ id: "taiyuan", label: "太原", latitude: 37.8706, longitude: 112.5489 }, { id: "datong", label: "大同", latitude: 40.0768, longitude: 113.3001 }] },
+  { id: "inner-mongolia", label: "内蒙古自治区", cities: [{ id: "hohhot", label: "呼和浩特", latitude: 40.8426, longitude: 111.7492 }, { id: "baotou", label: "包头", latitude: 40.6574, longitude: 109.8403 }] },
+  { id: "liaoning", label: "辽宁省", cities: [{ id: "shenyang", label: "沈阳", latitude: 41.8057, longitude: 123.4315 }, { id: "dalian", label: "大连", latitude: 38.914, longitude: 121.6147 }] },
+  { id: "jilin", label: "吉林省", cities: [{ id: "changchun", label: "长春", latitude: 43.8171, longitude: 125.3235 }, { id: "jilin-city", label: "吉林", latitude: 43.8378, longitude: 126.5494 }] },
+  { id: "heilongjiang", label: "黑龙江省", cities: [{ id: "harbin", label: "哈尔滨", latitude: 45.8038, longitude: 126.5349 }, { id: "qiqihar", label: "齐齐哈尔", latitude: 47.3543, longitude: 123.9182 }] },
+  { id: "shanghai", label: "上海市", cities: [{ id: "shanghai", label: "上海", latitude: 31.2304, longitude: 121.4737 }] },
+  { id: "jiangsu", label: "江苏省", cities: [{ id: "nanjing", label: "南京", latitude: 32.0603, longitude: 118.7969 }, { id: "suzhou", label: "苏州", latitude: 31.2989, longitude: 120.5853 }, { id: "wuxi", label: "无锡", latitude: 31.4912, longitude: 120.3119 }] },
+  { id: "zhejiang", label: "浙江省", cities: [{ id: "hangzhou", label: "杭州", latitude: 30.2741, longitude: 120.1551 }, { id: "ningbo", label: "宁波", latitude: 29.8683, longitude: 121.544 }, { id: "wenzhou", label: "温州", latitude: 27.9938, longitude: 120.6994 }] },
+  { id: "anhui", label: "安徽省", cities: [{ id: "hefei", label: "合肥", latitude: 31.8206, longitude: 117.2272 }, { id: "wuhu", label: "芜湖", latitude: 31.3525, longitude: 118.4331 }] },
+  { id: "fujian", label: "福建省", cities: [{ id: "fuzhou", label: "福州", latitude: 26.0745, longitude: 119.2965 }, { id: "xiamen", label: "厦门", latitude: 24.4798, longitude: 118.0894 }, { id: "quanzhou", label: "泉州", latitude: 24.8739, longitude: 118.6759 }] },
+  { id: "jiangxi", label: "江西省", cities: [{ id: "nanchang", label: "南昌", latitude: 28.682, longitude: 115.8582 }, { id: "jiujiang", label: "九江", latitude: 29.7051, longitude: 116.0019 }] },
+  { id: "shandong", label: "山东省", cities: [{ id: "jinan", label: "济南", latitude: 36.6512, longitude: 117.1201 }, { id: "qingdao", label: "青岛", latitude: 36.0671, longitude: 120.3826 }, { id: "yantai", label: "烟台", latitude: 37.4638, longitude: 121.4479 }] },
+  { id: "henan", label: "河南省", cities: [{ id: "zhengzhou", label: "郑州", latitude: 34.7466, longitude: 113.6254 }, { id: "luoyang", label: "洛阳", latitude: 34.6197, longitude: 112.454 }] },
+  { id: "hubei", label: "湖北省", cities: [{ id: "wuhan", label: "武汉", latitude: 30.5928, longitude: 114.3055 }, { id: "yichang", label: "宜昌", latitude: 30.6919, longitude: 111.2865 }] },
+  { id: "hunan", label: "湖南省", cities: [{ id: "changsha", label: "长沙", latitude: 28.2282, longitude: 112.9388 }, { id: "zhangjiajie", label: "张家界", latitude: 29.1171, longitude: 110.4792 }] },
+  { id: "guangdong", label: "广东省", cities: [{ id: "guangzhou", label: "广州", latitude: 23.1291, longitude: 113.2644 }, { id: "shenzhen", label: "深圳", latitude: 22.5431, longitude: 114.0579 }, { id: "zhuhai", label: "珠海", latitude: 22.2707, longitude: 113.5767 }] },
+  { id: "guangxi", label: "广西壮族自治区", cities: [{ id: "nanning", label: "南宁", latitude: 22.817, longitude: 108.3669 }, { id: "guilin", label: "桂林", latitude: 25.2736, longitude: 110.2902 }] },
+  { id: "hainan", label: "海南省", cities: [{ id: "haikou", label: "海口", latitude: 20.044, longitude: 110.1999 }, { id: "sanya", label: "三亚", latitude: 18.2528, longitude: 109.5119 }] },
+  { id: "chongqing", label: "重庆市", cities: [{ id: "chongqing", label: "重庆", latitude: 29.563, longitude: 106.5516 }] },
+  { id: "sichuan", label: "四川省", cities: [{ id: "chengdu", label: "成都", latitude: 30.5728, longitude: 104.0668 }, { id: "mianyang", label: "绵阳", latitude: 31.4675, longitude: 104.6796 }] },
+  { id: "guizhou", label: "贵州省", cities: [{ id: "guiyang", label: "贵阳", latitude: 26.647, longitude: 106.6302 }, { id: "zunyi", label: "遵义", latitude: 27.7257, longitude: 106.9274 }] },
+  { id: "yunnan", label: "云南省", cities: [{ id: "kunming", label: "昆明", latitude: 25.0438, longitude: 102.7103 }, { id: "dali", label: "大理", latitude: 25.6065, longitude: 100.2676 }] },
+  { id: "tibet", label: "西藏自治区", cities: [{ id: "lhasa", label: "拉萨", latitude: 29.6503, longitude: 91.1322 }] },
+  { id: "shaanxi", label: "陕西省", cities: [{ id: "xian", label: "西安", latitude: 34.3416, longitude: 108.9398 }, { id: "yanan", label: "延安", latitude: 36.5853, longitude: 109.4898 }] },
+  { id: "gansu", label: "甘肃省", cities: [{ id: "lanzhou", label: "兰州", latitude: 36.0611, longitude: 103.8343 }, { id: "dunhuang", label: "敦煌", latitude: 40.1421, longitude: 94.6618 }] },
+  { id: "qinghai", label: "青海省", cities: [{ id: "xining", label: "西宁", latitude: 36.6171, longitude: 101.7782 }] },
+  { id: "ningxia", label: "宁夏回族自治区", cities: [{ id: "yinchuan", label: "银川", latitude: 38.4872, longitude: 106.2309 }] },
+  { id: "xinjiang", label: "新疆维吾尔自治区", cities: [{ id: "urumqi", label: "乌鲁木齐", latitude: 43.8256, longitude: 87.6168 }, { id: "kashgar", label: "喀什", latitude: 39.4704, longitude: 75.9898 }] },
+  { id: "hong-kong", label: "香港特别行政区", cities: [{ id: "hong-kong", label: "香港", latitude: 22.3193, longitude: 114.1694 }] },
+  { id: "macau", label: "澳门特别行政区", cities: [{ id: "macau", label: "澳门", latitude: 22.1987, longitude: 113.5439 }] },
+  { id: "taiwan", label: "台湾省", cities: [{ id: "taipei", label: "台北", latitude: 25.033, longitude: 121.5654 }, { id: "kaohsiung", label: "高雄", latitude: 22.6273, longitude: 120.3014 }] }
+];
+let weatherLocationPreference = localStorage.getItem(WEATHER_LOCATION_STORAGE_KEY) || "auto";
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
 
@@ -445,22 +484,36 @@ function startSmartBriefCarousel() {
   }, 6_000);
 }
 
-function formatNetworkSpeed(bytesPerSecond, compact = true) {
+function formatSpeedCompact(bytesPerSecond) {
   const value = Number(bytesPerSecond);
-  if (!Number.isFinite(value) || value < 0) return compact ? "---" : "---";
+  if (!Number.isFinite(value) || value < 0) return "---";
   const kb = value / 1024;
-  if (kb < 1) return compact ? "0K" : "0 KB/s";
-  if (kb < 1000) return compact ? `${Math.round(kb)}K` : `${Math.round(kb)} KB/s`;
+  if (kb < 1) return "0K";
+  if (kb < 1000) return `${Math.round(kb)}K`;
   const mb = kb / 1024;
-  return compact ? `${mb.toFixed(mb >= 10 ? 0 : 1)}M` : `${mb.toFixed(mb >= 10 ? 0 : 1)} MB/s`;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)}M`;
+}
+
+function formatSpeedFull(bytesPerSecond) {
+  const value = Number(bytesPerSecond);
+  if (!Number.isFinite(value) || value < 0) return "---";
+  const kb = value / 1024;
+  if (kb < 1) return "0 KB/s";
+  if (kb < 1000) return `${Math.round(kb)} KB/s`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB/s`;
+}
+
+function formatNetworkSpeed(bytesPerSecond, compact = true) {
+  return compact ? formatSpeedCompact(bytesPerSecond) : formatSpeedFull(bytesPerSecond);
 }
 
 function networkSpeedLabel() {
-  return `↓ ${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, true)}`;
+  return `↓ ${formatSpeedCompact(networkSpeed.downloadBytesPerSecond)}`;
 }
 
 function networkSpeedMarkup() {
-  return `<span class="network-speed-arrow">↓</span><span class="network-speed-value">${formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, true)}</span>`;
+  return `<span class="network-speed-arrow">↓</span><span class="network-speed-value">${formatSpeedCompact(networkSpeed.downloadBytesPerSecond)}</span>`;
 }
 
 function networkStatusKind(status, downloadBytesPerSecond = 0, uploadBytesPerSecond = 0) {
@@ -780,6 +833,37 @@ function weatherIconMarkup(iconCode, className = "weather-icon") {
   return `<img class="themed-weather-icon ${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
 }
 
+function selectedWeatherLocationOption() {
+  const city = WEATHER_LOCATION_REGIONS
+    .flatMap((region) => region.cities.map((item) => ({ ...item, regionId: region.id, regionLabel: region.label })))
+    .find((item) => item.id === weatherLocationPreference);
+  return city || { ...WEATHER_LOCATION_REGIONS[0].cities[0], regionId: "auto", regionLabel: "自动定位" };
+}
+
+function selectedWeatherRegion() {
+  const selected = selectedWeatherLocationOption();
+  return WEATHER_LOCATION_REGIONS.find((region) => region.id === selected.regionId) || WEATHER_LOCATION_REGIONS[0];
+}
+
+function weatherLocationSelect() {
+  const region = selectedWeatherRegion();
+  const selected = selectedWeatherLocationOption();
+  return `
+    <div class="weather-location-picker no-drag">
+      ${locationArrowIcon}
+      <select id="weather-province-select" aria-label="选择省份">
+        ${WEATHER_LOCATION_REGIONS.map((option) => `
+          <option value="${option.id}"${region.id === option.id ? " selected" : ""}>${option.label}</option>
+        `).join("")}
+      </select>
+      <select id="weather-city-select" aria-label="选择城市">
+        ${region.cities.map((option) => `
+          <option value="${option.id}"${selected.id === option.id ? " selected" : ""}>${option.label}</option>
+        `).join("")}
+      </select>
+    </div>`;
+}
+
 function weatherDashboardCard() {
   const weather = statusData.weather || mockStatus.weather;
   const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 3) : [];
@@ -798,7 +882,10 @@ function weatherDashboardCard() {
     <article class="dashboard-card weather-dashboard-card">
       <div class="weather-card-main">
         <div class="weather-card-heading">
-          <span>${locationArrowIcon}<b>${weather.location || (weather.source === "unconfigured" ? "位置未配置" : "当前位置")}</b></span>
+          <div class="weather-location-stack">
+            ${weatherLocationSelect()}
+            <span>${weather.location || (weather.source === "unconfigured" ? "位置未配置" : "当前位置")}</span>
+          </div>
           <small>${weather.source === "qweather" ? "QWeather 实时数据" : weather.source === "unconfigured" ? "请允许系统定位或配置回退位置" : "等待天气数据"}</small>
         </div>
         <div class="weather-card-current">
@@ -1784,22 +1871,59 @@ function codexContent() {
   const deepseek = statusData.deepseek || {};
   const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
   const tokenUsage = deepseek.tokenUsage || {};
-  const tokenValue = (value) => Number.isFinite(Number(value))
-    ? `${Number(value).toLocaleString("en-US")} tokens`
-    : "--";
-  const tokenGroup = (label, usage) => `
-      <section class="deepseek-token-group">
-        <header><span>${label}</span><strong>${tokenValue(usage?.totalTokens)}</strong></header>
-        <div><i class="cache-hit"></i><span>输入（命中缓存）</span><strong>${tokenValue(usage?.cacheHitTokens)}</strong></div>
-        <div><i class="cache-miss"></i><span>输入（未命中缓存）</span><strong>${tokenValue(usage?.cacheMissTokens)}</strong></div>
-        <div><i class="output"></i><span>输出</span><strong>${tokenValue(usage?.outputTokens)}</strong></div>
-      </section>`;
+  const tokenNumber = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  };
+  const tokenValue = (value, unit = true) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "--";
+    return `${number.toLocaleString("en-US")}${unit ? " tokens" : ""}`;
+  };
+  const tokenPercent = (value, total) => total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
+  const tokenBreakdown = (usage = {}) => {
+    const rows = [
+      { key: "cache-hit", label: "缓存输入", value: tokenNumber(usage.cacheHitTokens) },
+      { key: "cache-miss", label: "未缓存输入", value: tokenNumber(usage.cacheMissTokens) },
+      { key: "output", label: "输出", value: tokenNumber(usage.outputTokens) }
+    ];
+    const total = tokenNumber(usage.totalTokens) || rows.reduce((sum, row) => sum + row.value, 0);
+    return { rows, total };
+  };
+  const tokenShareBar = (rows, total) => {
+    let x = 0;
+    const segments = rows.map((row) => {
+      const width = tokenPercent(row.value, total);
+      const segment = `<rect class="deepseek-share-${row.key}" x="${x.toFixed(2)}" y="0" width="${width.toFixed(2)}" height="8" rx="4" />`;
+      x += width;
+      return segment;
+    }).join("");
+    return `<svg class="deepseek-token-share" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">${segments}</svg>`;
+  };
+  const todayBreakdown = tokenBreakdown(tokenUsage.today);
+  const totalBreakdown = tokenBreakdown(tokenUsage.total);
+  const tokenRows = todayBreakdown.rows.map((row) => `
+        <div class="deepseek-token-row">
+          <span><i class="${row.key}"></i>${row.label}</span>
+          <strong>${tokenValue(row.value, false)}</strong>
+          <em>${tokenPercent(row.value, todayBreakdown.total).toFixed(0)}%</em>
+        </div>`).join("");
   const tokenPanel = `
     <div class="deepseek-token-panel">
-      <header><strong>Token 用量</strong><span>本应用累计</span></header>
-      ${tokenGroup("今日", tokenUsage.today)}
-      ${tokenGroup("总计", tokenUsage.total)}
+      <header>
+        <span>Token 用量</span>
+        <small>本应用累计 ${tokenValue(totalBreakdown.total)}</small>
+      </header>
+      <div class="deepseek-token-summary">
+        <span>今日用量</span>
+        <strong>${tokenValue(todayBreakdown.total)}</strong>
+      </div>
+      ${tokenShareBar(todayBreakdown.rows, todayBreakdown.total)}
+      <div class="deepseek-token-rows">${tokenRows}</div>
     </div>`;
+  const deepseekActive = deepseek.status === "Normal";
+  const deepseekStatusText = deepseekActive ? "DeepSeek API 正常" : `DeepSeek API ${deepseek.status || "未配置"}`;
+  const balanceStatusText = balances.length ? "余额状态：正常" : (deepseek.configured ? "余额状态：读取失败" : "余额状态：未配置");
   const walletIcon = `
     <svg class="deepseek-wallet-icon" viewBox="0 0 48 48" aria-hidden="true">
       <path d="M8 17.5h30.5A5.5 5.5 0 0 1 44 23v14a5.5 5.5 0 0 1-5.5 5.5h-25A7.5 7.5 0 0 1 6 35V13a7.5 7.5 0 0 1 7.5-7.5H34a4 4 0 0 1 4 4v8" />
@@ -1810,20 +1934,36 @@ function codexContent() {
     ? balances.map((balance) => `
         <article class="deepseek-balance-card">
           <div class="deepseek-balance-metric deepseek-wallet-metric">
-            ${walletIcon}
+            <div class="deepseek-wallet-heading">
+              <span>可用余额</span>
+              ${walletIcon}
+            </div>
             <div class="deepseek-wallet-balance">
               <strong><span>${deepseekCurrencySymbol(balance.currency)}</span>${formatDeepSeekBalance(balance)}</strong>
               <small>Available balance</small>
+            </div>
+            <div class="deepseek-status-list">
+              <span class="${deepseekActive ? "" : "inactive"}"><i></i>${deepseekStatusText}</span>
+              <span>${balanceStatusText}</span>
+              <span>更新于 ${relativeUpdatedAt(deepseek.updatedAt)}</span>
             </div>
           </div>
           ${tokenPanel}
         </article>`).join("")
     : `<article class="deepseek-balance-card deepseek-empty">
         <div class="deepseek-balance-metric deepseek-wallet-metric">
-          ${walletIcon}
+          <div class="deepseek-wallet-heading">
+            <span>可用余额</span>
+            ${walletIcon}
+          </div>
           <div class="deepseek-wallet-balance">
             <strong><span>¥</span>--</strong>
             <small>Available balance</small>
+          </div>
+          <div class="deepseek-status-list">
+            <span class="inactive"><i></i>${deepseekStatusText}</span>
+            <span>${balanceStatusText}</span>
+            <span>更新于 ${relativeUpdatedAt(deepseek.updatedAt)}</span>
           </div>
         </div>
         ${tokenPanel}
@@ -1850,7 +1990,6 @@ function codexContent() {
         <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
       </div>
       <div class="usage-window-grid deepseek-balance-grid">${balanceCards}</div>
-      <div class="codex-cli-status ${deepseek.status === "Normal" ? "" : "inactive"}"><span></span>Status: DeepSeek API ${deepseek.status === "Normal" ? "active" : deepseek.status || "unconfigured"}</div>
     </section>`;
 }
 
@@ -2082,6 +2221,7 @@ async function refreshNetworkSpeed() {
 }
 
 function bindQWeatherUsageControls() {
+  bindWeatherLocationControls();
   const button = document.querySelector("#qweather-verify");
   if (!button) return;
   button.onclick = async () => {
@@ -2099,6 +2239,82 @@ function bindQWeatherUsageControls() {
     }
     updateMainStatusDom();
   };
+}
+
+function bindWeatherLocationControls() {
+  const provinceSelect = document.querySelector("#weather-province-select");
+  const citySelect = document.querySelector("#weather-city-select");
+  if (!provinceSelect || !citySelect) return;
+  const applySelection = async (cityId) => {
+    const option = WEATHER_LOCATION_REGIONS.flatMap((region) => region.cities).find((item) => item.id === cityId)
+      || WEATHER_LOCATION_REGIONS[0].cities[0];
+    weatherLocationPreference = option.id;
+    if (option.id === "auto") {
+      localStorage.removeItem(WEATHER_LOCATION_STORAGE_KEY);
+    } else {
+      localStorage.setItem(WEATHER_LOCATION_STORAGE_KEY, option.id);
+    }
+    provinceSelect.disabled = true;
+    citySelect.disabled = true;
+    locationWeatherPromise = null;
+    try {
+      await refreshSelectedWeatherLocation({ force: true });
+      await refreshQWeatherAlerts();
+      await hydrateNotifications();
+    } catch (error) {
+      console.warn("Selected weather location unavailable:", error.message);
+    } finally {
+      provinceSelect.disabled = false;
+      citySelect.disabled = false;
+      updateMainStatusDom();
+    }
+  };
+  provinceSelect.onchange = async () => {
+    const region = WEATHER_LOCATION_REGIONS.find((item) => item.id === provinceSelect.value) || WEATHER_LOCATION_REGIONS[0];
+    await applySelection(region.cities[0]?.id || "auto");
+  };
+  citySelect.onchange = async () => {
+    await applySelection(citySelect.value);
+  };
+}
+
+async function refreshSelectedWeatherLocation({ force = false } = {}) {
+  const option = selectedWeatherLocationOption();
+  if (!force && locationWeatherPromise) {
+    return locationWeatherPromise;
+  }
+  if (option.id !== "auto") {
+    locationWeatherPromise = window.winplate.setWeatherLocation({
+      latitude: option.latitude,
+      longitude: option.longitude
+    });
+    const locatedWeather = await locationWeatherPromise;
+    if (locatedWeather) {
+      statusData.weather = { ...statusData.weather, ...locatedWeather };
+    }
+    return locatedWeather;
+  }
+  if (!navigator.geolocation) {
+    return null;
+  }
+  locationWeatherPromise = new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: false,
+      timeout: 10_000,
+      maximumAge: 30 * 60_000
+    });
+  }).then(({ coords }) => window.winplate.setWeatherLocation({
+    latitude: coords.latitude,
+    longitude: coords.longitude
+  })).catch((error) => {
+    console.warn("Automatic weather location unavailable:", error.message);
+    return null;
+  });
+  const locatedWeather = await locationWeatherPromise;
+  if (locatedWeather) {
+    statusData.weather = { ...statusData.weather, ...locatedWeather };
+  }
+  return locatedWeather;
 }
 
 function bindMailControls() {
@@ -2429,24 +2645,8 @@ async function refreshStatus() {
     await hydrateQWeatherUsage();
     await hydrateMail();
     await hydrateNotifications();
-    if (!locationWeatherPromise && navigator.geolocation) {
-      locationWeatherPromise = new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: false,
-          timeout: 10_000,
-          maximumAge: 30 * 60_000
-        });
-      }).then(({ coords }) => window.winplate.setWeatherLocation({
-        latitude: coords.latitude,
-        longitude: coords.longitude
-      })).catch((error) => {
-        console.warn("Automatic weather location unavailable:", error.message);
-        return null;
-      });
-    }
-    const locatedWeather = await locationWeatherPromise;
+    const locatedWeather = await refreshSelectedWeatherLocation();
     if (locatedWeather) {
-      statusData.weather = { ...statusData.weather, ...locatedWeather };
       await refreshQWeatherAlerts();
       await hydrateNotifications();
     }

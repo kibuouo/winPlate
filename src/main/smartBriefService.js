@@ -187,6 +187,8 @@ function buildSmartBriefPrompt(notifications) {
     "你是 WinPlate 的桌面通知压缩引擎。",
     "你的任务是把多条通知整理成适合顶部桌面胶囊显示的一行短文案。",
     "你必须只输出 JSON，不要输出 Markdown，不要输出解释。",
+    "顶层 JSON 必须是对象，格式为 {\"items\":[...]}。",
+    "每个 item 只能包含 id、sourceIds、text、level、source、actionType。",
     "要求：",
     "1. 每条 text 不超过 28 个中文字符。",
     "2. 保留最重要的信息。",
@@ -225,11 +227,20 @@ function extractJson(text) {
 
 function parseSmartBriefResponse(text, candidates, now = Date.now()) {
   const payload = extractJson(text);
-  if (!Array.isArray(payload?.items)) {
+  const rawItems = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload?.brief?.items)
+        ? payload.brief.items
+        : Array.isArray(payload?.data?.items)
+          ? payload.data.items
+          : null;
+  if (!rawItems) {
     throw new Error("SmartBrief items 结构错误");
   }
   const candidateIds = new Set(candidates.map((item) => item.id));
-  return payload.items.slice(0, MAX_AI_ITEMS).map((item, index) => {
+  return rawItems.slice(0, MAX_AI_ITEMS).map((item, index) => {
     const source = normalizeSource(item?.source);
     const sourceIds = Array.isArray(item?.sourceIds)
       ? item.sourceIds.map(String).filter((id) => candidateIds.has(id))

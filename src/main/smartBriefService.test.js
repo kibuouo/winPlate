@@ -69,6 +69,7 @@ test("builds a JSON-only prompt without mail body fields", () => {
   assert.equal(userPayload.maxTextLength, 28);
   assert.equal(userPayload.notifications[1].body, undefined);
   assert.equal(userPayload.notifications[1].sender, "Riot Games");
+  assert.match(messages[0].content, /\{"items":\[\.\.\.\]\}/);
 });
 
 test("parses and clamps DeepSeek smart brief JSON", () => {
@@ -87,6 +88,30 @@ test("parses and clamps DeepSeek smart brief JSON", () => {
   assert.ok(Array.from(items[0].text).length <= 28);
   assert.deepEqual(items[0].sourceIds, ["mail-001"]);
   assert.equal(items[0].level, "info");
+});
+
+test("accepts common smart brief item wrappers from chat responses", () => {
+  const candidates = normalizeNotificationSummary({ items: mockItems });
+  const arrayItems = parseSmartBriefResponse(JSON.stringify([{
+    sourceIds: ["weather-001"],
+    text: "暴雨预警：今晚少出门",
+    level: "warning",
+    source: "weather"
+  }]), candidates, 123);
+  const nestedItems = parseSmartBriefResponse(JSON.stringify({
+    brief: {
+      items: [{
+        sourceIds: ["codex-001"],
+        text: "Codex：任务已完成",
+        level: "success",
+        source: "codex"
+      }]
+    }
+  }), candidates, 123);
+
+  assert.equal(arrayItems[0].text, "暴雨预警：今晚少出门");
+  assert.equal(arrayItems[0].actionType, "open_weather");
+  assert.deepEqual(nestedItems[0].sourceIds, ["codex-001"]);
 });
 
 test("fallback brief handles the required mock notifications", () => {

@@ -210,6 +210,23 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["weather"]["source"], "unconfigured")
         self.assertEqual(result["weather"]["location"], "")
 
+    def test_status_uses_stored_weather_location_without_env_fallback(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.persist_weather_location(30.5928, 114.3055, "武汉")
+            with (
+                patch.object(main, "QWEATHER_LOCATION", ""),
+                patch.object(main, "github_status", return_value={"source": "github"}),
+                patch.object(main, "environment_setting", return_value="configured-key"),
+                patch.object(main, "weather_status", return_value={"source": "qweather", "location": "武汉"}) as weather_status,
+            ):
+                result = main.status()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["weather"], {"source": "qweather", "location": "武汉"})
+        weather_status.assert_called_once_with("114.305500,30.592800")
+
     def test_refresh_weather_uses_longitude_latitude_order(self):
         with (
             patch.object(main, "weather_status", return_value={"source": "qweather", "location": "香港"}) as weather_status,

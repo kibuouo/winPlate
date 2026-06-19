@@ -3,6 +3,19 @@ const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} should exist`);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`Could not extract ${name}`);
+}
+
 test("content security policy permits GitHub avatar images", () => {
   const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 
@@ -147,4 +160,40 @@ test("DeepSeek balance card renders local token usage instead of unavailable pla
   assert.match(codexContent, /tokenUsage\.total/);
   assert.match(codexContent, /本应用累计/);
   assert.doesNotMatch(codexContent, /暂未提供接口/);
+});
+
+test("floating network speed uses compact labels for the main capsule", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const formatSpeedCompact = Function(`"use strict"; ${extractFunction(renderer, "formatSpeedCompact")}; return formatSpeedCompact;`)();
+  const formatSpeedFull = Function(`"use strict"; ${extractFunction(renderer, "formatSpeedFull")}; return formatSpeedFull;`)();
+
+  assert.equal(formatSpeedCompact(0), "0K");
+  assert.equal(formatSpeedCompact(9 * 1024), "9K");
+  assert.equal(formatSpeedCompact(76 * 1024), "76K");
+  assert.equal(formatSpeedCompact(1.0 * 1024 * 1024), "1.0M");
+  assert.equal(formatSpeedCompact(12 * 1024 * 1024), "12M");
+  assert.equal(formatSpeedCompact(128 * 1024 * 1024), "128M");
+  assert.equal(formatSpeedFull(9 * 1024), "9 KB/s");
+  assert.equal(formatSpeedFull(3 * 1024), "3 KB/s");
+  assert.equal(formatSpeedFull(12 * 1024 * 1024), "12 MB/s");
+  assert.match(renderer, /networkSpeedMarkup\(\)[\s\S]*formatSpeedCompact\(networkSpeed\.downloadBytesPerSecond\)/);
+  assert.match(renderer, /download:\s*formatNetworkSpeed\(networkSpeed\.downloadBytesPerSecond,\s*false\)/);
+  assert.match(renderer, /upload:\s*formatNetworkSpeed\(networkSpeed\.uploadBytesPerSecond,\s*false\)/);
+});
+
+test("floating network capsule is wider than heart while sharing the icon grid", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const floatingStatusCss = css.slice(
+    css.indexOf(".status-layout"),
+    css.indexOf(".main-body")
+  );
+
+  assert.match(floatingStatusCss, /\.status-layout\s*\{[\s\S]*grid-template-columns:\s*96px minmax\(0, 1fr\) 105px;/);
+  assert.match(floatingStatusCss, /\.system-status\s*\{[\s\S]*grid-template-columns:\s*76px 24px;/);
+  assert.match(floatingStatusCss, /\.heart-module\s*\{[\s\S]*width:\s*62px;/);
+  assert.match(floatingStatusCss, /\.network-module\s*\{[\s\S]*width:\s*76px;/);
+  assert.match(floatingStatusCss, /\.heart-module\s*\{[\s\S]*grid-template-columns:\s*16px max-content;/);
+  assert.match(floatingStatusCss, /\.network-speed\s*\{[\s\S]*grid-template-columns:\s*16px max-content;/);
+  assert.match(floatingStatusCss, /\.network-speed\s*\{[\s\S]*gap:\s*3px;/);
+  assert.doesNotMatch(floatingStatusCss, /transform:\s*translateX/);
 });

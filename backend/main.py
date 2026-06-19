@@ -1233,7 +1233,11 @@ def read_weather_location() -> dict | None:
     longitude = payload.get("longitude")
     if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
         return None
-    result = {"latitude": float(latitude), "longitude": float(longitude)}
+    result = {
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "query": str(payload.get("query") or f"{float(longitude):.6f},{float(latitude):.6f}"),
+    }
     display_location = clean_mail_text(str(payload.get("displayLocation") or ""), limit=80)
     if display_location:
         result["displayLocation"] = display_location
@@ -1591,9 +1595,11 @@ def status() -> dict[str, dict]:
     result = {row["module"]: json.loads(row["payload"]) for row in rows}
     result["github"] = github_status()
     if environment_setting("QWEATHER_API_KEY"):
-        if QWEATHER_LOCATION:
+        stored_weather_location = read_weather_location()
+        weather_query = stored_weather_location.get("query") if stored_weather_location else QWEATHER_LOCATION
+        if weather_query:
             try:
-                result["weather"] = weather_status()
+                result["weather"] = weather_status(weather_query)
             except RuntimeError as error:
                 result["weather"] = {**result.get("weather", DEFAULT_STATUS["weather"]), "source": "unavailable", "error": str(error)}
         else:

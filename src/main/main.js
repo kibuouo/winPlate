@@ -214,6 +214,8 @@ if (!gotLock) {
         const detail = payload?.detail ? `: ${payload.detail}` : "";
         throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
       }
+      responseCaches.delete("Status");
+      responseCaches.delete("QWeather alerts");
       return response.json();
     });
     ipcMain.handle("weather:get-settings", async () => {
