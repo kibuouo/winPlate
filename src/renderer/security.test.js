@@ -148,6 +148,14 @@ test("notifications escape pushed titles and messages before rendering", () => {
   assert.match(notificationTooltip, /escapeHtml\(item\.message\)/);
 });
 
+test("notifications expose a clear action through preload and renderer controls", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  assert.match(preload, /clearNotifications: \(\) => ipcRenderer\.invoke\("notifications:clear"\)/);
+  assert.match(renderer, /id="clear-notifications"/);
+  assert.match(renderer, /window\.winplate\.clearNotifications\(\)/);
+});
+
 test("DeepSeek balance card renders local token usage instead of unavailable placeholder", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const codexContent = renderer.slice(

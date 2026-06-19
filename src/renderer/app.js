@@ -435,6 +435,7 @@ function notificationSourceLabel(source) {
     mail: "Mail",
     qweather: "QWeather",
     codex: "Codex",
+    chatgpt: "ChatGPT",
     external: "WinPlate"
   }[source] || source || "WinPlate";
 }
@@ -1698,6 +1699,7 @@ function notificationContent() {
         <div class="notification-actions">
           <button class="notification-test-button" id="push-test-notification" type="button">测试通知</button>
           <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${summary.unreadCount ? "" : "disabled"}>全部已读</button>
+          <button class="notification-clear-button" id="clear-notifications" type="button" ${items.length ? "" : "disabled"}>清空</button>
         </div>
       </div>
       <div class="notification-status-bar">
@@ -1890,40 +1892,35 @@ function codexContent() {
     const total = tokenNumber(usage.totalTokens) || rows.reduce((sum, row) => sum + row.value, 0);
     return { rows, total };
   };
-  const tokenShareBar = (rows, total) => {
-    let x = 0;
-    const segments = rows.map((row) => {
-      const width = tokenPercent(row.value, total);
-      const segment = `<rect class="deepseek-share-${row.key}" x="${x.toFixed(2)}" y="0" width="${width.toFixed(2)}" height="8" rx="4" />`;
-      x += width;
-      return segment;
-    }).join("");
-    return `<svg class="deepseek-token-share" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">${segments}</svg>`;
-  };
   const todayBreakdown = tokenBreakdown(tokenUsage.today);
   const totalBreakdown = tokenBreakdown(tokenUsage.total);
+  const estimateLevel = todayBreakdown.total > 2_000_000 ? "高" : todayBreakdown.total > 1_000_000 ? "中" : "低";
   const tokenRows = todayBreakdown.rows.map((row) => `
         <div class="deepseek-token-row">
-          <span><i class="${row.key}"></i>${row.label}</span>
-          <strong>${tokenValue(row.value, false)}</strong>
-          <em>${tokenPercent(row.value, todayBreakdown.total).toFixed(0)}%</em>
+          <div class="deepseek-token-row-head">
+            <span>${row.label}</span>
+            <strong>${tokenValue(row.value)}</strong>
+            <em>${tokenPercent(row.value, todayBreakdown.total).toFixed(1)}%</em>
+          </div>
+          <div class="deepseek-row-track ${row.key}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${tokenPercent(row.value, todayBreakdown.total).toFixed(1)}">
+            <span data-progress-value="${tokenPercent(row.value, todayBreakdown.total).toFixed(1)}"></span>
+          </div>
         </div>`).join("");
   const tokenPanel = `
     <div class="deepseek-token-panel">
       <header>
         <span>Token 用量</span>
-        <small>本应用累计 ${tokenValue(totalBreakdown.total)}</small>
+        <small>今日</small>
       </header>
-      <div class="deepseek-token-summary">
-        <span>今日用量</span>
-        <strong>${tokenValue(todayBreakdown.total)}</strong>
+      <div class="deepseek-token-stats">
+        <div><span>今日总量</span><strong>${tokenValue(todayBreakdown.total, false)}</strong><small>tokens</small></div>
+        <div><span>本应用累计</span><strong>${tokenValue(totalBreakdown.total, false)}</strong><small>tokens</small></div>
+        <div><span>预计消耗</span><strong>${estimateLevel}</strong></div>
       </div>
-      ${tokenShareBar(todayBreakdown.rows, todayBreakdown.total)}
       <div class="deepseek-token-rows">${tokenRows}</div>
     </div>`;
   const deepseekActive = deepseek.status === "Normal";
   const deepseekStatusText = deepseekActive ? "DeepSeek API 正常" : `DeepSeek API ${deepseek.status || "未配置"}`;
-  const balanceStatusText = balances.length ? "余额状态：正常" : (deepseek.configured ? "余额状态：读取失败" : "余额状态：未配置");
   const walletIcon = `
     <svg class="deepseek-wallet-icon" viewBox="0 0 48 48" aria-hidden="true">
       <path d="M8 17.5h30.5A5.5 5.5 0 0 1 44 23v14a5.5 5.5 0 0 1-5.5 5.5h-25A7.5 7.5 0 0 1 6 35V13a7.5 7.5 0 0 1 7.5-7.5H34a4 4 0 0 1 4 4v8" />
@@ -1936,39 +1933,38 @@ function codexContent() {
           <div class="deepseek-balance-metric deepseek-wallet-metric">
             <div class="deepseek-wallet-heading">
               <span>可用余额</span>
-              ${walletIcon}
+              <small>Available balance</small>
             </div>
             <div class="deepseek-wallet-balance">
               <strong><span>${deepseekCurrencySymbol(balance.currency)}</span>${formatDeepSeekBalance(balance)}</strong>
-              <small>Available balance</small>
             </div>
-            <div class="deepseek-status-list">
-              <span class="${deepseekActive ? "" : "inactive"}"><i></i>${deepseekStatusText}</span>
-              <span>${balanceStatusText}</span>
-              <span>更新于 ${relativeUpdatedAt(deepseek.updatedAt)}</span>
-            </div>
+            <div class="deepseek-wallet-art">${walletIcon}</div>
+            <div class="deepseek-health-pill ${deepseekActive ? "" : "inactive"}"><i></i>${deepseekStatusText}</div>
+            <div class="deepseek-auto-refresh">自动刷新 · 60s</div>
           </div>
           ${tokenPanel}
         </article>`).join("")
-    : `<article class="deepseek-balance-card deepseek-empty">
+    : `<article class="deepseek-balance-card">
         <div class="deepseek-balance-metric deepseek-wallet-metric">
           <div class="deepseek-wallet-heading">
             <span>可用余额</span>
-            ${walletIcon}
+            <small>Available balance</small>
           </div>
           <div class="deepseek-wallet-balance">
             <strong><span>¥</span>--</strong>
-            <small>Available balance</small>
           </div>
-          <div class="deepseek-status-list">
-            <span class="inactive"><i></i>${deepseekStatusText}</span>
-            <span>${balanceStatusText}</span>
-            <span>更新于 ${relativeUpdatedAt(deepseek.updatedAt)}</span>
+          <div class="deepseek-wallet-art">${walletIcon}</div>
+          <div class="deepseek-health-pill inactive"><i></i>${deepseekStatusText}</div>
+          <div class="deepseek-auto-refresh">
+            ${deepseek.configured ? "余额暂不可用，请检查 API 配置" : "请先在设置中配置 DeepSeek API Key"}
           </div>
         </div>
         ${tokenPanel}
-        <small>${deepseek.configured ? "余额暂不可用，请检查 API 配置" : "请先在设置中配置 DeepSeek API Key"}</small>
       </article>`;
+  const deepseekFooter = `
+    <div class="deepseek-panel-footer ${deepseekActive ? "" : "inactive"}">
+      <span></span>Status: API ${deepseekActive ? "active" : "inactive"} · Last sync ${relativeUpdatedAt(deepseek.updatedAt)}
+    </div>`;
   return `
     <div class="codex-page-header">
       <h1>剩余用量</h1>
@@ -1990,6 +1986,7 @@ function codexContent() {
         <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
       </div>
       <div class="usage-window-grid deepseek-balance-grid">${balanceCards}</div>
+      ${deepseekFooter}
     </section>`;
 }
 
@@ -2467,6 +2464,23 @@ function bindNotificationControls() {
         await hydrateSmartBrief({ force: true });
       } catch (error) {
         console.error("Failed to mark notifications read:", error);
+      } finally {
+        notificationActionInFlight = false;
+        updateMainStatusDom();
+      }
+    };
+  }
+  const clearButton = document.querySelector("#clear-notifications");
+  if (clearButton) {
+    clearButton.onclick = async () => {
+      if (notificationActionInFlight || clearButton.disabled) return;
+      notificationActionInFlight = true;
+      clearButton.disabled = true;
+      try {
+        notificationSummary = await window.winplate.clearNotifications();
+        await hydrateSmartBrief({ force: true });
+      } catch (error) {
+        console.error("Failed to clear notifications:", error);
       } finally {
         notificationActionInFlight = false;
         updateMainStatusDom();

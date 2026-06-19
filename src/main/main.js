@@ -399,6 +399,18 @@ if (!gotLock) {
       });
       return summary;
     });
+    ipcMain.handle("notifications:clear", async () => {
+      const response = await fetch("http://127.0.0.1:8765/api/notifications", { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(`Notification clear failed: HTTP ${response.status}`);
+      }
+      const summary = await response.json();
+      responseCaches.delete("Notifications");
+      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
+        console.warn("smart brief refresh failed:", error.message);
+      });
+      return summary;
+    });
     ipcMain.handle("notifications:push-test", async () => {
       const response = await fetch("http://127.0.0.1:8765/api/notifications", {
         method: "POST",

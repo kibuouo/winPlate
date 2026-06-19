@@ -5,7 +5,7 @@ const MAX_AI_ITEMS = 5;
 const MAX_TEXT_LENGTH = 28;
 const RECENT_WINDOW_MS = 24 * 60 * 60_000;
 const VALID_LEVELS = new Set(["info", "success", "warning", "critical"]);
-const VALID_SOURCES = new Set(["weather", "mail", "codex", "github", "system", "local"]);
+const VALID_SOURCES = new Set(["weather", "mail", "codex", "chatgpt", "github", "system", "local"]);
 const SECRET_FIELD_RE = /token|api[_-]?key|password|authorization|auth|secret/i;
 
 function clampText(value, limit = MAX_TEXT_LENGTH) {
@@ -151,6 +151,7 @@ function actionTypeForSource(source) {
     weather: "open_weather",
     mail: "open_mail",
     codex: "open_codex",
+    chatgpt: "open_notifications",
     github: "open_github",
     system: "open_notifications",
     local: "open_notifications"
@@ -167,6 +168,7 @@ function fallbackText(notification) {
   }
   if (notification.source === "codex" && /完成|成功/.test(text)) return "Codex：任务已完成";
   if (notification.source === "codex" && /失败|错误|异常/.test(text)) return "Codex：任务出现错误";
+  if (notification.source === "chatgpt" && /完成|成功/.test(text)) return "ChatGPT：任务已完成";
   return notification.title || notification.body || "WinPlate 收到新通知";
 }
 

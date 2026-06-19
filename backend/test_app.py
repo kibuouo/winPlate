@@ -15,6 +15,13 @@ import main
 
 
 class DatabaseTests(unittest.TestCase):
+    def setUp(self):
+        self.notification_sync_patch = patch.object(main, "sync_openai_desktop_notifications")
+        self.notification_sync_patch.start()
+
+    def tearDown(self):
+        self.notification_sync_patch.stop()
+
     def test_uvicorn_log_formats_include_timestamp(self):
         config = main.build_log_config()
         for formatter in config["formatters"].values():
@@ -525,6 +532,68 @@ class DatabaseTests(unittest.TestCase):
             summary = main.mark_notification_read("codex:test")
             self.assertEqual(summary["unreadCount"], 0)
         main.DATABASE_PATH = original_path
+
+    def test_clear_notifications_removes_all_items(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.push_notification(main.NotificationPayload(
+                source="codex",
+                level="success",
+                title="Done",
+                message="Task finished",
+                id="codex:test",
+            ))
+            summary = main.clear_notifications()
+            self.assertEqual(summary["items"], [])
+            self.assertIsNone(summary["latest"])
+            self.assertEqual(summary["unreadCount"], 0)
+        main.DATABASE_PATH = original_path
+
+    def test_notification_summary_imports_openai_windows_toasts(self):
+        self.notification_sync_patch.stop()
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                main.DATABASE_PATH = base / "test.db"
+                main.initialize_database()
+                notification_dir = base / "Microsoft" / "Windows" / "Notifications"
+                notification_dir.mkdir(parents=True)
+                windows_db = notification_dir / "wpndatabase.db"
+                with closing(main.sqlite3.connect(windows_db)) as connection:
+                    connection.execute(
+                        "CREATE TABLE Notification (Id INTEGER, HandlerId INTEGER, Type TEXT, Payload BLOB, ArrivalTime INTEGER)"
+                    )
+                    connection.execute(
+                        "CREATE TABLE NotificationHandler (RecordId INTEGER, PrimaryId TEXT)"
+                    )
+                    connection.execute(
+                        "INSERT INTO NotificationHandler (RecordId, PrimaryId) VALUES (1, ?)",
+                        ("OpenAI.Codex_2p2nqsd0c76g0!App",),
+                    )
+                    connection.execute(
+                        "INSERT INTO Notification (Id, HandlerId, Type, Payload, ArrivalTime) VALUES (101, 1, 'toast', ?, ?)",
+                        (
+                            b'<toast><visual><binding><text>Codex task</text><text>Done cleanly</text></binding></visual></toast>',
+                            (1780000000000 + main.WINDOWS_FILETIME_EPOCH_MS) * 10_000,
+                        ),
+                    )
+                    connection.commit()
+                with (
+                    patch.dict(main.os.environ, {"LOCALAPPDATA": str(base)}),
+                    patch.object(main.os, "name", "nt"),
+                ):
+                    summary = main.notification_summary()
+                    self.assertEqual(summary["unreadCount"], 1)
+                    self.assertEqual(summary["latest"]["source"], "codex")
+                    self.assertEqual(summary["latest"]["title"], "Codex task")
+                    main.clear_notifications()
+                    self.assertEqual(main.notification_summary()["items"], [])
+        finally:
+            main.DATABASE_PATH = original_path
+            self.notification_sync_patch.start()
 
     def test_mail_outline_syncs_new_mail_notifications(self):
         original_path = main.DATABASE_PATH

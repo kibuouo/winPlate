@@ -17,6 +17,7 @@ from email.header import decode_header, make_header
 from email.message import Message
 from html import escape, unescape
 from pathlib import Path
+from xml.etree import ElementTree
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -51,6 +52,11 @@ QQ_IMAP_SECURE = True
 QQ_SMTP_HOST = "smtp.qq.com"
 QQ_SMTP_PORT = 465
 QQ_SMTP_SECURE = True
+WINDOWS_FILETIME_EPOCH_MS = 11644473600000
+OPENAI_NOTIFICATION_HANDLERS = {
+    "OpenAI.Codex": "codex",
+    "OpenAI.ChatGPT": "chatgpt",
+}
 
 
 def build_log_config() -> dict:
@@ -483,7 +489,116 @@ def sync_mail_notifications(items: list[dict]) -> None:
         )
 
 
+def windows_notification_database_path() -> Path:
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if not local_app_data:
+        return Path()
+    return Path(local_app_data) / "Microsoft" / "Windows" / "Notifications" / "wpndatabase.db"
+
+
+def windows_filetime_to_epoch_ms(value: int | None) -> int:
+    if not value:
+        return utc_epoch_seconds() * 1000
+    return max(0, int(value / 10_000) - WINDOWS_FILETIME_EPOCH_MS)
+
+
+def openai_notification_source(primary_id: str | None) -> str | None:
+    value = str(primary_id or "")
+    for prefix, source in OPENAI_NOTIFICATION_HANDLERS.items():
+        if prefix in value:
+            return source
+    return None
+
+
+def notification_payload_texts(payload: bytes | str | None) -> list[str]:
+    if not payload:
+        return []
+    xml_text = payload.decode("utf-8", "ignore") if isinstance(payload, bytes) else str(payload)
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return []
+    texts = []
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "text":
+            continue
+        text = clean_mail_text("".join(element.itertext()), limit=360)
+        if text:
+            texts.append(text)
+    return texts
+
+
+def sync_openai_desktop_notifications(limit: int = 80) -> None:
+    if os.name != "nt":
+        return
+    database_path = windows_notification_database_path()
+    if not database_path.exists():
+        return
+    try:
+        source_connection = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+        source_connection.row_factory = sqlite3.Row
+        with closing(source_connection) as source:
+            rows = source.execute(
+                """
+                SELECT n.Id, n.Payload, n.ArrivalTime, h.PrimaryId
+                FROM Notification n
+                LEFT JOIN NotificationHandler h ON n.HandlerId = h.RecordId
+                WHERE n.Type = 'toast'
+                ORDER BY n.ArrivalTime DESC
+                LIMIT ?
+                """,
+                (max(1, min(200, int(limit or 80))),),
+            ).fetchall()
+    except sqlite3.Error:
+        return
+
+    imported_at = utc_epoch_seconds() * 1000
+    with closing(connect()) as connection:
+        for row in rows:
+            source = openai_notification_source(row["PrimaryId"])
+            if not source:
+                continue
+            texts = notification_payload_texts(row["Payload"])
+            if not texts:
+                continue
+            arrival = windows_filetime_to_epoch_ms(row["ArrivalTime"])
+            import_id = f"windows-toast:{source}:{row['Id']}:{row['ArrivalTime']}"
+            already_imported = connection.execute(
+                "SELECT 1 FROM notification_imports WHERE id = ?",
+                (import_id,),
+            ).fetchone()
+            if already_imported:
+                continue
+            title = texts[0]
+            message = "\n".join(texts[1:]) if len(texts) > 1 else ""
+            connection.execute(
+                """
+                INSERT INTO notifications
+                (id, source, level, title, message, unread, created_at, updated_at, external_url)
+                VALUES (?, ?, 'success', ?, ?, 1, ?, ?, NULL)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    message = excluded.message,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    import_id,
+                    source,
+                    clean_mail_text(title, limit=180) or "OpenAI 任务完成",
+                    clean_mail_text(message, limit=360),
+                    arrival,
+                    imported_at,
+                ),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO notification_imports (id, source, imported_at) VALUES (?, ?, ?)",
+                (import_id, source, imported_at),
+            )
+        connection.commit()
+
+
 def notification_summary(limit: int = 20) -> dict:
+    sync_openai_desktop_notifications()
     safe_limit = max(1, min(50, int(limit or 20)))
     with closing(connect()) as connection:
         rows = connection.execute(
@@ -524,6 +639,13 @@ def mark_all_notifications_read() -> dict:
             "UPDATE notifications SET unread = 0, updated_at = ? WHERE unread = 1",
             (utc_epoch_seconds() * 1000,),
         )
+        connection.commit()
+    return notification_summary()
+
+
+def clear_notifications() -> dict:
+    with closing(connect()) as connection:
+        connection.execute("DELETE FROM notifications")
         connection.commit()
     return notification_summary()
 
@@ -814,6 +936,15 @@ def initialize_database() -> None:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_notifications_unread_created ON notifications (unread, created_at)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notification_imports (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                imported_at INTEGER NOT NULL
+            )
+            """
         )
         connection.execute(
             """
@@ -1698,6 +1829,11 @@ def mark_notification_as_read(notification_id: str) -> dict:
 @api.post("/api/notifications/read-all")
 def mark_notifications_as_read() -> dict:
     return mark_all_notifications_read()
+
+
+@api.delete("/api/notifications")
+def delete_notifications() -> dict:
+    return clear_notifications()
 
 
 if __name__ == "__main__":
