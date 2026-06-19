@@ -1501,6 +1501,19 @@ def localized_weather_alert_title(title: str, display_location: str | None = Non
     return clean_mail_text(f"{safe_location}：{safe_title}", limit=180)
 
 
+def weather_alert_lifecycle(alert: dict, title: str = "", message: str = "") -> str:
+    status = " ".join(
+        str(alert.get(key) or "")
+        for key in ("status", "action", "eventStatus", "msgType", "type")
+    )
+    combined = f"{status} {title} {message}"
+    if re.search(r"解除|取消|撤销|终止|结束|失效|expired|cancel(?:led|ed)?|resolved|cleared", combined, re.I):
+        return "resolved"
+    if re.search(r"升级|提升为|升为|upgrade", combined, re.I):
+        return "upgraded"
+    return "issued"
+
+
 def qweather_alerts(latitude: float | None = None, longitude: float | None = None) -> dict:
     location = {"latitude": latitude, "longitude": longitude}
     if latitude is None or longitude is None:
@@ -1528,7 +1541,10 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         )
         message = clean_mail_text(str(alert.get("description") or alert.get("text") or ""), limit=360)
         severity = str(alert.get("severity") or alert.get("color") or "warning").lower()
-        level = "critical" if severity in {"red", "extreme", "severe"} else "warning"
+        lifecycle = weather_alert_lifecycle(alert, title, message)
+        level = "success" if lifecycle == "resolved" else "critical" if severity in {"red", "extreme", "severe"} else "warning"
+        if lifecycle == "resolved" and "风险降低" not in f"{title} {message}":
+            message = clean_mail_text(f"预警已解除，风险降低。{message}", limit=360)
         created_at = None
         for key in ("issuedTime", "effectiveTime", "onset", "startTime"):
             value = alert.get(key)
@@ -1544,6 +1560,8 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
             "message": message,
             "level": level,
             "severity": severity,
+            "lifecycle": lifecycle,
+            "riskDelta": "decreased" if lifecycle == "resolved" else "increased" if lifecycle == "upgraded" else "active",
             "createdAt": created_at,
         }
         normalized.append(normalized_alert)

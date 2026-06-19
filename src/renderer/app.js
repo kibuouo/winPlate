@@ -52,10 +52,19 @@ let mailOutline = { source: "loading", availability: "loading", items: [], updat
 let mailRefreshInFlight = false;
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
-let smartBrief = { items: [], generatedAt: null, source: "empty" };
-let smartBriefIndex = 0;
-let smartBriefCarouselTimer = null;
-let smartBriefCarouselPaused = false;
+let notificationDigest = {
+  headline: "暂无新通知",
+  summary: "当前没有需要关注的新通知。",
+  priority: "none",
+  severity: "info",
+  category: "system",
+  iconKey: "bell",
+  primarySource: "system",
+  unreadCount: 0,
+  groups: [],
+  spokenText: "当前没有需要关注的新通知。",
+  sourceIds: []
+};
 let notificationActionInFlight = false;
 let networkSpeed = {
   downloadBytesPerSecond: 0,
@@ -108,6 +117,7 @@ const WEATHER_LOCATION_REGIONS = [
   { id: "taiwan", label: "台湾省", cities: [{ id: "taipei", label: "台北", latitude: 25.033, longitude: 121.5654 }, { id: "kaohsiung", label: "高雄", latitude: 22.6273, longitude: 120.3014 }] }
 ];
 let weatherLocationPreference = localStorage.getItem(WEATHER_LOCATION_STORAGE_KEY) || "auto";
+let weatherUpdateVersion = 0;
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
 
@@ -566,6 +576,8 @@ function notificationSourceLabel(source) {
     qweather: "QWeather",
     codex: "Codex",
     chatgpt: "ChatGPT",
+    github: "GitHub",
+    system: "系统",
     external: "WinPlate"
   }[source] || source || "WinPlate";
 }
@@ -579,40 +591,16 @@ function notificationLevelLabel(level) {
   }[level] || "信息";
 }
 
-function smartBriefItems() {
-  return Array.isArray(smartBrief.items) ? smartBrief.items.filter((item) => item?.text) : [];
-}
-
-function currentSmartBriefItem() {
-  const items = smartBriefItems();
-  if (!items.length) return null;
-  return items[Math.abs(smartBriefIndex) % items.length];
-}
-
 function notificationStrip() {
-  const summary = normalizedNotifications();
-  const latest = summary.latest;
-  const unread = summary.unreadCount;
-  const briefItem = currentSmartBriefItem();
-  const title = briefItem?.text || (latest ? latest.title : "暂无新通知");
-  const level = briefItem?.level || latest?.level || "info";
+  const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
+  const iconKey = window.WinPlateSmartNotificationIcons.resolveSmartNotificationIcon(digest);
+  const unread = digest.unreadCount;
   return `
-    <button class="notification-strip ${unread ? "has-unread" : ""} level-${escapeHtml(level)} no-drag" id="notification-strip" type="button" aria-label="打开通知中心">
-      ${notificationIcon}
-      <span class="notification-title">${escapeHtml(title)}</span>
+    <button class="notification-strip ${unread ? "has-unread" : ""} severity-${escapeHtml(digest.severity)} no-drag" id="notification-strip" type="button" aria-label="打开${digest.severity === "danger" ? "危险" : digest.severity === "warning" ? "预警" : "信息"}通知摘要">
+      ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}
+      <span class="notification-title">${escapeHtml(digest.headline)}</span>
       ${unread ? `<span class="notification-badge" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>` : ""}
     </button>`;
-}
-
-function startSmartBriefCarousel() {
-  clearInterval(smartBriefCarouselTimer);
-  smartBriefCarouselTimer = null;
-  if (view !== "floating" || smartBriefItems().length <= 1) return;
-  smartBriefCarouselTimer = setInterval(() => {
-    if (smartBriefCarouselPaused || smartBriefItems().length <= 1) return;
-    smartBriefIndex = (smartBriefIndex + 1) % smartBriefItems().length;
-    updateFloatingStatusDom();
-  }, 6_000);
 }
 
 function formatSpeedCompact(bytesPerSecond) {
@@ -1190,21 +1178,22 @@ function renderFloating() {
   });
 
   bindSystemTooltip(weatherModule, () => {
+    const currentWeather = statusData.weather || mockStatus.weather;
     const { time, date: fullDate } = weatherDateTime();
     return {
       type: "weather",
-      icon: weather.icon,
-      location: weather.location,
-      temperature: weather.temperature,
-      condition: weather.condition,
-      feelsLike: weather.feelsLike,
-      humidity: weather.humidity,
-      precipitation: weather.precipitation,
-      pressure: weather.pressure,
-      visibility: weather.visibility,
-      precipitationProbability: weather.precipitationProbability,
-      wind: weather.windDirection ? `${weather.windDirection} ${weather.windScale}级` : "",
-      weatherSummary: weather.weatherSummary,
+      icon: currentWeather.icon,
+      location: currentWeather.location,
+      temperature: currentWeather.temperature,
+      condition: currentWeather.condition,
+      feelsLike: currentWeather.feelsLike,
+      humidity: currentWeather.humidity,
+      precipitation: currentWeather.precipitation,
+      pressure: currentWeather.pressure,
+      visibility: currentWeather.visibility,
+      precipitationProbability: currentWeather.precipitationProbability,
+      wind: currentWeather.windDirection ? `${currentWeather.windDirection} ${currentWeather.windScale}级` : "",
+      weatherSummary: currentWeather.weatherSummary,
       time,
       date: fullDate
     };
@@ -1264,7 +1253,6 @@ function bindNotificationStrip() {
   if (!strip || strip.dataset.bound === "true") return;
   strip.dataset.bound = "true";
   strip.addEventListener("mouseenter", () => {
-    smartBriefCarouselPaused = true;
     clearTimeout(tooltipHideTimer);
     const rect = strip.getBoundingClientRect();
     window.winplate.showTooltip({
@@ -1277,13 +1265,11 @@ function bindNotificationStrip() {
       },
       data: {
         type: "notifications",
-        items: normalizedNotifications().items.slice(0, 5),
-        unreadCount: normalizedNotifications().unreadCount
+        digest: notificationDigest
       }
     });
   });
   strip.addEventListener("mouseleave", () => {
-    smartBriefCarouselPaused = false;
     tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
   });
   strip.addEventListener("click", async (event) => {
@@ -1401,27 +1387,9 @@ function renderTooltip(data = {}) {
   }
 
   if (data.type === "notifications") {
-    const items = Array.isArray(data.items) ? data.items.slice(0, 5) : [];
     appRoot.innerHTML = `
       <article class="notifications-tooltip" role="tooltip" aria-label="通知预览">
-        <header>
-          <strong>通知</strong>
-          <span>${Number(data.unreadCount) || 0} 未读</span>
-        </header>
-        <div class="notifications-tooltip-list">
-          ${items.length ? items.map((item) => `
-            <div class="notification-tooltip-row source-${escapeHtml(item.source)} level-${escapeHtml(item.level)}">
-              <div>
-                <b>${escapeHtml(item.title)}</b>
-                <small>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationLevelLabel(item.level))}</small>
-              </div>
-              ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
-            </div>`).join("") : `
-            <div class="notification-tooltip-empty">
-              ${notificationIcon}
-              <strong>暂无新通知</strong>
-            </div>`}
-        </div>
+        ${window.WinPlateNotificationDigest.renderDigestCard(data.digest, { compact: true })}
       </article>`;
     return;
   }
@@ -1805,23 +1773,12 @@ function mailContent() {
 function notificationContent() {
   const summary = normalizedNotifications();
   const items = summary.items;
-  const rows = items.length
-    ? `<div class="notification-page-list">${items.map((item) => `
-        <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(item.level)} ${item.unread ? "unread" : ""}">
-          <div class="notification-page-main">
-            <span class="notification-source">${escapeHtml(notificationSourceLabel(item.source))}</span>
-            <h2>${escapeHtml(item.title)}</h2>
-            ${item.message ? `<p>${escapeHtml(item.message)}</p>` : ""}
-            <footer>
-              <span>${escapeHtml(notificationLevelLabel(item.level))}</span>
-              <time>${relativeUpdatedAt(item.createdAt)}</time>
-            </footer>
-          </div>
-          <button class="notification-read-button" type="button" data-notification-read="${escapeHtml(item.id)}" ${item.unread ? "" : "disabled"}>
-            ${item.unread ? "标记已读" : "已读"}
-          </button>
-        </article>`).join("")}</div>`
-    : `<div class="notification-empty-state">${notificationIcon}<strong>暂无通知</strong><span>邮件、天气预警和 Codex 完成提示会出现在这里。</span></div>`;
+  const digestCard = window.WinPlateNotificationDigest.renderDigestCard(notificationDigest);
+  const rows = window.WinPlateNotificationDigest.renderRawNotifications(items, {
+    sourceLabel: notificationSourceLabel,
+    levelLabel: notificationLevelLabel,
+    relativeTime: relativeUpdatedAt
+  });
   return `
     <section class="notifications-page">
       <div class="notifications-page-heading">
@@ -1832,10 +1789,7 @@ function notificationContent() {
           <button class="notification-clear-button" id="clear-notifications" type="button" ${items.length ? "" : "disabled"}>清空</button>
         </div>
       </div>
-      <div class="notification-status-bar">
-        <span>${summary.unreadCount} 未读</span>
-        <time>${relativeUpdatedAt(summary.updatedAt)}</time>
-      </div>
+      ${digestCard}
       ${rows}
     </section>`;
 }
@@ -2413,6 +2367,27 @@ async function refreshSelectedWeatherLocation({ force = false, allowSystem = fal
   if (!force && locationWeatherPromise) {
     return locationWeatherPromise;
   }
+  if (allowSystem) {
+    if (!navigator.geolocation) return null;
+    locationWeatherPromise = new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: false,
+        timeout: 10_000,
+        maximumAge: 30 * 60_000
+      });
+    }).then(({ coords }) => window.winplate.setWeatherLocation({
+      latitude: coords.latitude,
+      longitude: coords.longitude
+    })).catch((error) => {
+      console.warn("System weather location unavailable:", error.message);
+      return null;
+    });
+    const locatedWeather = await locationWeatherPromise;
+    if (locatedWeather) {
+      statusData.weather = { ...statusData.weather, ...locatedWeather };
+    }
+    return locatedWeather;
+  }
   if (option.id !== "auto") {
     locationWeatherPromise = window.winplate.setWeatherLocation({
       latitude: option.latitude,
@@ -2424,27 +2399,7 @@ async function refreshSelectedWeatherLocation({ force = false, allowSystem = fal
     }
     return locatedWeather;
   }
-  if (!allowSystem || !navigator.geolocation) {
-    return null;
-  }
-  locationWeatherPromise = new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
-      timeout: 10_000,
-      maximumAge: 30 * 60_000
-    });
-  }).then(({ coords }) => window.winplate.setWeatherLocation({
-    latitude: coords.latitude,
-    longitude: coords.longitude
-  })).catch((error) => {
-    console.warn("Automatic weather location unavailable:", error.message);
-    return null;
-  });
-  const locatedWeather = await locationWeatherPromise;
-  if (locatedWeather) {
-    statusData.weather = { ...statusData.weather, ...locatedWeather };
-  }
-  return locatedWeather;
+  return null;
 }
 
 function bindMailControls() {
@@ -2493,7 +2448,7 @@ function bindMailControls() {
           })
         };
         notificationSummary = await window.winplate.getNotifications();
-        await hydrateSmartBrief({ force: true });
+        await hydrateNotificationDigest();
       } catch (error) {
         mailDetail = {
           open: true,
@@ -2594,7 +2549,7 @@ function bindNotificationControls() {
       markAllButton.disabled = true;
       try {
         notificationSummary = await window.winplate.markAllNotificationsRead();
-        await hydrateSmartBrief({ force: true });
+        await hydrateNotificationDigest();
       } catch (error) {
         console.error("Failed to mark notifications read:", error);
       } finally {
@@ -2611,7 +2566,7 @@ function bindNotificationControls() {
       clearButton.disabled = true;
       try {
         notificationSummary = await window.winplate.clearNotifications();
-        await hydrateSmartBrief({ force: true });
+        await hydrateNotificationDigest();
       } catch (error) {
         console.error("Failed to clear notifications:", error);
       } finally {
@@ -2628,7 +2583,7 @@ function bindNotificationControls() {
       testButton.disabled = true;
       try {
         notificationSummary = await window.winplate.pushTestNotification();
-        await hydrateSmartBrief({ force: true });
+        await hydrateNotificationDigest();
       } catch (error) {
         console.error("Failed to push test notification:", error);
       } finally {
@@ -2667,7 +2622,7 @@ async function hydrateQWeatherUsage() {
 async function hydrateNotifications() {
   try {
     notificationSummary = await window.winplate.getNotifications();
-    await hydrateSmartBrief();
+    await hydrateNotificationDigest();
   } catch (error) {
     notificationSummary = {
       ...notificationSummary,
@@ -2676,27 +2631,16 @@ async function hydrateNotifications() {
       items: [],
       error: error.message || "通知读取失败"
     };
-    smartBrief = { items: [], generatedAt: null, source: "empty" };
   }
 }
 
-async function hydrateSmartBrief({ force = false } = {}) {
-  if (!window.winplate?.getSmartBrief) return;
+async function hydrateNotificationDigest() {
+  if (!window.winplate?.getNotificationDigest) return;
   try {
-    const nextBrief = force && window.winplate.refreshSmartBrief
-      ? await window.winplate.refreshSmartBrief()
-      : await window.winplate.getSmartBrief();
-    smartBrief = {
-      items: Array.isArray(nextBrief?.items) ? nextBrief.items : [],
-      generatedAt: nextBrief?.generatedAt || null,
-      source: nextBrief?.source || "empty"
-    };
-    if (smartBriefIndex >= smartBriefItems().length) smartBriefIndex = 0;
+    notificationDigest = await window.winplate.getNotificationDigest();
   } catch (error) {
-    smartBrief = { items: [], generatedAt: null, source: "fallback" };
-    console.warn("Smart brief unavailable:", error.message);
+    console.warn("Notification digest unavailable; keeping local state:", error.message);
   }
-  startSmartBriefCarousel();
 }
 
 async function refreshQWeatherAlerts() {
@@ -2769,8 +2713,12 @@ async function refreshStatus() {
   if (view === "tooltip") {
     return;
   }
+  const weatherVersionAtRequest = weatherUpdateVersion;
   try {
     const incomingStatus = await window.winplate.getStatus();
+    const incomingWeather = weatherVersionAtRequest === weatherUpdateVersion
+      ? incomingStatus.weather
+      : statusData.weather;
     statusData = {
       ...mockStatus,
       ...statusData,
@@ -2778,7 +2726,7 @@ async function refreshStatus() {
       github: normalizeGithub(incomingStatus.github, statusData.github),
       codex: { ...mockStatus.codex, ...statusData.codex, ...incomingStatus.codex },
       heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
-      weather: { ...mockStatus.weather, ...statusData.weather, ...incomingStatus.weather }
+      weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
     };
     statusData.codex = {
       ...statusData.codex,
@@ -2792,11 +2740,6 @@ async function refreshStatus() {
     await hydrateQWeatherUsage();
     await hydrateMail();
     await hydrateNotifications();
-    const locatedWeather = await refreshSelectedWeatherLocation();
-    if (locatedWeather) {
-      await refreshQWeatherAlerts();
-      await hydrateNotifications();
-    }
   } catch (error) {
     console.error("FastAPI unavailable, showing offline status:", error);
     statusData = {
@@ -2819,7 +2762,19 @@ if (view === "main") {
   refreshStatus();
 }
 if (view !== "tooltip") {
-  window.winplate?.onStatusRefresh?.(() => {
+  window.winplate?.onNotificationDigestUpdated?.((digest) => {
+    notificationDigest = digest || notificationDigest;
+    if (view === "floating") updateFloatingStatusDom();
+    else updateMainStatusDom();
+  });
+  window.winplate?.onStatusRefresh?.((payload) => {
+    if (payload?.weather) {
+      weatherUpdateVersion += 1;
+      statusData.weather = { ...mockStatus.weather, ...statusData.weather, ...payload.weather };
+      if (view === "floating") updateFloatingStatusDom();
+      else updateMainStatusDom();
+      return;
+    }
     refreshStatus();
   });
   setInterval(refreshStatus, 30_000);

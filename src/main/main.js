@@ -15,7 +15,8 @@ const {
   setMainWindowTheme,
   minimizeMainWindow,
   toggleMaximizeMainWindow,
-  closeMainWindow
+  closeMainWindow,
+  sendToWindow
 } = require("./windows");
 const { createAppTray } = require("./tray");
 const { startPythonService, stopPythonService } = require("./pythonService");
@@ -31,7 +32,8 @@ const {
   readDeepSeekTokenUsage,
   recordDeepSeekTokenUsage
 } = require("./deepseekTokenUsage");
-const { createSmartBriefService } = require("./smartBriefService");
+const { createNotificationStore } = require("./notifications/notificationStore");
+const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
 const {
   readAppearanceSettings,
   writeAppearanceSettings
@@ -46,13 +48,24 @@ const MAIL_CACHE_TTL_MS = 60_000;
 const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
-let smartBriefService = null;
+const responseCacheVersions = new Map();
+let notificationSummaryService = null;
 
-function broadcastStatusRefresh() {
+function broadcastStatusRefresh(weather = null) {
   BrowserWindow.getAllWindows().forEach((window) => {
-    if (!window.isDestroyed()) {
-      window.webContents.send("status:refresh");
-    }
+    sendToWindow(window, "status:refresh", weather ? { weather } : null);
+  });
+}
+
+function broadcastNotificationDigest(digest) {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    sendToWindow(window, "notification:digest-updated", digest);
+  });
+}
+
+function scheduleNotificationDigestRefresh() {
+  notificationSummaryService?.scheduleRefresh().catch((error) => {
+    console.warn("notification digest refresh failed:", error.message);
   });
 }
 
@@ -62,6 +75,11 @@ function setResponseCache(key, value) {
   while (responseCaches.size > MAX_RESPONSE_CACHE_ENTRIES) {
     responseCaches.delete(responseCaches.keys().next().value);
   }
+}
+
+function invalidateResponseCache(key) {
+  responseCaches.delete(key);
+  responseCacheVersions.set(key, (responseCacheVersions.get(key) || 0) + 1);
 }
 
 async function fetchJsonCached(key, url, ttlMs) {
@@ -74,15 +92,20 @@ async function fetchJsonCached(key, url, ttlMs) {
     return cached.promise;
   }
 
+  const cacheVersion = responseCacheVersions.get(key) || 0;
   const promise = fetch(url).then(async (response) => {
     if (!response.ok) {
       throw new Error(`${key} failed: HTTP ${response.status}`);
     }
     const value = await response.json();
-    setResponseCache(key, { value, updatedAt: Date.now() });
+    if ((responseCacheVersions.get(key) || 0) === cacheVersion) {
+      setResponseCache(key, { value, updatedAt: Date.now() });
+    }
     return value;
   }).catch((error) => {
-    responseCaches.delete(key);
+    if ((responseCacheVersions.get(key) || 0) === cacheVersion) {
+      responseCaches.delete(key);
+    }
     throw error;
   });
   setResponseCache(key, {
@@ -191,6 +214,7 @@ if (!gotLock) {
       const message = await response.json();
       responseCaches.delete("Mail outline");
       responseCaches.delete("Notifications");
+      scheduleNotificationDigestRefresh();
       return message;
     });
     ipcMain.handle("github:refresh", async () => {
@@ -199,7 +223,7 @@ if (!gotLock) {
         throw new Error(`GitHub refresh failed: HTTP ${response.status}`);
       }
       const github = await response.json();
-      responseCaches.delete("Status");
+      invalidateResponseCache("Status");
       return github;
     });
     ipcMain.handle("status:get", () => (
@@ -222,10 +246,10 @@ if (!gotLock) {
         const detail = payload?.detail ? `: ${payload.detail}` : "";
         throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
       }
-      responseCaches.delete("Status");
+      invalidateResponseCache("Status");
       responseCaches.delete("QWeather alerts");
       const weather = await response.json();
-      broadcastStatusRefresh();
+      broadcastStatusRefresh(weather);
       return weather;
     });
     ipcMain.handle("weather:search-locations", async (_event, query) => {
@@ -248,10 +272,10 @@ if (!gotLock) {
         const detail = payload?.detail ? `: ${payload.detail}` : "";
         throw new Error(`Weather location failed: HTTP ${response.status}${detail}`);
       }
-      responseCaches.delete("Status");
+      invalidateResponseCache("Status");
       responseCaches.delete("QWeather alerts");
       const weather = await response.json();
-      broadcastStatusRefresh();
+      broadcastStatusRefresh(weather);
       return weather;
     });
     ipcMain.handle("weather:get-settings", async () => {
@@ -321,6 +345,7 @@ if (!gotLock) {
         WEATHER_ALERT_CACHE_TTL_MS
       );
       responseCaches.delete("Notifications");
+      scheduleNotificationDigestRefresh();
       return alerts;
     });
     ipcMain.handle("mail:get-settings", () => (
@@ -369,6 +394,7 @@ if (!gotLock) {
       const outline = await response.json();
       responseCaches.delete("Mail outline");
       responseCaches.delete("Notifications");
+      scheduleNotificationDigestRefresh();
       return outline;
     });
     ipcMain.handle("mail:connect", async () => {
@@ -385,10 +411,14 @@ if (!gotLock) {
     ipcMain.handle("notifications:get", () => (
       fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
     ));
-    smartBriefService = createSmartBriefService({
-      readNotifications: () => (
+    const notificationStore = createNotificationStore({
+      loadNotifications: () => (
         fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
-      ),
+      )
+    });
+    notificationSummaryService = createNotificationSummaryService({
+      store: notificationStore,
+      onUpdated: broadcastNotificationDigest,
       callChat: async (options) => {
         const [apiKey, baseUrl] = await Promise.all([
           readUserEnvironment("DEEPSEEK_API_KEY"),
@@ -402,8 +432,9 @@ if (!gotLock) {
         });
       }
     });
-    ipcMain.handle("notifications:get-smart-brief", () => smartBriefService.getCurrentBrief());
-    ipcMain.handle("notifications:refresh-smart-brief", () => smartBriefService.refreshBrief({ force: true }));
+    ipcMain.handle("notification:get-digest", () => notificationSummaryService.getDigest());
+    ipcMain.handle("notifications:get-smart-brief", () => notificationSummaryService.getDigest());
+    ipcMain.handle("notifications:refresh-smart-brief", () => notificationSummaryService.refreshNow({ force: true }));
     ipcMain.handle("notifications:mark-read", async (_event, id) => {
       const notificationId = typeof id === "string" ? id.trim() : "";
       if (!notificationId) {
@@ -418,9 +449,7 @@ if (!gotLock) {
       }
       const summary = await response.json();
       responseCaches.delete("Notifications");
-      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
-        console.warn("smart brief refresh failed:", error.message);
-      });
+      scheduleNotificationDigestRefresh();
       return summary;
     });
     ipcMain.handle("notifications:mark-all-read", async () => {
@@ -430,9 +459,7 @@ if (!gotLock) {
       }
       const summary = await response.json();
       responseCaches.delete("Notifications");
-      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
-        console.warn("smart brief refresh failed:", error.message);
-      });
+      scheduleNotificationDigestRefresh();
       return summary;
     });
     ipcMain.handle("notifications:clear", async () => {
@@ -442,9 +469,7 @@ if (!gotLock) {
       }
       const summary = await response.json();
       responseCaches.delete("Notifications");
-      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
-        console.warn("smart brief refresh failed:", error.message);
-      });
+      scheduleNotificationDigestRefresh();
       return summary;
     });
     ipcMain.handle("notifications:push-test", async () => {
@@ -462,9 +487,7 @@ if (!gotLock) {
         throw new Error(`Notification push failed: HTTP ${response.status}`);
       }
       responseCaches.delete("Notifications");
-      if (smartBriefService) smartBriefService.refreshBrief({ force: true }).catch((error) => {
-        console.warn("smart brief refresh failed:", error.message);
-      });
+      scheduleNotificationDigestRefresh();
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));

@@ -1,5 +1,6 @@
 const path = require("path");
 const { BrowserWindow, screen } = require("electron");
+const { sendToWindow } = require("./windowMessaging");
 
 let floatingWindow;
 let mainWindow;
@@ -177,18 +178,10 @@ function showTooltipWindow({ anchor, data }) {
     width: tooltipSize.width,
     height: tooltipSize.height
   });
-  const sendAndShow = () => {
-    if (!tooltipVisible || window.isDestroyed()) {
-      return;
-    }
-    window.webContents.send("tooltip:update", { ...data, placement });
+  const payload = { ...data, placement };
+  const sent = sendToWindow(window, "tooltip:update", payload);
+  if (sent && tooltipVisible && !window.isDestroyed()) {
     window.showInactive();
-  };
-
-  if (window.webContents.isLoading()) {
-    window.webContents.once("did-finish-load", sendAndShow);
-  } else {
-    sendAndShow();
   }
 }
 
@@ -218,7 +211,7 @@ function createMainWindow(initialTheme = "dark") {
     if (mainWindow.__showWhenReady) {
       mainWindow.show();
       mainWindow.focus();
-      mainWindow.webContents.send("main:navigate", mainWindow.__pendingSection || "Dashboard");
+      sendToWindow(mainWindow, "main:navigate", mainWindow.__pendingSection || "Dashboard");
       mainWindow.__showWhenReady = false;
       mainWindow.__pendingSection = null;
     }
@@ -232,8 +225,8 @@ function createMainWindow(initialTheme = "dark") {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
-  mainWindow.on("maximize", () => mainWindow?.webContents.send("window:maximized", true));
-  mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window:maximized", false));
+  mainWindow.on("maximize", () => sendToWindow(mainWindow, "window:maximized", true));
+  mainWindow.on("unmaximize", () => sendToWindow(mainWindow, "window:maximized", false));
 
   return mainWindow;
 }
@@ -280,7 +273,7 @@ function showMainWindow(section = "Dashboard") {
 
   mainWindow.show();
   mainWindow.focus();
-  mainWindow.webContents.send("main:navigate", targetSection);
+  sendToWindow(mainWindow, "main:navigate", targetSection);
 }
 
 function showFloatingWindow() {
@@ -313,5 +306,6 @@ module.exports = {
   toggleMaximizeMainWindow,
   closeMainWindow,
   setFloatingPinned,
-  setFloatingPinInteractive
+  setFloatingPinInteractive,
+  sendToWindow
 };

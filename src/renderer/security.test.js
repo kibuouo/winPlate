@@ -73,6 +73,23 @@ test("automatic status refresh updates the existing main content DOM", () => {
   assert.match(renderer, /currentSection === "Settings"/);
 });
 
+test("weather location changes update every window without an implicit location rewrite", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const refreshStatus = renderer.slice(
+    renderer.indexOf("async function refreshStatus()"),
+    renderer.indexOf("if (view === \"main\")")
+  );
+
+  assert.doesNotMatch(refreshStatus, /refreshSelectedWeatherLocation/);
+  assert.match(main, /broadcastStatusRefresh\(weather\)/);
+  assert.match(preload, /callback\(payload\)/);
+  assert.match(renderer, /payload\?\.weather[\s\S]*updateFloatingStatusDom\(\)/);
+  assert.match(renderer, /weatherVersionAtRequest === weatherUpdateVersion/);
+  assert.match(renderer, /const currentWeather = statusData\.weather/);
+});
+
 test("mail outline escapes external email fields before rendering", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const mailItemCard = renderer.slice(
@@ -133,6 +150,7 @@ test("mail detail renders message body inside a sandboxed srcdoc iframe", () => 
 
 test("notifications escape pushed titles and messages before rendering", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   const notificationContent = renderer.slice(
     renderer.indexOf("function notificationContent"),
     renderer.indexOf("function dashboardContent")
@@ -142,10 +160,49 @@ test("notifications escape pushed titles and messages before rendering", () => {
     renderer.indexOf("const lines = Array.isArray(data.lines)")
   );
 
-  assert.match(notificationContent, /escapeHtml\(item\.title\)/);
-  assert.match(notificationContent, /escapeHtml\(item\.message\)/);
-  assert.match(notificationTooltip, /escapeHtml\(item\.title\)/);
-  assert.match(notificationTooltip, /escapeHtml\(item\.message\)/);
+  assert.match(notificationContent, /renderRawNotifications/);
+  assert.match(notificationTooltip, /renderDigestCard/);
+  assert.match(component, /escapeHtml\(item\.title\)/);
+  assert.match(component, /escapeHtml\(item\.body \|\| item\.message\)/);
+  assert.match(component, /escapeHtml\(value\.headline\)/);
+  assert.match(component, /escapeHtml\(value\.summary\)/);
+});
+
+test("notification capsule and panel consume the digest instead of a raw title", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
+  const strip = renderer.slice(renderer.indexOf("function notificationStrip"), renderer.indexOf("function formatSpeedCompact"));
+
+  assert.match(strip, /digest\.headline/);
+  assert.match(strip, /severity-\$\{escapeHtml\(digest\.severity\)\}/);
+  assert.match(strip, /resolveSmartNotificationIcon\(digest\)/);
+  assert.match(strip, /renderSmartNotificationIcon\(iconKey\)/);
+  assert.doesNotMatch(strip, /latest\.title/);
+  assert.match(preload, /notification:get-digest/);
+  assert.match(preload, /notification:digest-updated/);
+  assert.match(component, /<details class="notification-raw-section">/);
+  assert.match(component, /notification-digest-groups/);
+  assert.match(component, /resolveSmartNotificationIcon\(value\)/);
+  assert.match(component, /renderSmartNotificationIcon\(iconKey\)/);
+});
+
+test("smart notification SVGs load from the local whitelist before renderer components", () => {
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  const keysIndex = html.indexOf("smartNotificationIconKeys.js");
+  const iconsIndex = html.indexOf("smartNotificationIcons.js");
+  const componentIndex = html.indexOf("notificationDigest.js");
+  assert.ok(keysIndex > 0 && keysIndex < iconsIndex);
+  assert.ok(iconsIndex < componentIndex);
+});
+
+test("notification severity styles cover capsule, badge, and compact popup", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  for (const severity of ["danger", "warning", "info"]) {
+    assert.match(css, new RegExp(`notification-strip\\.severity-${severity}`));
+    assert.match(css, new RegExp(`notification-strip\\.severity-${severity} \\.notification-badge`));
+    assert.match(css, new RegExp(`notification-digest-card\\.compact\\.severity-${severity}`));
+  }
 });
 
 test("notifications expose a clear action through preload and renderer controls", () => {

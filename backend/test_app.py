@@ -529,6 +529,27 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["alerts"][0]["title"], "香港：天文台在6月18日上午1时30分发出雷暴警告")
         self.assertEqual(summary["latest"]["title"], "香港：天文台在6月18日上午1时30分发出雷暴警告")
 
+    def test_qweather_cancelled_alert_is_risk_reduction(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            payload = {"alerts": [{
+                "id": "a1",
+                "headline": "暴雨红色预警",
+                "description": "本轮降雨过程结束。",
+                "severity": "extreme",
+                "status": "cancelled",
+            }]}
+            with patch.object(main, "qweather_jwt_request", return_value=payload):
+                result = main.qweather_alerts(22.3193, 114.1694)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["alerts"][0]["lifecycle"], "resolved")
+        self.assertEqual(result["alerts"][0]["riskDelta"], "decreased")
+        self.assertEqual(summary["latest"]["level"], "success")
+        self.assertIn("风险降低", summary["latest"]["message"])
+
     def test_mail_query_uses_qq_imap_inbox_window(self):
         self.assertEqual(main.MAIL_QUERY, "IMAP INBOX SINCE 30 days")
         self.assertEqual(main.QQ_IMAP_HOST, "imap.qq.com")
