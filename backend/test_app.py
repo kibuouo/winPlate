@@ -589,6 +589,14 @@ class DatabaseTests(unittest.TestCase):
     def test_parse_imap_flags_detects_seen_mail(self):
         self.assertEqual(main.parse_imap_flags(b"1 (UID 1 FLAGS (\\Seen \\Flagged) RFC822 {1}"), ["\\Seen", "\\Flagged"])
 
+    def test_parse_imap_fetch_payload_handles_split_flags(self):
+        raw_message, flags = main.parse_imap_fetch_payload([
+            (b"1975 (UID 2171 BODY[] {10}", b"hello"),
+            b" FLAGS (\\Seen))",
+        ])
+        self.assertEqual(raw_message, b"hello")
+        self.assertEqual(flags, ["\\Seen"])
+
     def test_mail_outline_returns_cached_payload_when_qq_refresh_fails(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:
@@ -739,7 +747,8 @@ class DatabaseTests(unittest.TestCase):
                     "snippet": "hello",
                     "summary": "hello",
                     "action": "查看",
-                    "labels": ["INBOX"],
+                    "labels": ["INBOX", "UNREAD"],
+                    "unread": True,
                 }], 1)),
             ):
                 result = main.mail_outline(force=True)
@@ -749,6 +758,106 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(summary["unreadCount"], 1)
         self.assertEqual(summary["latest"]["id"], "mail:m1")
         self.assertEqual(summary["latest"]["title"], "新邮件：Launch")
+
+    def test_mail_outline_uses_server_read_state_across_refresh(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.persist_mail_outline([{
+                "messageId": "m1",
+                "threadId": "t1",
+                "sender": "a@example.com",
+                "subject": "Launch",
+                "sentAt": 1780000000000,
+                "snippet": "hello",
+                "summary": "hello",
+                "action": "查看",
+                "labels": ["INBOX", "UNREAD"],
+                "unread": True,
+            }])
+            main.upsert_notification(
+                notification_id="mail:m1",
+                source="mail",
+                title="新邮件：Launch",
+                message="a@example.com",
+                created_at=1780000000000,
+                unread=True,
+            )
+            with (
+                patch.object(main, "mail_configured", return_value=True),
+                patch.object(main, "read_mail_outline_from_qq", return_value=([{
+                    "messageId": "m1",
+                    "threadId": "t1",
+                    "sender": "a@example.com",
+                    "subject": "Launch",
+                    "sentAt": 1780000000000,
+                    "snippet": "hello",
+                    "summary": "hello",
+                    "action": "归档参考",
+                    "labels": ["INBOX"],
+                    "unread": False,
+                }], 0)),
+            ):
+                result = main.mail_outline(force=True)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        self.assertFalse(result["items"][0]["unread"])
+        self.assertNotIn("UNREAD", result["items"][0]["labels"])
+        self.assertEqual(summary["unreadCount"], 0)
+
+    def test_mark_notification_read_syncs_mail_seen_flag_to_server(self):
+        original_path = main.DATABASE_PATH
+        class FakeImapConnection:
+            def __init__(self):
+                self.calls = []
+
+            def select(self, mailbox, readonly=False):
+                self.calls.append(("select", mailbox, readonly))
+                return ("OK", [b"1"])
+
+            def uid(self, command, uid, *args):
+                self.calls.append(("uid", command, uid, *args))
+                if command == "STORE":
+                    return ("OK", [b"1"])
+                raise AssertionError(f"Unexpected IMAP command: {command}")
+
+            def logout(self):
+                self.calls.append(("logout",))
+
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.persist_mail_outline([{
+                "messageId": "m1",
+                "threadId": "t1",
+                "sender": "a@example.com",
+                "subject": "Launch",
+                "sentAt": 1780000000000,
+                "snippet": "hello",
+                "summary": "hello",
+                "action": "查看",
+                "labels": ["INBOX", "UNREAD"],
+            }])
+            main.upsert_notification(
+                notification_id="mail:m1",
+                source="mail",
+                title="新邮件：Launch",
+                message="a@example.com",
+                created_at=1780000000000,
+                unread=True,
+            )
+            fake_connection = FakeImapConnection()
+            with (
+                patch.object(main, "mail_configured", return_value=True),
+                patch.object(main, "qq_imap_connection", return_value=fake_connection),
+            ):
+                summary = main.mark_notification_read("mail:m1")
+            outline = main.cached_mail_outline()
+        main.DATABASE_PATH = original_path
+        self.assertIn(("uid", "STORE", "m1", "+FLAGS.SILENT", r"(\Seen)"), fake_connection.calls)
+        self.assertEqual(summary["unreadCount"], 0)
+        self.assertFalse(outline[0]["unread"])
 
 
 if __name__ == "__main__":

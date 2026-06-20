@@ -434,6 +434,7 @@ def upsert_notification(
     level: str = "info",
     created_at: int | None = None,
     external_url: str | None = None,
+    unread: bool | None = None,
 ) -> dict:
     normalized_source = normalize_notification_source(source)
     safe_title = clean_mail_text(title, limit=180) or "WinPlate 通知"
@@ -441,12 +442,14 @@ def upsert_notification(
     safe_level = normalize_notification_level(level)
     now = utc_epoch_seconds() * 1000
     created = int(created_at or now)
+    insert_unread = 1 if unread is None else int(bool(unread))
+    unread_update_sql = "" if unread is None else ", unread = excluded.unread"
     with closing(connect()) as connection:
         connection.execute(
-            """
+            f"""
             INSERT INTO notifications
             (id, source, level, title, message, unread, created_at, updated_at, external_url)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 source = excluded.source,
                 level = excluded.level,
@@ -454,6 +457,7 @@ def upsert_notification(
                 message = excluded.message,
                 updated_at = excluded.updated_at,
                 external_url = excluded.external_url
+                {unread_update_sql}
             """,
             (
                 notification_id,
@@ -461,6 +465,7 @@ def upsert_notification(
                 safe_level,
                 safe_title,
                 safe_message,
+                insert_unread,
                 created,
                 now,
                 external_url,
@@ -494,6 +499,7 @@ def sync_mail_notifications(items: list[dict]) -> None:
                 "https://mail.qq.com/"
                 if item.get("threadId") else None
             ),
+            unread=bool(item.get("unread")),
         )
 
 
@@ -631,17 +637,69 @@ def notification_summary(limit: int = 20) -> dict:
     }
 
 
+def set_mail_notification_unread_state(uid: str, unread: bool) -> None:
+    with closing(connect()) as connection:
+        connection.execute(
+            "UPDATE notifications SET unread = ?, updated_at = ? WHERE id = ?",
+            (1 if unread else 0, utc_epoch_seconds() * 1000, f"mail:{uid}"),
+        )
+        connection.commit()
+
+
+def apply_mail_seen_flag(connection: imaplib.IMAP4_SSL, uid: str, seen: bool) -> None:
+    operation = "+FLAGS.SILENT" if seen else "-FLAGS.SILENT"
+    status, _ = connection.uid("STORE", uid, operation, r"(\Seen)")
+    if status != "OK":
+        raise RuntimeError("邮件已读状态同步失败")
+
+
+def mark_mail_notification_read(uid: str) -> None:
+    safe_uid = str(uid or "").strip()
+    if not safe_uid or not re.fullmatch(r"[0-9A-Za-z._:-]{1,80}", safe_uid):
+        raise RuntimeError("邮件 UID 无效")
+    if not mail_configured():
+        raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
+    connection = qq_imap_connection()
+    try:
+        status, _ = connection.select("INBOX", readonly=False)
+        if status != "OK":
+            raise RuntimeError("QQ 邮箱 INBOX 打开失败")
+        apply_mail_seen_flag(connection, safe_uid, True)
+        update_cached_mail_read_state(safe_uid, unread=False)
+        set_mail_notification_unread_state(safe_uid, unread=False)
+    except (imaplib.IMAP4.error, OSError, TimeoutError) as error:
+        raise RuntimeError(f"QQ 邮箱 IMAP 读取失败：{error}") from error
+    finally:
+        try:
+            connection.logout()
+        except imaplib.IMAP4.error:
+            pass
+
+
 def mark_notification_read(notification_id: str) -> dict:
+    safe_notification_id = str(notification_id or "").strip()
+    if safe_notification_id.startswith("mail:"):
+        mark_mail_notification_read(safe_notification_id.split(":", 1)[1])
+        return notification_summary()
     with closing(connect()) as connection:
         connection.execute(
             "UPDATE notifications SET unread = 0, updated_at = ? WHERE id = ?",
-            (utc_epoch_seconds() * 1000, notification_id),
+            (utc_epoch_seconds() * 1000, safe_notification_id),
         )
         connection.commit()
     return notification_summary()
 
 
 def mark_all_notifications_read() -> dict:
+    with closing(connect()) as connection:
+        mail_notification_ids = [
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM notifications WHERE unread = 1 AND source = 'mail'"
+            ).fetchall()
+        ]
+    for notification_id in mail_notification_ids:
+        mark_mail_notification_read(str(notification_id).split(":", 1)[1])
     with closing(connect()) as connection:
         connection.execute(
             "UPDATE notifications SET unread = 0, updated_at = ? WHERE unread = 1",
@@ -744,6 +802,19 @@ def parse_imap_flags(fetch_header: bytes) -> list[str]:
     return [flag.decode("ascii", "ignore") for flag in match.group(1).split()]
 
 
+def parse_imap_fetch_payload(fetched: list[bytes | tuple[bytes, bytes]]) -> tuple[bytes | None, list[str]]:
+    metadata_parts: list[bytes] = []
+    raw_message: bytes | None = None
+    for part in fetched:
+        if isinstance(part, tuple):
+            metadata_parts.append(part[0])
+            if raw_message is None:
+                raw_message = part[1]
+        elif isinstance(part, bytes):
+            metadata_parts.append(part)
+    return raw_message, parse_imap_flags(b" ".join(metadata_parts))
+
+
 def read_mail_outline_from_qq() -> tuple[list[dict], int]:
     since = datetime.fromtimestamp(utc_epoch_seconds() - MAIL_WINDOW_DAYS * 86400).strftime("%d-%b-%Y")
     connection = qq_imap_connection()
@@ -758,16 +829,10 @@ def read_mail_outline_from_qq() -> tuple[list[dict], int]:
         candidates.reverse()
         outlines = []
         for uid in candidates:
-            status, fetched = connection.uid("FETCH", uid, "(RFC822 FLAGS)")
+            status, fetched = connection.uid("FETCH", uid, "(BODY.PEEK[] FLAGS)")
             if status != "OK":
                 continue
-            raw_message = None
-            flags = []
-            for part in fetched:
-                if isinstance(part, tuple):
-                    flags = parse_imap_flags(part[0])
-                    raw_message = part[1]
-                    break
+            raw_message, flags = parse_imap_fetch_payload(fetched)
             if not raw_message:
                 continue
             outlines.append(parse_imap_message(uid, raw_message, flags))
@@ -795,16 +860,10 @@ def read_mail_message(uid: str, mark_read: bool = True) -> dict:
         status, _ = connection.select("INBOX", readonly=not mark_read)
         if status != "OK":
             raise RuntimeError("QQ 邮箱 INBOX 打开失败")
-        status, fetched = connection.uid("FETCH", safe_uid, "(RFC822 FLAGS)")
+        status, fetched = connection.uid("FETCH", safe_uid, "(BODY.PEEK[] FLAGS)")
         if status != "OK":
             raise RuntimeError("邮件读取失败")
-        raw_message = None
-        flags = []
-        for part in fetched:
-            if isinstance(part, tuple):
-                flags = parse_imap_flags(part[0])
-                raw_message = part[1]
-                break
+        raw_message, flags = parse_imap_fetch_payload(fetched)
         if not raw_message:
             raise RuntimeError("邮件不存在或已无法读取")
         parsed = parse_imap_message(safe_uid, raw_message, flags)
@@ -813,13 +872,12 @@ def read_mail_message(uid: str, mark_read: bool = True) -> dict:
         unread_before = bool(parsed.get("unread"))
         unread_after = unread_before
         if mark_read and unread_before:
-            store_status, _ = connection.uid("STORE", safe_uid, "+FLAGS.SILENT", r"(\Seen)")
-            if store_status == "OK":
-                unread_after = False
-                parsed["labels"] = [label for label in parsed["labels"] if label != "UNREAD"]
-                parsed["action"] = classify_mail_action(parsed["subject"], parsed["summary"], parsed["labels"])
-                update_cached_mail_read_state(safe_uid, unread=False)
-                mark_notification_read(f"mail:{safe_uid}")
+            apply_mail_seen_flag(connection, safe_uid, True)
+            unread_after = False
+            parsed["labels"] = [label for label in parsed["labels"] if label != "UNREAD"]
+            parsed["action"] = classify_mail_action(parsed["subject"], parsed["summary"], parsed["labels"])
+            update_cached_mail_read_state(safe_uid, unread=False)
+            set_mail_notification_unread_state(safe_uid, unread=False)
         return {
             **parsed,
             "from": parsed["sender"],

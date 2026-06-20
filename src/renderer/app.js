@@ -66,6 +66,8 @@ let notificationDigest = {
   sourceIds: []
 };
 let notificationActionInFlight = false;
+let notificationRawExpanded = false;
+let mailAutoRefreshTimer = null;
 let networkSpeed = {
   downloadBytesPerSecond: 0,
   uploadBytesPerSecond: 0,
@@ -79,6 +81,9 @@ let qweatherUsageMessage = "";
 let qweatherOfficialStatus = null;
 const THEME_STORAGE_KEY = "winplate-theme";
 const WEATHER_LOCATION_STORAGE_KEY = "winplate-weather-location";
+const DEFAULT_MAIL_AUTO_REFRESH_SECONDS = 30;
+const MIN_MAIL_AUTO_REFRESH_SECONDS = 15;
+const MAX_MAIL_AUTO_REFRESH_SECONDS = 30 * 60;
 const WEATHER_LOCATION_REGIONS = [
   { id: "auto", label: "自动定位", cities: [{ id: "auto", label: "系统定位" }] },
   { id: "beijing", label: "北京市", cities: [{ id: "beijing", label: "北京", latitude: 39.9042, longitude: 116.4074 }] },
@@ -120,6 +125,25 @@ let weatherLocationPreference = localStorage.getItem(WEATHER_LOCATION_STORAGE_KE
 let weatherUpdateVersion = 0;
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
+let mailAutoRefreshSeconds = DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
+
+function normalizeMailAutoRefreshSeconds(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
+  return Math.max(
+    MIN_MAIL_AUTO_REFRESH_SECONDS,
+    Math.min(MAX_MAIL_AUTO_REFRESH_SECONDS, Math.round(seconds))
+  );
+}
+
+function mailAutoRefreshLabel(seconds = mailAutoRefreshSeconds) {
+  const safeSeconds = normalizeMailAutoRefreshSeconds(seconds);
+  if (safeSeconds < 60) return `${safeSeconds} 秒`;
+  if (safeSeconds % 60 === 0) return `${safeSeconds / 60} 分钟`;
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainSeconds = safeSeconds % 60;
+  return `${minutes} 分 ${remainSeconds} 秒`;
+}
 
 function resolvedTheme() {
   return themePreference === "system"
@@ -159,16 +183,19 @@ async function setThemePreference(theme) {
 }
 
 async function hydrateAppearanceSettings() {
-  if (view !== "main") return;
   const legacyTheme = localStorage.getItem(THEME_STORAGE_KEY);
   try {
     const settings = await window.winplate.getAppearanceSettings();
     themePreference = ["light", "dark", "system"].includes(settings?.theme)
       ? settings.theme
       : "system";
+    mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(settings?.mailAutoRefreshSeconds);
     if (legacyTheme && ["light", "dark", "system"].includes(legacyTheme)) {
       themePreference = legacyTheme;
-      await window.winplate.saveAppearanceSettings({ theme: legacyTheme });
+      await window.winplate.saveAppearanceSettings({
+        theme: legacyTheme,
+        mailAutoRefreshSeconds
+      });
       localStorage.removeItem(THEME_STORAGE_KEY);
     }
   } catch (error) {
@@ -176,7 +203,9 @@ async function hydrateAppearanceSettings() {
     if (legacyTheme && ["light", "dark", "system"].includes(legacyTheme)) {
       themePreference = legacyTheme;
     }
+    mailAutoRefreshSeconds = DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
   }
+  if (view !== "main") return;
   applyMainTheme();
 }
 
@@ -1775,6 +1804,7 @@ function notificationContent() {
   const items = summary.items;
   const digestCard = window.WinPlateNotificationDigest.renderDigestCard(notificationDigest);
   const rows = window.WinPlateNotificationDigest.renderRawNotifications(items, {
+    expanded: notificationRawExpanded,
     sourceLabel: notificationSourceLabel,
     levelLabel: notificationLevelLabel,
     relativeTime: relativeUpdatedAt
@@ -1906,11 +1936,16 @@ function dashboardContent(section) {
               <span><strong>协议</strong><small>读取邮件使用 IMAP，发送邮件预留 SMTP 配置</small></span>
               <input id="qq-mail-protocol" type="text" value="${escapeHtml(mailSettings.protocol || "IMAP")}" disabled>
             </label>
+            <label>
+              <span><strong>自动同步间隔</strong><small>后台自动检查新邮件的频率，最短 15 秒</small></span>
+              <input id="qq-mail-auto-refresh-seconds" type="number" min="${MIN_MAIL_AUTO_REFRESH_SECONDS}" max="${MAX_MAIL_AUTO_REFRESH_SECONDS}" step="15" value="${mailAutoRefreshSeconds}">
+            </label>
           </fieldset>
           <div class="weather-settings-actions">
             <div class="weather-settings-statuses">
               <small id="mail-settings-status" class="${mailSettings.configured ? "configured" : ""}">QQ 邮箱配置：${mailSettings.configured ? "已配置" : "未配置"}</small>
               <small id="mail-connection-status" class="${mailSettings.connected ? "configured" : ""}">IMAP：${mailSettings.connected ? "已连接" : "未连接"}</small>
+              <small id="mail-auto-refresh-status">自动同步：每 ${mailAutoRefreshLabel()}</small>
             </div>
             <div class="mail-settings-actions">
               <button type="submit">保存配置</button>
@@ -2467,27 +2502,38 @@ function bindMailControls() {
   if (form) {
     const addressInput = form.querySelector("#qq-mail-address");
     const authCodeInput = form.querySelector("#qq-mail-auth-code");
+    const autoRefreshInput = form.querySelector("#qq-mail-auto-refresh-seconds");
     const mailStatus = form.querySelector("#mail-settings-status");
     const connectionStatus = form.querySelector("#mail-connection-status");
+    const autoRefreshStatus = form.querySelector("#mail-auto-refresh-status");
     const saveButton = form.querySelector("button[type='submit']");
     const setMailSettingsStatus = (message, className = "") => {
       mailStatus.textContent = `QQ 邮箱配置：${message}`;
       mailStatus.className = className;
       connectionStatus.textContent = `IMAP：${mailSettings.connected ? "已连接" : "未连接"}`;
       connectionStatus.className = mailSettings.connected ? "configured" : "";
+      autoRefreshStatus.textContent = `自动同步：每 ${mailAutoRefreshLabel()}`;
     };
     form.onsubmit = async (event) => {
       event.preventDefault();
       saveButton.disabled = true;
       setMailSettingsStatus("正在保存...");
       try {
+        const nextMailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(autoRefreshInput.value);
         mailSettings = await window.winplate.saveMailSettings({
           address: addressInput.value,
           authCode: authCodeInput.value
         });
+        mailAutoRefreshSeconds = nextMailAutoRefreshSeconds;
+        await window.winplate.saveAppearanceSettings({
+          theme: themePreference,
+          mailAutoRefreshSeconds
+        });
+        startMailAutoRefreshTimer();
         addressInput.value = mailSettings.address || "";
         authCodeInput.value = "";
         authCodeInput.placeholder = "已配置，重新填写可覆盖";
+        autoRefreshInput.value = String(mailAutoRefreshSeconds);
         mailOutline = await window.winplate.getMailOutline();
         setMailSettingsStatus("已配置", "configured");
       } catch (error) {
@@ -2541,6 +2587,13 @@ function bindMailControls() {
 }
 
 function bindNotificationControls() {
+  const rawSection = document.querySelector(".notification-raw-section");
+  if (rawSection) {
+    notificationRawExpanded = rawSection.open;
+    rawSection.ontoggle = () => {
+      notificationRawExpanded = rawSection.open;
+    };
+  }
   const markAllButton = document.querySelector("#mark-all-notifications-read");
   if (markAllButton) {
     markAllButton.onclick = async () => {
@@ -2599,7 +2652,7 @@ function bindNotificationControls() {
       button.disabled = true;
       try {
         notificationSummary = await window.winplate.markNotificationRead(button.dataset.notificationRead);
-        await hydrateSmartBrief({ force: true });
+        await hydrateNotificationDigest();
       } catch (error) {
         console.error("Failed to mark notification read:", error);
       } finally {
@@ -2643,6 +2696,32 @@ async function hydrateNotificationDigest() {
   }
 }
 
+function updateCurrentViewDom() {
+  if (view === "floating") updateFloatingStatusDom();
+  else updateMainStatusDom();
+}
+
+async function autoRefreshMail() {
+  if (view === "tooltip" || !mailSettings?.configured) return;
+  try {
+    await hydrateMail({ force: true });
+    await hydrateNotifications();
+    updateCurrentViewDom();
+  } catch (error) {
+    console.warn("Mail auto refresh failed:", error.message);
+  }
+}
+
+function startMailAutoRefreshTimer() {
+  if (mailAutoRefreshTimer) {
+    clearInterval(mailAutoRefreshTimer);
+    mailAutoRefreshTimer = null;
+  }
+  if (view === "tooltip") return;
+  const intervalMs = normalizeMailAutoRefreshSeconds(mailAutoRefreshSeconds) * 1000;
+  mailAutoRefreshTimer = setInterval(autoRefreshMail, intervalMs);
+}
+
 async function refreshQWeatherAlerts() {
   try {
     await window.winplate.refreshQWeatherAlerts();
@@ -2651,11 +2730,14 @@ async function refreshQWeatherAlerts() {
   }
 }
 
-async function hydrateMail() {
-  if (view !== "main") return;
+async function hydrateMail(options = {}) {
+  if (view === "tooltip") return;
+  const force = Boolean(options?.force);
   try {
     mailSettings = await window.winplate.getMailSettings();
-    mailOutline = await window.winplate.getMailOutline();
+    mailOutline = force && mailSettings.configured
+      ? await window.winplate.refreshMailOutline()
+      : await window.winplate.getMailOutline();
   } catch (error) {
     mailOutline = {
       ...mailOutline,
@@ -2757,9 +2839,15 @@ async function refreshStatus() {
 
 if (view === "main") {
   renderMain();
-  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateMail(), hydrateNotifications()]).then(refreshStatus);
+  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateMail(), hydrateNotifications()]).then(() => {
+    startMailAutoRefreshTimer();
+    return refreshStatus();
+  });
 } else {
-  refreshStatus();
+  hydrateAppearanceSettings().then(() => {
+    startMailAutoRefreshTimer();
+    return refreshStatus();
+  });
 }
 if (view !== "tooltip") {
   window.winplate?.onNotificationDigestUpdated?.((digest) => {
@@ -2778,6 +2866,7 @@ if (view !== "tooltip") {
     refreshStatus();
   });
   setInterval(refreshStatus, 30_000);
+  startMailAutoRefreshTimer();
   if (view === "floating") {
     refreshNetworkSpeed();
     setInterval(refreshNetworkSpeed, 2_000);

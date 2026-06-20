@@ -1,12 +1,28 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const DEFAULT_APPEARANCE = Object.freeze({ theme: "system" });
+const DEFAULT_MAIL_AUTO_REFRESH_SECONDS = 30;
+const DEFAULT_APPEARANCE = Object.freeze({
+  theme: "system",
+  mailAutoRefreshSeconds: DEFAULT_MAIL_AUTO_REFRESH_SECONDS
+});
 const VALID_THEMES = new Set(["light", "dark", "system"]);
+const MIN_MAIL_AUTO_REFRESH_SECONDS = 15;
+const MAX_MAIL_AUTO_REFRESH_SECONDS = 30 * 60;
+
+function normalizeMailAutoRefreshSeconds(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
+  return Math.max(
+    MIN_MAIL_AUTO_REFRESH_SECONDS,
+    Math.min(MAX_MAIL_AUTO_REFRESH_SECONDS, Math.round(seconds))
+  );
+}
 
 function normalizeAppearance(value = {}) {
   return {
-    theme: VALID_THEMES.has(value.theme) ? value.theme : DEFAULT_APPEARANCE.theme
+    theme: VALID_THEMES.has(value.theme) ? value.theme : DEFAULT_APPEARANCE.theme,
+    mailAutoRefreshSeconds: normalizeMailAutoRefreshSeconds(value.mailAutoRefreshSeconds)
   };
 }
 
@@ -38,6 +54,10 @@ async function writeAppearanceSettings(userDataPath, value) {
 
 module.exports = {
   DEFAULT_APPEARANCE,
+  DEFAULT_MAIL_AUTO_REFRESH_SECONDS,
+  MAX_MAIL_AUTO_REFRESH_SECONDS,
+  MIN_MAIL_AUTO_REFRESH_SECONDS,
+  normalizeMailAutoRefreshSeconds,
   normalizeAppearance,
   readAppearanceSettings,
   writeAppearanceSettings

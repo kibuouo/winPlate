@@ -51,8 +51,9 @@
       </section>`;
   }
 
-  function renderRawNotifications(items, { sourceLabel, levelLabel, relativeTime } = {}) {
+  function renderRawNotifications(items, { expanded = false, sourceLabel, levelLabel, relativeTime } = {}) {
     const list = Array.isArray(items) ? items : [];
+    // Baseline markup remains <details class="notification-raw-section"> when collapsed.
     const rows = list.length ? `<div class="notification-page-list">${list.map((item) => `
       <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(item.level)} ${item.unread ? "unread" : ""}">
         <div class="notification-page-main">
@@ -70,7 +71,7 @@
       </article>`).join("")}</div>` : `
         <div class="notification-empty-state"><strong>暂无原始通知</strong><span>新的来源事件会在这里保留。</span></div>`;
     return `
-      <details class="notification-raw-section">
+      <details class="notification-raw-section"${expanded ? " open" : ""}>
         <summary><span>原始通知</span><small>${list.length} 条</small></summary>
         ${rows}
       </details>`;
