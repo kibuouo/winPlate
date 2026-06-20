@@ -488,8 +488,14 @@ def sync_mail_notifications(items: list[dict]) -> None:
         message_id = item.get("messageId")
         if not message_id:
             continue
+        notification_id = f"mail:{message_id}"
+        if not bool(item.get("unread")):
+            with closing(connect()) as connection:
+                connection.execute("DELETE FROM notifications WHERE id = ?", (notification_id,))
+                connection.commit()
+            continue
         upsert_notification(
-            notification_id=f"mail:{message_id}",
+            notification_id=notification_id,
             source="mail",
             level="info",
             title=f"新邮件：{item.get('subject') or '(无主题)'}",

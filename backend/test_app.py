@@ -805,6 +805,42 @@ class DatabaseTests(unittest.TestCase):
         self.assertFalse(result["items"][0]["unread"])
         self.assertNotIn("UNREAD", result["items"][0]["labels"])
         self.assertEqual(summary["unreadCount"], 0)
+        self.assertEqual(summary["items"], [])
+
+    def test_clear_notifications_does_not_reimport_read_mail_items(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.upsert_notification(
+                notification_id="mail:m1",
+                source="mail",
+                title="新邮件：Launch",
+                message="a@example.com",
+                created_at=1780000000000,
+                unread=True,
+            )
+            main.clear_notifications()
+            with (
+                patch.object(main, "mail_configured", return_value=True),
+                patch.object(main, "read_mail_outline_from_qq", return_value=([{
+                    "messageId": "m1",
+                    "threadId": "t1",
+                    "sender": "a@example.com",
+                    "subject": "Launch",
+                    "sentAt": 1780000000000,
+                    "snippet": "hello",
+                    "summary": "hello",
+                    "action": "归档参考",
+                    "labels": ["INBOX"],
+                    "unread": False,
+                }], 0)),
+            ):
+                main.mail_outline(force=True)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(summary["items"], [])
+        self.assertEqual(summary["unreadCount"], 0)
 
     def test_mark_notification_read_syncs_mail_seen_flag_to_server(self):
         original_path = main.DATABASE_PATH

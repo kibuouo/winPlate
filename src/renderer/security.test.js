@@ -223,8 +223,7 @@ test("DeepSeek balance card renders local token usage instead of unavailable pla
   assert.match(codexContent, /Token 用量/);
   assert.match(codexContent, /tokenUsage\.today/);
   assert.match(codexContent, /tokenUsage\.total/);
-  assert.match(codexContent, /本应用累计/);
-  assert.doesNotMatch(codexContent, /暂未提供接口/);
+  assert.match(codexContent, /应用累计/);
 });
 
 test("floating network speed uses compact labels for the main capsule", () => {

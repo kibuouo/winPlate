@@ -2034,7 +2034,7 @@ function codexContent() {
       </header>
       <div class="deepseek-token-stats">
         <div><span>今日总量</span><strong>${tokenValue(todayBreakdown.total, false)}</strong><small>tokens</small></div>
-        <div><span>本应用累计</span><strong>${tokenValue(totalBreakdown.total, false)}</strong><small>tokens</small></div>
+        <div><span>应用累计</span><strong>${tokenValue(totalBreakdown.total, false)}</strong><small>tokens</small></div>
         <div><span>预计消耗</span><strong>${estimateLevel}</strong></div>
       </div>
       <div class="deepseek-token-rows">${tokenRows}</div>
