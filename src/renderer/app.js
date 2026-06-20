@@ -71,6 +71,7 @@ let mailAutoRefreshTimer = null;
 let networkSpeed = {
   downloadBytesPerSecond: 0,
   uploadBytesPerSecond: 0,
+  latencyMs: null,
   status: "获取中",
   error: "",
   updatedAt: null
@@ -654,6 +655,12 @@ function formatSpeedFull(bytesPerSecond) {
 
 function formatNetworkSpeed(bytesPerSecond, compact = true) {
   return compact ? formatSpeedCompact(bytesPerSecond) : formatSpeedFull(bytesPerSecond);
+}
+
+function formatLatency(latencyMs) {
+  const value = Number(latencyMs);
+  if (!Number.isFinite(value) || value < 0) return "---";
+  return `${Math.round(value)}ms`;
 }
 
 function networkSpeedLabel() {
@@ -1244,7 +1251,8 @@ function renderFloating() {
       networkSpeed.uploadBytesPerSecond
     ),
     download: formatNetworkSpeed(networkSpeed.downloadBytesPerSecond, false),
-    upload: formatNetworkSpeed(networkSpeed.uploadBytesPerSecond, false)
+    upload: formatNetworkSpeed(networkSpeed.uploadBytesPerSecond, false),
+    latency: formatLatency(networkSpeed.latencyMs)
   }));
 
   pinButton.addEventListener("click", async (event) => {
@@ -1445,6 +1453,11 @@ function renderTooltip(data = {}) {
           <span class="network-icon-upload">↑</span>
           <span class="network-label">上传速度</span>
           <strong class="network-value network-value-upload">${escapeHtml(data.upload || "---")}</strong>
+        </div>
+        <div class="network-row">
+          <span class="network-icon-latency">◌</span>
+          <span class="network-label">延迟</span>
+          <strong class="network-value network-value-latency">${escapeHtml(data.latency || "---")}</strong>
         </div>
       </article>`;
     return;
@@ -2324,6 +2337,7 @@ async function refreshNetworkSpeed() {
     networkSpeed = {
       downloadBytesPerSecond: null,
       uploadBytesPerSecond: null,
+      latencyMs: null,
       status: "获取失败",
       error: error.message,
       updatedAt: Date.now()

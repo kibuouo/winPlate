@@ -240,9 +240,11 @@ test("floating network speed uses compact labels for the main capsule", () => {
   assert.equal(formatSpeedFull(9 * 1024), "9 KB/s");
   assert.equal(formatSpeedFull(3 * 1024), "3 KB/s");
   assert.equal(formatSpeedFull(12 * 1024 * 1024), "12 MB/s");
+  assert.match(renderer, /function formatLatency\(latencyMs\)[\s\S]*return `\$\{Math\.round\(value\)\}ms`;/);
   assert.match(renderer, /networkSpeedMarkup\(\)[\s\S]*formatSpeedCompact\(networkSpeed\.downloadBytesPerSecond\)/);
   assert.match(renderer, /download:\s*formatNetworkSpeed\(networkSpeed\.downloadBytesPerSecond,\s*false\)/);
   assert.match(renderer, /upload:\s*formatNetworkSpeed\(networkSpeed\.uploadBytesPerSecond,\s*false\)/);
+  assert.match(renderer, /latency:\s*formatLatency\(networkSpeed\.latencyMs\)/);
 });
 
 test("floating network capsule is wider than heart while sharing the icon grid", () => {

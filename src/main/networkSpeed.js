@@ -5,6 +5,9 @@ const execFileAsync = promisify(execFile);
 const SAMPLE_MAX_AGE_MS = 15_000;
 const MIN_SAMPLE_INTERVAL_MS = 500;
 const SMOOTHING_ALPHA = 0.45;
+const PING_TARGETS = ["1.1.1.1", "223.5.5.5", "114.114.114.114"];
+const PING_TIMEOUT_MS = 1200;
+const HIGH_LATENCY_MS = 150;
 
 let previousSample = null;
 let smoothedDownload = 0;
@@ -14,10 +17,22 @@ function emptySpeed(status = "获取失败", error = "") {
   return {
     downloadBytesPerSecond: null,
     uploadBytesPerSecond: null,
+    latencyMs: null,
     status,
     error,
     updatedAt: Date.now()
   };
+}
+
+function normalizeLatencyMs(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return null;
+  return Math.round(number);
+}
+
+function networkStatusFromLatency(latencyMs) {
+  return latencyMs !== null && latencyMs >= HIGH_LATENCY_MS ? "延迟高" : "正常";
 }
 
 function normalizeAdapterRows(payload) {
@@ -56,6 +71,7 @@ function calculateRate(current, previous = previousSample, now = Date.now()) {
     return emptySpeed("无连接");
   }
 
+  const latencyMs = normalizeLatencyMs(current.latencyMs);
   const receivedBytes = current.adapters.reduce((sum, row) => sum + row.receivedBytes, 0);
   const sentBytes = current.adapters.reduce((sum, row) => sum + row.sentBytes, 0);
   const sample = { receivedBytes, sentBytes, timestamp: now };
@@ -67,7 +83,8 @@ function calculateRate(current, previous = previousSample, now = Date.now()) {
     return {
       downloadBytesPerSecond: 0,
       uploadBytesPerSecond: 0,
-      status: "正常",
+      latencyMs,
+      status: networkStatusFromLatency(latencyMs),
       updatedAt: now
     };
   }
@@ -79,7 +96,8 @@ function calculateRate(current, previous = previousSample, now = Date.now()) {
     return {
       downloadBytesPerSecond: 0,
       uploadBytesPerSecond: 0,
-      status: "正常",
+      latencyMs,
+      status: networkStatusFromLatency(latencyMs),
       updatedAt: now
     };
   }
@@ -97,9 +115,41 @@ function calculateRate(current, previous = previousSample, now = Date.now()) {
   return {
     downloadBytesPerSecond: Math.round(smoothedDownload),
     uploadBytesPerSecond: Math.round(smoothedUpload),
-    status: "正常",
+    latencyMs,
+    status: networkStatusFromLatency(latencyMs),
     updatedAt: now
   };
+}
+
+async function readWindowsLatencyMs(exec = execFileAsync) {
+  const targetList = PING_TARGETS.map((target) => `'${target}'`).join(", ");
+  const script = `
+$targets = @(${targetList})
+foreach ($target in $targets) {
+  try {
+    $result = Test-Connection -ComputerName $target -Count 1 -ErrorAction Stop
+    if ($null -ne $result -and $result.StatusCode -eq 0 -and $null -ne $result.ResponseTime) {
+      [PSCustomObject]@{
+        Target = $target
+        ResponseTime = [int]$result.ResponseTime
+      } | ConvertTo-Json -Compress
+      exit 0
+    }
+  } catch {
+  }
+}
+`.trim();
+  try {
+    const { stdout } = await exec("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy", "Bypass",
+      "-Command", script
+    ], { windowsHide: true, timeout: PING_TIMEOUT_MS * PING_TARGETS.length + 1200, maxBuffer: 1024 * 64 });
+    const payload = stdout ? JSON.parse(stdout) : null;
+    return normalizeLatencyMs(payload?.ResponseTime);
+  } catch {
+    return null;
+  }
 }
 
 async function readWindowsAdapterTotals() {
@@ -131,7 +181,11 @@ async function readNetworkSpeed() {
     return emptySpeed("获取失败", "Network speed is only implemented for Windows");
   }
   try {
-    return calculateRate(await readWindowsAdapterTotals());
+    const [totals, latencyMs] = await Promise.all([
+      readWindowsAdapterTotals(),
+      readWindowsLatencyMs()
+    ]);
+    return calculateRate({ ...totals, latencyMs });
   } catch (error) {
     return emptySpeed("获取失败", error.message);
   }
@@ -147,6 +201,8 @@ module.exports = {
   calculateRate,
   chooseEffectiveAdapters,
   normalizeAdapterRows,
+  normalizeLatencyMs,
   readNetworkSpeed,
+  readWindowsLatencyMs,
   resetNetworkSpeedState
 };

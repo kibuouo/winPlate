@@ -1698,6 +1698,11 @@ html[data-theme="light"] .deepseek-row-track > span { background: linear-gradien
   color: #86efac;
 }
 
+.network-icon-latency,
+.network-value-latency {
+  color: #facc15;
+}
+
 .notifications-tooltip {
   width: 100%;
   height: 100%;
