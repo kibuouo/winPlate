@@ -36,6 +36,20 @@ class DatabaseTests(unittest.TestCase):
         with patch.dict(main.os.environ, {"GITHUB_TOKEN": "process-token"}):
             self.assertEqual(main.github_token(), "process-token")
 
+    def test_github_username_is_read_dynamically_and_validated(self):
+        with patch.dict(main.os.environ, {"WINPLATE_GITHUB_USERNAME": "octocat"}):
+            self.assertEqual(main.github_username(), "octocat")
+        with patch.dict(main.os.environ, {"WINPLATE_GITHUB_USERNAME": "invalid username"}):
+            self.assertEqual(main.github_username(), main.DEFAULT_GITHUB_USERNAME)
+
+    def test_module_registry_exposes_stable_backend_boundaries(self):
+        payload = main.modules()
+        module_ids = [item["id"] for item in payload["modules"]]
+        self.assertEqual(
+            module_ids,
+            ["github", "codex", "notifications", "mail", "weather", "heart", "network"],
+        )
+
     def test_default_status_is_persisted(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:
@@ -116,8 +130,8 @@ class DatabaseTests(unittest.TestCase):
             live = {
                 "source": "github",
                 "name": "The Octocat",
-                "username": "@octocat",
-                "profileUrl": "https://github.com/octocat",
+                "username": "@kibuouo",
+                "profileUrl": "https://github.com/kibuouo",
                 "repos": 8,
                 "updatedAt": 123,
             }

@@ -9,7 +9,9 @@
     "backend": "uvicorn backend.main:api --host 127.0.0.1 --port 8765 --reload --use-colors --log-config backend/logging.json",
     "frontend": "echo Frontend ready",
     "electron": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/appearanceSettings.js && node --check src/main/codexUsage.js && node --check src/main/deepseekUsage.js && node --check src/main/deepseekChatClient.js && node --check src/main/deepseekTokenUsage.js && node --check src/main/smartBriefService.js && node --check src/main/notifications/notificationStore.js && node --check src/main/ai/notificationSummaryService.js && node --check src/main/networkSpeed.js && node --check src/main/pythonService.js && node --check src/main/windowMessaging.js && node --check src/main/windows.js && node --check src/main/tray.js && node --check src/main/notifications/digestEngine.js && node --check src/preload/preload.js && node --check src/shared/smartNotificationIconKeys.js && node --check src/renderer/icons/smartNotificationIcons.js && node --check src/renderer/components/notificationDigest.js && node --check src/renderer/app.js && node --check src/shared/mockStatus.js && node --test src/main/appearanceSettings.test.js src/main/codexUsage.test.js src/main/deepseekUsage.test.js src/main/deepseekChatClient.test.js src/main/deepseekTokenUsage.test.js src/main/smartBriefService.test.js src/main/windowMessaging.test.js src/main/notifications/digestEngine.test.js src/main/ai/notificationSummaryService.test.js src/main/networkSpeed.test.js src/renderer/icons/smartNotificationIcons.test.js src/renderer/security.test.js",
+    "check": "npm run check:syntax && npm run test:unit",
+    "check:syntax": "node --check src/main/main.js && node --check src/main/modules/index.js && node --check src/main/settingsStore.js && node --check src/main/appearanceSettings.js && node --check src/main/codexUsage.js && node --check src/main/deepseekUsage.js && node --check src/main/deepseekChatClient.js && node --check src/main/deepseekTokenUsage.js && node --check src/main/smartBriefService.js && node --check src/main/notifications/notificationStore.js && node --check src/main/ai/notificationSummaryService.js && node --check src/main/networkSpeed.js && node --check src/main/pythonService.js && node --check src/main/windowMessaging.js && node --check src/main/windows.js && node --check src/main/tray.js && node --check src/main/notifications/digestEngine.js && node --check src/preload/preload.js && node --check src/shared/moduleRegistry.js && node --check src/shared/smartNotificationIconKeys.js && node --check src/renderer/refreshController.js && node --check src/renderer/moduleDom.js && node --check src/renderer/icons/smartNotificationIcons.js && node --check src/renderer/components/notificationDigest.js && node --check src/renderer/app.js && node --check src/shared/mockStatus.js",
+    "test:unit": "node --test src/shared/moduleRegistry.test.js src/main/modules/index.test.js src/main/settingsStore.test.js src/main/appearanceSettings.test.js src/main/codexUsage.test.js src/main/deepseekUsage.test.js src/main/deepseekChatClient.test.js src/main/deepseekTokenUsage.test.js src/main/smartBriefService.test.js src/main/windowMessaging.test.js src/main/notifications/digestEngine.test.js src/main/ai/notificationSummaryService.test.js src/main/networkSpeed.test.js src/renderer/modules/modules.test.js src/renderer/refreshController.test.js src/renderer/moduleDom.test.js src/renderer/icons/smartNotificationIcons.test.js src/renderer/security.test.js",
     "venv:create": "python -m venv .venv",
     "backend:install": ".venv\\Scripts\\python.exe -m pip install -r backend/requirements.txt",
     "backend:test": ".venv\\Scripts\\python.exe -m unittest discover -s backend -p \"test_*.py\""
@@ -21,7 +23,8 @@
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
-    "electron": "^40.0.0"
+    "electron": "^40.0.0",
+    "jsdom": "^26.1.0"
   },
   "dependencies": {
     "qweather-icons": "^1.8.0",

@@ -80,3 +80,34 @@ test("debounces multiple refresh signals into one AI request", async () => {
   await Promise.all([service.scheduleRefresh(), service.scheduleRefresh(), service.scheduleRefresh()]);
   assert.equal(calls, 1);
 });
+
+test("uses the complete local digest when AI summaries are disabled", async () => {
+  let calls = 0;
+  const service = createNotificationSummaryService({
+    store: {
+      collect: async () => ({
+        items: [{
+          id: "mail:1",
+          source: "mail",
+          type: "mail",
+          title: "课程通知",
+          body: "明天上课",
+          level: "info",
+          createdAt: Date.now(),
+          unread: true,
+          dedupeKey: "mail:1",
+          meta: {}
+        }]
+      })
+    },
+    shouldUseAi: () => false,
+    callChat: async () => {
+      calls += 1;
+      return {};
+    }
+  });
+  const digest = await service.refreshNow({ force: true });
+  assert.equal(calls, 0);
+  assert.equal(digest.source, "local");
+  assert.equal(digest.unreadCount, 1);
+});

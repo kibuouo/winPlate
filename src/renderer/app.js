@@ -28,12 +28,6 @@ function normalizeGithub(github = {}, fallback = mockStatus.github) {
 }
 
 let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
-const offlineStatus = {
-  github: normalizeGithub(mockStatus.github),
-  codex: { remainingPct: null, usedPct: null, resetText: "--:--", windowHours: 5, status: "Offline" },
-  heart: { heartRate: null, unit: "bpm", source: "Offline", updatedAt: "unavailable" },
-  weather: { ...mockStatus.weather }
-};
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
 let currentSection = "Dashboard";
@@ -67,7 +61,6 @@ let notificationDigest = {
 };
 let notificationActionInFlight = false;
 let notificationRawExpanded = false;
-let mailAutoRefreshTimer = null;
 let networkSpeed = {
   downloadBytesPerSecond: 0,
   uploadBytesPerSecond: 0,
@@ -80,6 +73,38 @@ let qweatherUsage = { used: 0, total: 50000, remaining: 50000, percent: 0, today
 let qweatherOfficialStats = null;
 let qweatherUsageMessage = "";
 let qweatherOfficialStatus = null;
+const moduleDefinitions = window.WinPlateModuleRegistry.MODULES;
+const rendererModuleById = new Map(window.WinPlateRendererModules.map((module) => [module.meta.id, module]));
+const moduleHealth = Object.fromEntries(moduleDefinitions.map((module) => [module.id, {
+  state: "loading",
+  lastSuccessAt: null,
+  lastAttemptAt: null,
+  error: ""
+}]));
+let appSettings = {
+  version: 1,
+  appearance: { theme: "system", opacity: 0.94, density: "comfortable" },
+  modules: {
+    enabled: Object.fromEntries(moduleDefinitions.map((module) => [module.id, module.defaultEnabled])),
+    order: [...moduleDefinitions].sort((a, b) => a.defaultOrder - b.defaultOrder).map((module) => module.id),
+    refreshSeconds: Object.fromEntries(moduleDefinitions.map((module) => [module.id, module.defaultRefreshSeconds]))
+  },
+  integrations: { github: { username: "kibuouo", hasToken: false } },
+  notificationDigest: { enabled: true, privacyMode: "sanitized" }
+};
+const refreshController = window.WinPlateRefresh.createRefreshController({
+  onHealthChange: (taskId, health) => {
+    const affected = taskId === "status"
+      ? ["weather", "heart"]
+      : taskId === "deepseek"
+        ? ["codex"]
+        : [taskId];
+    affected.forEach((id) => {
+      if (moduleHealth[id]) moduleHealth[id] = { ...health };
+    });
+    updateModuleHealthDom(affected);
+  }
+});
 const THEME_STORAGE_KEY = "winplate-theme";
 const WEATHER_LOCATION_STORAGE_KEY = "winplate-weather-location";
 const DEFAULT_MAIL_AUTO_REFRESH_SECONDS = 30;
@@ -128,6 +153,30 @@ const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
 let mailAutoRefreshSeconds = DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
 
+function moduleEnabled(id) {
+  return appSettings.modules.enabled[id] !== false;
+}
+
+function moduleRefreshSeconds(id) {
+  const definition = window.WinPlateModuleRegistry.getModuleMeta(id);
+  const value = Number(appSettings.modules.refreshSeconds[id]);
+  if (!definition || !Number.isFinite(value)) return definition?.defaultRefreshSeconds || 60;
+  return Math.max(definition.minRefreshSeconds, Math.min(definition.maxRefreshSeconds, value));
+}
+
+function moduleHealthLabel(id) {
+  const health = moduleHealth[id] || {};
+  if (health.state === "live") return "实时";
+  if (health.state === "stale") return "缓存";
+  if (health.state === "error") return "不可用";
+  return "读取中";
+}
+
+function moduleHealthAttributes(id) {
+  const health = moduleHealth[id] || {};
+  return `data-module-health="${escapeHtml(health.state || "loading")}" data-module-error="${escapeHtml(health.error || "")}"`;
+}
+
 function normalizeMailAutoRefreshSeconds(value) {
   const seconds = Number(value);
   if (!Number.isFinite(seconds)) return DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
@@ -153,11 +202,13 @@ function resolvedTheme() {
 }
 
 function applyMainTheme() {
-  if (view !== "main") return;
   const theme = resolvedTheme();
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.density = appSettings.appearance.density;
   document.documentElement.style.colorScheme = theme;
-  window.winplate.setWindowTheme(theme);
+  document.documentElement.style.setProperty("--window-opacity", String(appSettings.appearance.opacity));
+  document.documentElement.style.setProperty("--window-opacity-percent", `${Math.round(appSettings.appearance.opacity * 100)}%`);
+  if (view === "main") window.winplate.setWindowTheme(theme);
 }
 
 function escapeHtml(value) {
@@ -173,6 +224,7 @@ function escapeHtml(value) {
 async function setThemePreference(theme) {
   if (!["light", "dark", "system"].includes(theme)) return;
   themePreference = theme;
+  appSettings.appearance.theme = theme;
   applyMainTheme();
   bindThemeControls();
   try {
@@ -186,11 +238,19 @@ async function setThemePreference(theme) {
 async function hydrateAppearanceSettings() {
   const legacyTheme = localStorage.getItem(THEME_STORAGE_KEY);
   try {
-    const settings = await window.winplate.getAppearanceSettings();
-    themePreference = ["light", "dark", "system"].includes(settings?.theme)
-      ? settings.theme
+    const settings = window.winplate.getSettings
+      ? await window.winplate.getSettings()
+      : null;
+    if (settings) appSettings = settings;
+    const appearance = settings?.appearance || await window.winplate.getAppearanceSettings();
+    themePreference = ["light", "dark", "system"].includes(appearance?.theme)
+      ? appearance.theme
       : "system";
-    mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(settings?.mailAutoRefreshSeconds);
+    mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(
+      settings?.modules?.refreshSeconds?.mail ?? appearance?.mailAutoRefreshSeconds
+    );
+    appSettings.appearance.theme = themePreference;
+    appSettings.modules.refreshSeconds.mail = mailAutoRefreshSeconds;
     if (legacyTheme && ["light", "dark", "system"].includes(legacyTheme)) {
       themePreference = legacyTheme;
       await window.winplate.saveAppearanceSettings({
@@ -206,7 +266,6 @@ async function hydrateAppearanceSettings() {
     }
     mailAutoRefreshSeconds = DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
   }
-  if (view !== "main") return;
   applyMainTheme();
 }
 
@@ -237,6 +296,128 @@ function bindThemeControls() {
     button.setAttribute("aria-checked", String(button.dataset.themeChoice === themePreference));
     button.onclick = () => setThemePreference(button.dataset.themeChoice);
   });
+}
+
+function productSettingsPanel() {
+  const github = appSettings.integrations.github || {};
+  const digest = appSettings.notificationDigest || {};
+  const ordered = window.WinPlateModuleRegistry.orderedModules(appSettings.modules.order);
+  return `
+    <form class="settings-panel product-settings-panel" id="product-settings-form">
+      <fieldset>
+        <legend><strong>界面密度</strong><small>透明度只影响 WinPlate 表面，不影响文字对比度</small></legend>
+        <label>
+          <span><strong>透明度</strong><small>允许范围 65%–100%</small></span>
+          <input id="window-opacity" type="number" min="0.65" max="1" step="0.01" value="${appSettings.appearance.opacity}">
+        </label>
+        <label>
+          <span><strong>布局密度</strong><small>紧凑模式减少卡片留白</small></span>
+          <select id="window-density">
+            <option value="comfortable" ${appSettings.appearance.density === "comfortable" ? "selected" : ""}>舒展</option>
+            <option value="compact" ${appSettings.appearance.density === "compact" ? "selected" : ""}>紧凑</option>
+          </select>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend><strong>GitHub</strong><small>Token 留空时保持现有值，不会回显到页面</small></legend>
+        <label>
+          <span><strong>用户名</strong><small>保存后立即刷新 GitHub 模块</small></span>
+          <input id="github-username" type="text" autocomplete="off" value="${escapeHtml(github.username || "kibuouo")}">
+        </label>
+        <label>
+          <span><strong>Personal access token</strong><small>${github.hasToken ? "已配置" : "未配置"}</small></span>
+          <input id="github-token" type="password" autocomplete="off" placeholder="${github.hasToken ? "已配置，留空保持不变" : "可选"}">
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend><strong>模块管理</strong><small>禁用模块会隐藏界面并停止自动刷新</small></legend>
+        <div class="module-settings-list">
+          ${ordered.map((module, index) => `
+            <div class="module-settings-row" data-module-setting="${module.id}">
+              <label class="module-enabled"><input type="checkbox" data-module-enabled ${moduleEnabled(module.id) ? "checked" : ""}><span><strong>${module.title}</strong><small>${module.views.join(" · ")}</small></span></label>
+              <label><span>顺序</span><input type="number" min="1" max="${ordered.length}" value="${index + 1}" data-module-order></label>
+              <label><span>刷新（秒）</span><input type="number" min="${module.minRefreshSeconds}" max="${module.maxRefreshSeconds}" value="${moduleRefreshSeconds(module.id)}" data-module-refresh></label>
+            </div>`).join("")}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend><strong>智能通知摘要</strong><small>本地规则始终保留，AI 不可用时自动降级</small></legend>
+        <label>
+          <span><strong>启用 AI 摘要</strong><small>关闭后仅使用本地分级、去重和聚合</small></span>
+          <input id="notification-ai-enabled" type="checkbox" ${digest.enabled ? "checked" : ""}>
+        </label>
+        <label>
+          <span><strong>隐私模式</strong><small>local-only 不会向模型发送通知内容</small></span>
+          <select id="notification-privacy-mode">
+            <option value="sanitized" ${digest.privacyMode === "sanitized" ? "selected" : ""}>脱敏摘要</option>
+            <option value="local-only" ${digest.privacyMode === "local-only" ? "selected" : ""}>仅本地</option>
+          </select>
+        </label>
+      </fieldset>
+      <div class="product-settings-actions">
+        <small id="product-settings-status">配置保存在当前 Windows 用户目录</small>
+        <button type="submit">保存通用设置</button>
+      </div>
+    </form>`;
+}
+
+function bindProductSettings() {
+  const form = document.querySelector("#product-settings-form");
+  if (!form) return;
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const status = form.querySelector("#product-settings-status");
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    status.textContent = "正在保存...";
+    const rows = [...form.querySelectorAll("[data-module-setting]")];
+    const order = rows
+      .map((row) => ({ id: row.dataset.moduleSetting, order: Number(row.querySelector("[data-module-order]").value) }))
+      .sort((left, right) => left.order - right.order)
+      .map((item) => item.id);
+    const enabled = Object.fromEntries(rows.map((row) => [
+      row.dataset.moduleSetting,
+      row.querySelector("[data-module-enabled]").checked
+    ]));
+    const refreshSeconds = Object.fromEntries(rows.map((row) => [
+      row.dataset.moduleSetting,
+      Number(row.querySelector("[data-module-refresh]").value)
+    ]));
+    const nextSettings = {
+      ...appSettings,
+      appearance: {
+        ...appSettings.appearance,
+        opacity: Number(form.querySelector("#window-opacity").value),
+        density: form.querySelector("#window-density").value
+      },
+      modules: { enabled, order, refreshSeconds },
+      integrations: {
+        ...appSettings.integrations,
+        github: {
+          username: form.querySelector("#github-username").value.trim(),
+          token: form.querySelector("#github-token").value.trim()
+        }
+      },
+      notificationDigest: {
+        enabled: form.querySelector("#notification-ai-enabled").checked,
+        privacyMode: form.querySelector("#notification-privacy-mode").value
+      }
+    };
+    try {
+      appSettings = await window.winplate.saveSettings(nextSettings);
+      themePreference = appSettings.appearance.theme;
+      mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(appSettings.modules.refreshSeconds.mail);
+      applyMainTheme();
+      configureRefreshTasks();
+      status.textContent = "已保存并应用";
+      currentSection = moduleEnabled("github") || moduleEnabled("codex") ? currentSection : "Dashboard";
+      refreshController.refresh("github", { force: true, reason: "settings" }).catch(() => {});
+    } catch (error) {
+      status.textContent = error.message || "保存失败";
+      status.className = "error";
+      button.disabled = false;
+    }
+  };
 }
 
 function hasOfficialWeatherSettings(settings = weatherSettings) {
@@ -872,7 +1053,7 @@ function githubContent() {
     ? `<div class="github-state-notice state-${github.availability}" role="status">${github.stateMessage}</div>`
     : "";
   return `
-    <section class="github-dashboard">
+    <section class="github-dashboard" data-module-id="github" ${moduleHealthAttributes("github")}>
       <div class="github-profile-column">
         ${avatarMarkup(github, "github-profile-avatar")}
         <div class="github-profile-copy">
@@ -985,7 +1166,7 @@ function weatherDateTime(now = new Date()) {
 
 function weatherIconMarkup(iconCode, className = "weather-icon") {
   const code = /^\d{3,4}$/.test(String(iconCode || "")) ? String(iconCode) : "999";
-  return `<img class="themed-weather-icon ${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
+  return `<img class="${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
 }
 
 function selectedWeatherLocationOption() {
@@ -1034,7 +1215,7 @@ function weatherDashboardCard() {
     ["风力", [weather.windDirection, weather.windScale && `${weather.windScale}级`].filter(Boolean).join(" ") || "--"]
   ];
   return `
-    <article class="dashboard-card weather-dashboard-card">
+    <article class="dashboard-card weather-dashboard-card" data-module-id="weather" ${moduleHealthAttributes("weather")}>
       <div class="weather-card-main">
         <div class="weather-card-heading">
           <div class="weather-location-stack">
@@ -1073,13 +1254,13 @@ function renderFloating() {
       <section class="status-capsule">
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module interactive-module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
+            <div class="module interactive-module github-module no-drag" id="github-module" data-module-id="github" ${moduleHealthAttributes("github")} ${moduleEnabled("github") ? "" : "hidden"} role="link" tabindex="0" aria-label="Open GitHub profile">
               <span class="github-avatar-button" aria-hidden="true">
                 ${avatarMarkup(statusData.github, "github-avatar-bar")}
               </span>
               <span class="github-summary">GitHub</span>
             </div>
-            <div class="module interactive-module codex-module no-drag">
+            <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
               ${codexIcon}
               <span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
@@ -1088,21 +1269,21 @@ function renderFloating() {
               <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
             </div>
           </div>
-          <div class="status-group notification-status">
+          <div class="status-group notification-status" data-module-id="notifications" ${moduleHealthAttributes("notifications")} ${moduleEnabled("notifications") ? "" : "hidden"}>
             ${notificationStrip()}
           </div>
           <div class="status-group auxiliary-status">
-            <div class="module interactive-module weather-module no-drag" id="weather-module">
+            <div class="module interactive-module weather-module no-drag" id="weather-module" data-module-id="weather" ${moduleHealthAttributes("weather")} ${moduleEnabled("weather") ? "" : "hidden"}>
               ${weatherIconMarkup(weather.icon)}
               <strong class="metric">${weather.temperature}°C</strong>
               <span class="weather-condition">${weather.condition}</span>
             </div>
             <div class="system-status">
-              <div class="module interactive-module heart-module no-drag" id="heart-module">
+              <div class="module interactive-module heart-module no-drag" id="heart-module" data-module-id="heart" ${moduleHealthAttributes("heart")} ${moduleEnabled("heart") ? "" : "hidden"}>
                 <span class="heart-icon">♥</span>
                 <strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
-              <div class="module interactive-module network-module no-drag" id="network-module">
+              <div class="module interactive-module network-module no-drag" id="network-module" data-module-id="network" ${moduleHealthAttributes("network")} ${moduleEnabled("network") ? "" : "hidden"}>
                 <span class="network-speed">${networkSpeedMarkup()}</span>
               </div>
               <div class="right-controls no-drag">
@@ -1472,9 +1653,9 @@ function renderTooltip(data = {}) {
 
 function qweatherServiceCard(official, failures) {
   return `
-    <article class="dashboard-card qweather-card">
+    <article class="dashboard-card qweather-card" data-module-id="weather" ${moduleHealthAttributes("weather")}>
       <div class="qweather-card-heading">
-        <div class="card-icon qweather-service-icon">${qweatherNavIcon}</div>
+        <div class="card-icon">${weatherIconMarkup("100", "qweather-service-icon")}</div>
         <div class="card-actions">
           <span class="service-health"><i></i>服务正常</span>
           <button type="button" class="refresh-button qweather-verify-button" id="qweather-verify" aria-label="刷新 QWeather 官方用量">
@@ -1498,7 +1679,7 @@ function qweatherServiceCard(official, failures) {
 
 function heartCard() {
   return `
-    <article class="dashboard-card heart-card">
+    <article class="dashboard-card heart-card" data-module-id="heart" ${moduleHealthAttributes("heart")}>
       <div class="card-icon">♥</div><span>Heart Rate</span>
       <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
     </article>`;
@@ -1519,7 +1700,7 @@ function dashboardGithubCard() {
     { icon: previewIcons.streak, label: "Streak", value: github.streakDays, meta: "days" }
   ];
   return `
-    <article class="dashboard-card github-card github-dashboard-card">
+    <article class="dashboard-card github-card github-dashboard-card" data-module-id="github" ${moduleHealthAttributes("github")}>
       <div class="github-dashboard-top">
         <div class="github-dashboard-profile">
           <span class="github-dashboard-mark" aria-hidden="true">${githubCardIcon}</span>
@@ -1616,7 +1797,7 @@ function dashboardCodexCard() {
   const fiveHour = windows.fiveHour || statusData.codex;
   const sevenDay = windows.sevenDay || {};
   return `
-    <article class="dashboard-card codex-card dashboard-codex-card">
+    <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${moduleHealthAttributes("codex")}>
       <div class="dashboard-codex-header">
         <div class="card-icon codex-card-icon"><img src="../../assets/codex-icon.png" alt="" aria-hidden="true"></div>
         <div class="dashboard-codex-copy">
@@ -1784,7 +1965,7 @@ function mailContent() {
     ? `<div class="mail-outline-list">${items.map(mailItemCard).join("")}</div>`
     : `<div class="mail-empty-state">${mailIcon}<strong>${emptyMessage}</strong></div>`;
   return `
-    <section class="mail-page">
+    <section class="mail-page" data-module-id="mail" ${moduleHealthAttributes("mail")}>
       <div class="mail-page-heading">
         <div><p>MAIL</p><h1>邮件大纲</h1><span>最近 ${mailOutline.windowDays || mailSettings.windowDays || 30} 天收件箱摘要。</span></div>
         <div class="mail-actions">
@@ -1823,7 +2004,7 @@ function notificationContent() {
     relativeTime: relativeUpdatedAt
   });
   return `
-    <section class="notifications-page">
+    <section class="notifications-page" data-module-id="notifications" ${moduleHealthAttributes("notifications")}>
       <div class="notifications-page-heading">
         <div><p>NOTIFICATIONS</p><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示。</span></div>
         <div class="notification-actions">
@@ -1842,13 +2023,21 @@ function dashboardContent(section) {
   const official = qweatherOfficialStats
     ? `<div class="qweather-official"><span>过去24小时：${qweatherOfficialStats.total}次</span><span>成功：${qweatherOfficialStats.success}</span><span>错误：${qweatherOfficialStats.errors}</span><small>截至 ${qweatherOfficialStats.asOf}</small></div>`
     : `<small class="qweather-message">${qweatherUsageMessage || "官方数据可能延迟 1 小时或更久"}</small>`;
-  const cards = `
-    <div class="dashboard-grid">
-      ${dashboardGithubCard()}
-      ${dashboardCodexCard()}
-      ${heartCard()}
-      ${qweatherServiceCard(official, failures)}
-    </div>`;
+  const dashboardRenderers = {
+    github: () => dashboardGithubCard(),
+    codex: () => dashboardCodexCard(),
+    heart: () => heartCard(),
+    weather: () => qweatherServiceCard(official, failures)
+  };
+  const dashboardModuleContext = {
+    render: (id) => dashboardRenderers[id]?.() || "",
+    load: async () => null,
+    bind: () => {}
+  };
+  const cards = `<div class="dashboard-grid">${window.WinPlateModuleRegistry
+    .modulesForView("dashboard", appSettings.modules)
+    .map((module) => rendererModuleById.get(module.id)?.renderDashboard(dashboardModuleContext) || "")
+    .join("")}</div>`;
   const qweatherCards = `
     <div class="dashboard-grid qweather-page-grid">
       ${weatherDashboardCard()}
@@ -1867,6 +2056,10 @@ function dashboardContent(section) {
       <section class="settings-section">
         <h2>外观</h2>
         <div class="settings-panel appearance-panel">${themeSelector()}</div>
+      </section>
+      <section class="settings-section">
+        <h2>通用与模块</h2>
+        ${productSettingsPanel()}
       </section>
       <section class="settings-section">
         <h2>天气</h2>
@@ -2099,6 +2292,7 @@ function codexContent() {
       <span></span>Status: API ${deepseekActive ? "active" : "inactive"} · Last sync ${relativeUpdatedAt(deepseek.updatedAt)}
     </div>`;
   return `
+    <div data-module-id="codex" ${moduleHealthAttributes("codex")}>
     <div class="codex-page-header">
       <h1>剩余用量</h1>
     </div>
@@ -2120,7 +2314,7 @@ function codexContent() {
       </div>
       <div class="usage-window-grid deepseek-balance-grid">${balanceCards}</div>
       ${deepseekFooter}
-    </section>`;
+    </section></div>`;
 }
 
 function renderMain() {
@@ -2130,7 +2324,15 @@ function renderMain() {
     : null;
   document.body.className = "main-body";
   applyMainTheme();
-  const sections = ["Dashboard", "GitHub", "Codex", "Mail", "Notifications", "Heart", "QWeather"];
+  const sections = [
+    "Dashboard",
+    ...window.WinPlateModuleRegistry.modulesForView("detail", appSettings.modules)
+      .map((module) => module.section)
+      .filter(Boolean)
+  ];
+  if (currentSection !== "Dashboard" && currentSection !== "Settings" && !sections.includes(currentSection)) {
+    currentSection = "Dashboard";
+  }
   appRoot.innerHTML = `
     <div class="main-window-shell">
       <header class="app-titlebar">
@@ -2187,6 +2389,7 @@ function renderMain() {
       document.querySelector("#page-content").innerHTML = dashboardContent(button.dataset.section);
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
+      bindProductSettings();
       bindWeatherSettings();
       bindWeatherLocationSettings();
       bindDeepSeekSettings();
@@ -2197,6 +2400,7 @@ function renderMain() {
     });
   });
   bindThemeControls();
+  bindProductSettings();
   bindWeatherSettings();
   bindWeatherLocationSettings();
   bindDeepSeekSettings();
@@ -2222,7 +2426,28 @@ function renderMain() {
   startSystemClock();
 }
 
-function updateMainStatusDom() {
+function syncRequestedModuleNodes(currentRoot, desiredRoot, moduleIds) {
+  return window.WinPlateModuleDom.syncRequestedModuleNodes(
+    currentRoot,
+    desiredRoot,
+    moduleIds,
+    syncDomNode
+  );
+}
+
+function updateModuleHealthDom(moduleIds) {
+  (Array.isArray(moduleIds) ? moduleIds : [moduleIds]).forEach((id) => {
+    const health = moduleHealth[id];
+    if (!health) return;
+    document.querySelectorAll(`[data-module-id="${id}"]`).forEach((node) => {
+      node.dataset.moduleHealth = health.state;
+      node.dataset.moduleError = health.error || "";
+      node.setAttribute("aria-busy", String(health.state === "loading"));
+    });
+  });
+}
+
+function updateMainStatusDom(moduleIds = null) {
   const pageContent = document.querySelector("#page-content");
   if (!pageContent) {
     renderMain();
@@ -2233,6 +2458,21 @@ function updateMainStatusDom() {
   template.innerHTML = dashboardContent(currentSection).trim();
   const desiredChildren = Array.from(template.content.childNodes);
   const currentChildren = Array.from(pageContent.childNodes);
+
+  if (moduleIds) {
+    const requested = Array.isArray(moduleIds) ? moduleIds : [moduleIds];
+    const structureChanged = syncRequestedModuleNodes(pageContent, template.content, requested);
+    if (structureChanged) {
+      bindAvatarFallbacks(pageContent);
+      if (requested.includes("github")) bindGithubControls();
+      if (requested.includes("weather")) bindQWeatherUsageControls();
+      if (requested.includes("mail")) bindMailControls();
+      if (requested.includes("notifications")) bindNotificationControls();
+    }
+    updateProgressBars(pageContent);
+    updateModuleHealthDom(requested);
+    return;
+  }
 
   if (currentChildren.length !== desiredChildren.length) {
     const mainContent = document.querySelector(".main-content");
@@ -2271,7 +2511,7 @@ function updateMainStatusDom() {
   updateProgressBars(pageContent);
 }
 
-function updateFloatingStatusDom() {
+function updateFloatingStatusDom(moduleIds = null) {
   const shell = document.querySelector("#floating-shell");
   if (!shell) {
     renderFloating();
@@ -2284,11 +2524,11 @@ function updateFloatingStatusDom() {
       <section class="status-capsule">
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module interactive-module github-module no-drag" id="github-module" role="link" tabindex="0" aria-label="Open GitHub profile">
+            <div class="module interactive-module github-module no-drag" id="github-module" data-module-id="github" ${moduleHealthAttributes("github")} ${moduleEnabled("github") ? "" : "hidden"} role="link" tabindex="0" aria-label="Open GitHub profile">
               <span class="github-avatar-button" aria-hidden="true">${avatarMarkup(statusData.github, "github-avatar-bar")}</span>
               <span class="github-summary">GitHub</span>
             </div>
-            <div class="module interactive-module codex-module no-drag">
+            <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
               ${codexIcon}<span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
@@ -2296,20 +2536,20 @@ function updateFloatingStatusDom() {
               <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
             </div>
           </div>
-          <div class="status-group notification-status">
+          <div class="status-group notification-status" data-module-id="notifications" ${moduleHealthAttributes("notifications")} ${moduleEnabled("notifications") ? "" : "hidden"}>
             ${notificationStrip()}
           </div>
           <div class="status-group auxiliary-status">
-            <div class="module interactive-module weather-module no-drag" id="weather-module">
+            <div class="module interactive-module weather-module no-drag" id="weather-module" data-module-id="weather" ${moduleHealthAttributes("weather")} ${moduleEnabled("weather") ? "" : "hidden"}>
               ${weatherIconMarkup(weather.icon)}
               <strong class="metric">${weather.temperature}°C</strong>
               <span class="weather-condition">${weather.condition}</span>
             </div>
             <div class="system-status">
-              <div class="module interactive-module heart-module no-drag" id="heart-module">
+              <div class="module interactive-module heart-module no-drag" id="heart-module" data-module-id="heart" ${moduleHealthAttributes("heart")} ${moduleEnabled("heart") ? "" : "hidden"}>
                 <span class="heart-icon">♥</span><strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
               </div>
-              <div class="module interactive-module network-module no-drag" id="network-module">
+              <div class="module interactive-module network-module no-drag" id="network-module" data-module-id="network" ${moduleHealthAttributes("network")} ${moduleEnabled("network") ? "" : "hidden"}>
                 <span class="network-speed">${networkSpeedMarkup()}</span>
               </div>
               <div class="right-controls no-drag">${shell.querySelector(".right-controls")?.innerHTML || ""}</div>
@@ -2318,7 +2558,14 @@ function updateFloatingStatusDom() {
         </div>
       </section>
     </main>`;
-  syncDomNode(shell, template.content.firstElementChild);
+  const desiredShell = template.content.firstElementChild;
+  if (moduleIds) {
+    const requested = Array.isArray(moduleIds) ? moduleIds : [moduleIds];
+    syncRequestedModuleNodes(shell, desiredShell, requested);
+    updateModuleHealthDom(requested);
+  } else {
+    syncDomNode(shell, desiredShell);
+  }
   updateProgressBars(shell);
   bindAvatarFallbacks(shell);
   bindNotificationStrip();
@@ -2539,6 +2786,7 @@ function bindMailControls() {
           authCode: authCodeInput.value
         });
         mailAutoRefreshSeconds = nextMailAutoRefreshSeconds;
+        appSettings.modules.refreshSeconds.mail = mailAutoRefreshSeconds;
         await window.winplate.saveAppearanceSettings({
           theme: themePreference,
           mailAutoRefreshSeconds
@@ -2710,30 +2958,18 @@ async function hydrateNotificationDigest() {
   }
 }
 
-function updateCurrentViewDom() {
-  if (view === "floating") updateFloatingStatusDom();
-  else updateMainStatusDom();
-}
-
-async function autoRefreshMail() {
-  if (view === "tooltip" || !mailSettings?.configured) return;
-  try {
-    await hydrateMail({ force: true });
-    await hydrateNotifications();
-    updateCurrentViewDom();
-  } catch (error) {
-    console.warn("Mail auto refresh failed:", error.message);
-  }
+function updateCurrentViewDom(moduleIds = null) {
+  if (view === "floating") updateFloatingStatusDom(moduleIds);
+  else updateMainStatusDom(moduleIds);
 }
 
 function startMailAutoRefreshTimer() {
-  if (mailAutoRefreshTimer) {
-    clearInterval(mailAutoRefreshTimer);
-    mailAutoRefreshTimer = null;
-  }
   if (view === "tooltip") return;
-  const intervalMs = normalizeMailAutoRefreshSeconds(mailAutoRefreshSeconds) * 1000;
-  mailAutoRefreshTimer = setInterval(autoRefreshMail, intervalMs);
+  if (refreshController.has("mail")) {
+    refreshController.configure("mail", {
+      intervalMs: moduleEnabled("mail") ? normalizeMailAutoRefreshSeconds(mailAutoRefreshSeconds) * 1000 : 0
+    });
+  }
 }
 
 async function refreshQWeatherAlerts() {
@@ -2782,7 +3018,7 @@ function bindGithubControls() {
     githubRefreshInFlight = true;
     updateMainStatusDom();
     try {
-      statusData.github = normalizeGithub(await window.winplate.refreshGithub(), statusData.github);
+      await refreshController.refresh("github", { force: true, reason: "button" });
     } catch (error) {
       console.error("GitHub refresh failed:", error);
       statusData.github = normalizeGithub({
@@ -2793,7 +3029,7 @@ function bindGithubControls() {
       }, statusData.github);
     } finally {
       githubRefreshInFlight = false;
-      updateMainStatusDom();
+      updateMainStatusDom("github");
     }
   });
 }
@@ -2805,44 +3041,137 @@ function updateMaximizeButton() {
   button.querySelector("span").classList.toggle("restore-icon", mainWindowMaximized);
 }
 
-async function refreshStatus() {
-  if (view === "tooltip") {
-    return;
-  }
+async function refreshBackendStatus() {
   const weatherVersionAtRequest = weatherUpdateVersion;
-  try {
-    const incomingStatus = await window.winplate.getStatus();
-    const incomingWeather = weatherVersionAtRequest === weatherUpdateVersion
-      ? incomingStatus.weather
-      : statusData.weather;
-    statusData = {
-      ...mockStatus,
-      ...statusData,
-      ...incomingStatus,
-      github: normalizeGithub(incomingStatus.github, statusData.github),
-      codex: { ...mockStatus.codex, ...statusData.codex, ...incomingStatus.codex },
-      heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
-      weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
-    };
-    statusData.codex = {
-      ...statusData.codex,
-      ...await window.winplate.getCodexUsage()
-    };
-    statusData.deepseek = {
-      ...mockStatus.deepseek,
-      ...statusData.deepseek,
-      ...await window.winplate.getDeepSeekUsage()
-    };
-    await hydrateQWeatherUsage();
-    await hydrateMail();
-    await hydrateNotifications();
-  } catch (error) {
-    console.error("FastAPI unavailable, showing offline status:", error);
-    statusData = {
-      ...offlineStatus,
-      github: normalizeGithub(statusData.github, offlineStatus.github)
-    };
+  const incomingStatus = await window.winplate.getStatus();
+  const incomingWeather = weatherVersionAtRequest === weatherUpdateVersion
+    ? incomingStatus.weather
+    : statusData.weather;
+  statusData = {
+    ...statusData,
+    heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
+    weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
+  };
+  await hydrateQWeatherUsage();
+  updateCurrentViewDom(["weather", "heart"]);
+  if (statusData.weather?.source === "unavailable") {
+    throw new Error(statusData.weather.error || "天气服务不可用");
   }
+  return incomingStatus;
+}
+
+async function refreshGithubData({ force = false } = {}) {
+  const github = force
+    ? await window.winplate.refreshGithub()
+    : (await window.winplate.getStatus()).github;
+  statusData.github = normalizeGithub({
+    ...github,
+    availability: github?.availability || (github?.source === "github" ? "live" : undefined),
+    stateMessage: github?.source === "github" ? "" : github?.stateMessage
+  }, statusData.github);
+  updateCurrentViewDom("github");
+  if (statusData.github.availability && statusData.github.availability !== "live") {
+    throw new Error(statusData.github.stateMessage || "GitHub 数据不可用");
+  }
+  return statusData.github;
+}
+
+async function refreshCodexData({ force = false } = {}) {
+  statusData.codex = {
+    ...mockStatus.codex,
+    ...statusData.codex,
+    ...await window.winplate.getCodexUsage({ force })
+  };
+  updateCurrentViewDom("codex");
+  if (statusData.codex.status === "Unavailable") {
+    throw new Error(statusData.codex.error || "Codex 用量不可用");
+  }
+  return statusData.codex;
+}
+
+async function refreshDeepSeekData({ force = false } = {}) {
+  statusData.deepseek = {
+    ...mockStatus.deepseek,
+    ...statusData.deepseek,
+    ...await window.winplate.getDeepSeekUsage({ force })
+  };
+  updateCurrentViewDom("codex");
+  return statusData.deepseek;
+}
+
+async function refreshMailData({ force = false } = {}) {
+  await hydrateMail({ force });
+  await hydrateNotifications();
+  updateCurrentViewDom(["mail", "notifications"]);
+  if (mailOutline.availability === "unavailable") {
+    throw new Error(mailOutline.error || "邮件服务不可用");
+  }
+  return mailOutline;
+}
+
+async function refreshNotificationData() {
+  await hydrateNotifications();
+  updateCurrentViewDom("notifications");
+  return notificationSummary;
+}
+
+async function refreshNetworkData() {
+  await refreshNetworkSpeed();
+  updateModuleHealthDom("network");
+  if (["获取失败", "无连接"].includes(networkSpeed.status)) {
+    throw new Error(networkSpeed.error || networkSpeed.status);
+  }
+  return networkSpeed;
+}
+
+function registerRefreshTasks() {
+  if (refreshController.has("github")) return;
+  const loaders = {
+    github: refreshGithubData,
+    codex: refreshCodexData,
+    notifications: refreshNotificationData,
+    mail: refreshMailData,
+    network: refreshNetworkData
+  };
+  const moduleLoadContext = {
+    load: (id, options) => loaders[id](options),
+    render: () => "",
+    bind: () => {}
+  };
+  Object.keys(loaders).forEach((id) => {
+    const module = rendererModuleById.get(id);
+    refreshController.register({
+      id,
+      refresh: (options) => module.load(moduleLoadContext, options)
+    });
+  });
+  refreshController.register({ id: "status", refresh: refreshBackendStatus });
+  refreshController.register({ id: "deepseek", refresh: refreshDeepSeekData });
+}
+
+function configureRefreshTasks() {
+  if (!refreshController.has("github")) return;
+  refreshController.configure("github", { intervalMs: moduleEnabled("github") ? moduleRefreshSeconds("github") * 1000 : 0 });
+  const statusIntervals = ["weather", "heart"]
+    .filter(moduleEnabled)
+    .map(moduleRefreshSeconds);
+  refreshController.configure("status", { intervalMs: statusIntervals.length ? Math.min(...statusIntervals) * 1000 : 0 });
+  refreshController.configure("codex", { intervalMs: moduleEnabled("codex") ? moduleRefreshSeconds("codex") * 1000 : 0 });
+  refreshController.configure("deepseek", { intervalMs: moduleEnabled("codex") ? 60_000 : 0 });
+  refreshController.configure("mail", { intervalMs: moduleEnabled("mail") ? moduleRefreshSeconds("mail") * 1000 : 0 });
+  refreshController.configure("notifications", { intervalMs: moduleEnabled("notifications") ? moduleRefreshSeconds("notifications") * 1000 : 0 });
+  refreshController.configure("network", { intervalMs: view === "floating" && moduleEnabled("network") ? moduleRefreshSeconds("network") * 1000 : 0 });
+}
+
+async function refreshStatus() {
+  if (view === "tooltip") return [];
+  const ids = [];
+  if (moduleEnabled("weather") || moduleEnabled("heart")) ids.push("status");
+  if (moduleEnabled("github")) ids.push("github");
+  if (moduleEnabled("codex")) ids.push("codex", "deepseek");
+  if (moduleEnabled("mail")) ids.push("mail");
+  if (moduleEnabled("notifications")) ids.push("notifications");
+  const results = await refreshController.refreshAll({ ids, reason: "status" });
 
   if (view === "floating") {
     updateFloatingStatusDom();
@@ -2851,40 +3180,38 @@ async function refreshStatus() {
   }
 }
 
-if (view === "main") {
-  renderMain();
-  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateMail(), hydrateNotifications()]).then(() => {
-    startMailAutoRefreshTimer();
-    return refreshStatus();
-  });
-} else {
-  hydrateAppearanceSettings().then(() => {
-    startMailAutoRefreshTimer();
-    return refreshStatus();
-  });
-}
+registerRefreshTasks();
+if (view === "main") renderMain();
+hydrateAppearanceSettings().then(async () => {
+  if (view === "tooltip") return [];
+  configureRefreshTasks();
+  if (view === "main") renderMain();
+  await refreshController.start();
+  return refreshStatus();
+});
 if (view !== "tooltip") {
   window.winplate?.onNotificationDigestUpdated?.((digest) => {
     notificationDigest = digest || notificationDigest;
-    if (view === "floating") updateFloatingStatusDom();
-    else updateMainStatusDom();
+    updateCurrentViewDom("notifications");
   });
   window.winplate?.onStatusRefresh?.((payload) => {
     if (payload?.weather) {
       weatherUpdateVersion += 1;
       statusData.weather = { ...mockStatus.weather, ...statusData.weather, ...payload.weather };
-      if (view === "floating") updateFloatingStatusDom();
-      else updateMainStatusDom();
+      updateCurrentViewDom("weather");
       return;
     }
-    refreshStatus();
+    refreshController.refresh("status", { force: true, reason: "broadcast" }).catch(() => {});
   });
-  setInterval(refreshStatus, 30_000);
-  startMailAutoRefreshTimer();
-  if (view === "floating") {
-    refreshNetworkSpeed();
-    setInterval(refreshNetworkSpeed, 2_000);
-  }
+  window.winplate?.onSettingsUpdated?.((settings) => {
+    appSettings = settings;
+    themePreference = settings.appearance.theme;
+    mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(settings.modules.refreshSeconds.mail);
+    applyMainTheme();
+    configureRefreshTasks();
+    if (view === "main") renderMain();
+    else updateFloatingStatusDom();
+  });
 } else {
   renderTooltip();
   window.winplate.onTooltipUpdate(renderTooltip);

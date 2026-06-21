@@ -29,10 +29,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+try:
+    from .modules.registry import public_modules
+except ImportError:
+    from modules.registry import public_modules
+
 
 DATABASE_PATH = Path(__file__).with_name("winplate.db")
 GITHUB_API_URL = "https://api.github.com"
-GITHUB_USERNAME = os.getenv("WINPLATE_GITHUB_USERNAME", "kibuouo")
+DEFAULT_GITHUB_USERNAME = "kibuouo"
 GITHUB_CACHE_SECONDS = 300
 GITHUB_TIMEOUT_SECONDS = 4
 _github_cache: tuple[float, dict] | None = None
@@ -141,6 +146,11 @@ def environment_setting(name: str, default: str | None = None) -> str | None:
             return registry_value if isinstance(registry_value, str) and registry_value else default
     except (ImportError, FileNotFoundError, OSError):
         return default
+
+
+def github_username() -> str:
+    value = str(environment_setting("WINPLATE_GITHUB_USERNAME", DEFAULT_GITHUB_USERNAME) or DEFAULT_GITHUB_USERNAME).strip()
+    return value if re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", value) else DEFAULT_GITHUB_USERNAME
 
 
 def utc_epoch_seconds() -> int:
@@ -1872,12 +1882,14 @@ def github_failure_state(error: RuntimeError) -> tuple[str, str]:
 def github_status(force: bool = False) -> dict:
     global _github_cache
     now = time.monotonic()
+    username = github_username()
     with _github_cache_lock:
         cached = _github_cache
-    if not force and cached and now - cached[0] < GITHUB_CACHE_SECONDS:
+    if (not force and cached and now - cached[0] < GITHUB_CACHE_SECONDS
+            and cached[1].get("username") == f"@{username}"):
         return cached[1]
     try:
-        data = build_github_status(GITHUB_USERNAME)
+        data = build_github_status(username)
         persist_github_status(data)
         with _github_cache_lock:
             _github_cache = (now, data)
@@ -1885,7 +1897,7 @@ def github_status(force: bool = False) -> dict:
     except RuntimeError as error:
         reason, message = github_failure_state(error)
         cached = cached_github_status()
-        if cached:
+        if cached and cached.get("username") == f"@{username}":
             return {
                 **cached,
                 "source": "github-cache",
@@ -1895,9 +1907,9 @@ def github_status(force: bool = False) -> dict:
             }
         return {
             "source": "unavailable",
-            "name": GITHUB_USERNAME,
-            "username": f"@{GITHUB_USERNAME}",
-            "profileUrl": f"https://github.com/{GITHUB_USERNAME}",
+            "name": username,
+            "username": f"@{username}",
+            "profileUrl": f"https://github.com/{username}",
             "status": "Unavailable",
             "availability": reason,
             "stateMessage": message.replace("showing last known data", "no cached data is available"),
@@ -1912,6 +1924,11 @@ def startup() -> None:
 @api.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@api.get("/api/modules")
+def modules() -> dict[str, list[dict]]:
+    return {"modules": public_modules()}
 
 
 @api.get("/api/status")

@@ -1,0 +1,2 @@
+"""WinPlate backend module contracts."""
+

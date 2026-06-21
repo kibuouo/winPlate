@@ -86,6 +86,7 @@ function parseStructuredDigest(content, localDigest) {
 function createNotificationSummaryService({
   store,
   callChat,
+  shouldUseAi = () => true,
   onUpdated = () => {},
   debounceMs = 1_500,
   now = () => Date.now()
@@ -106,7 +107,10 @@ function createNotificationSummaryService({
       if (!force && current && currentHash === hash) return current;
       let digest = localDigest;
       let source = "local";
-      if (snapshot.items.length && typeof callChat === "function") {
+      const aiEnabled = snapshot.items.length
+        && typeof callChat === "function"
+        && await Promise.resolve(shouldUseAi());
+      if (aiEnabled) {
         try {
           const content = await callChat({
             messages: buildSummaryPrompt(snapshot.items, localDigest),

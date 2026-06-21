@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("winplate", {
   showMainWindow: (section = "Dashboard") => ipcRenderer.send("window:show-main", section),
+  getSettings: () => ipcRenderer.invoke("settings:get"),
+  saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
+  onSettingsUpdated: (callback) => ipcRenderer.on("settings:updated", (_event, settings) => callback(settings)),
   onNavigate: (callback) => ipcRenderer.on("main:navigate", (_event, section) => callback(section)),
   openGithubProfile: (url) => ipcRenderer.send("github:open-profile", url),
   refreshGithub: () => ipcRenderer.invoke("github:refresh"),

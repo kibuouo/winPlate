@@ -238,6 +238,14 @@ function setMainWindowTheme(theme) {
   mainWindow.setBackgroundMaterial?.("none");
 }
 
+function setAppWindowOpacity(value) {
+  const opacity = Math.max(0.65, Math.min(1, Number(value) || 1));
+  [mainWindow, floatingWindow].forEach((window) => {
+    if (window && !window.isDestroyed()) window.setOpacity(opacity);
+  });
+  return opacity;
+}
+
 function minimizeMainWindow() {
   mainWindow?.minimize();
 }
@@ -302,6 +310,7 @@ module.exports = {
   hideTooltipWindow,
   setQuitting,
   setMainWindowTheme,
+  setAppWindowOpacity,
   minimizeMainWindow,
   toggleMaximizeMainWindow,
   closeMainWindow,

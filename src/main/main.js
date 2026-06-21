@@ -13,6 +13,7 @@ const {
   showTooltipWindow,
   hideTooltipWindow,
   setMainWindowTheme,
+  setAppWindowOpacity,
   minimizeMainWindow,
   toggleMaximizeMainWindow,
   closeMainWindow,
@@ -34,10 +35,9 @@ const {
 } = require("./deepseekTokenUsage");
 const { createNotificationStore } = require("./notifications/notificationStore");
 const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
-const {
-  readAppearanceSettings,
-  writeAppearanceSettings
-} = require("./appearanceSettings");
+const { mainModules, validateMainModules } = require("./modules");
+const { readSettings, writeSettings } = require("./settingsStore");
+const MODULES = validateMainModules().map((module) => module.meta);
 
 let tray;
 const execFileAsync = promisify(execFile);
@@ -50,6 +50,7 @@ const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
+let currentSettings = null;
 
 function broadcastStatusRefresh(weather = null) {
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -60,6 +61,12 @@ function broadcastStatusRefresh(weather = null) {
 function broadcastNotificationDigest(digest) {
   BrowserWindow.getAllWindows().forEach((window) => {
     sendToWindow(window, "notification:digest-updated", digest);
+  });
+}
+
+function broadcastSettingsUpdated(settings) {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    sendToWindow(window, "settings:updated", settings);
   });
 }
 
@@ -139,6 +146,47 @@ async function writeUserEnvironment(name, value) {
   await execFileAsync("reg.exe", [
     "add", "HKCU\\Environment", "/v", name, "/t", "REG_SZ", "/d", value, "/f"
   ], { windowsHide: true });
+  process.env[name] = value;
+}
+
+function validateSettingsInput(settings = {}) {
+  const username = String(settings?.integrations?.github?.username || "").trim();
+  if (username && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
+    throw new Error("GitHub 用户名格式无效");
+  }
+  const opacity = settings?.appearance?.opacity;
+  if (opacity !== undefined && (!Number.isFinite(Number(opacity)) || Number(opacity) < 0.65 || Number(opacity) > 1)) {
+    throw new Error("透明度必须介于 0.65 和 1 之间");
+  }
+  if (settings?.appearance?.density !== undefined && !["comfortable", "compact"].includes(settings.appearance.density)) {
+    throw new Error("界面密度无效");
+  }
+  if (settings?.notificationDigest?.privacyMode !== undefined
+      && !["sanitized", "local-only"].includes(settings.notificationDigest.privacyMode)) {
+    throw new Error("通知摘要隐私模式无效");
+  }
+  const refreshSeconds = settings?.modules?.refreshSeconds || {};
+  MODULES.forEach((module) => {
+    if (refreshSeconds[module.id] === undefined) return;
+    const seconds = Number(refreshSeconds[module.id]);
+    if (!Number.isFinite(seconds) || seconds < module.minRefreshSeconds || seconds > module.maxRefreshSeconds) {
+      throw new Error(`${module.title} 刷新周期必须介于 ${module.minRefreshSeconds} 和 ${module.maxRefreshSeconds} 秒之间`);
+    }
+  });
+}
+
+async function publicSettingsPayload(settings = currentSettings) {
+  const githubToken = await readUserEnvironment("GITHUB_TOKEN");
+  return {
+    ...settings,
+    integrations: {
+      ...settings.integrations,
+      github: {
+        ...settings.integrations.github,
+        hasToken: Boolean(githubToken)
+      }
+    }
+  };
 }
 
 async function recordDeepSeekTokenUsageSafely(usage, feature = "unknown") {
@@ -165,18 +213,54 @@ if (!gotLock) {
     } catch (error) {
       console.error(error.message);
     }
-    const appearanceSettings = await readAppearanceSettings(app.getPath("userData"));
-    const initialTheme = appearanceSettings.theme === "system"
+    currentSettings = await readSettings(app.getPath("userData"));
+    const initialTheme = currentSettings.appearance.theme === "system"
       ? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
-      : appearanceSettings.theme;
-    ipcMain.handle("appearance:get-settings", () => (
-      readAppearanceSettings(app.getPath("userData"))
-    ));
-    ipcMain.handle("appearance:save-settings", (_event, settings) => (
-      writeAppearanceSettings(app.getPath("userData"), settings)
-    ));
+      : currentSettings.appearance.theme;
+    ipcMain.handle("settings:get", () => publicSettingsPayload());
+    ipcMain.handle("settings:save", async (_event, settings) => {
+      validateSettingsInput(settings);
+      const github = settings?.integrations?.github || {};
+      const username = typeof github.username === "string" ? github.username.trim() : "";
+      const token = typeof github.token === "string" ? github.token.trim() : "";
+      if (username) await writeUserEnvironment("WINPLATE_GITHUB_USERNAME", username);
+      if (token) await writeUserEnvironment("GITHUB_TOKEN", token);
+      currentSettings = await writeSettings(app.getPath("userData"), settings);
+      setAppWindowOpacity(currentSettings.appearance.opacity);
+      invalidateResponseCache("Status");
+      const payload = await publicSettingsPayload();
+      broadcastSettingsUpdated(payload);
+      return payload;
+    });
+    ipcMain.handle("appearance:get-settings", async () => ({
+      theme: currentSettings.appearance.theme,
+      mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
+    }));
+    ipcMain.handle("appearance:save-settings", async (_event, settings) => {
+      currentSettings = await writeSettings(app.getPath("userData"), {
+        ...currentSettings,
+        appearance: {
+          ...currentSettings.appearance,
+          ...(settings?.theme ? { theme: settings.theme } : {})
+        },
+        modules: {
+          ...currentSettings.modules,
+          refreshSeconds: {
+            ...currentSettings.modules.refreshSeconds,
+            ...(settings?.mailAutoRefreshSeconds !== undefined
+              ? { mail: settings.mailAutoRefreshSeconds }
+              : {})
+          }
+        }
+      });
+      return {
+        theme: currentSettings.appearance.theme,
+        mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
+      };
+    });
     createMainWindow(initialTheme);
     createFloatingWindow();
+    setAppWindowOpacity(currentSettings.appearance.opacity);
 
     tray = createAppTray({
       showMainWindow,
@@ -419,6 +503,8 @@ if (!gotLock) {
     notificationSummaryService = createNotificationSummaryService({
       store: notificationStore,
       onUpdated: broadcastNotificationDigest,
+      shouldUseAi: () => currentSettings.notificationDigest.enabled
+        && currentSettings.notificationDigest.privacyMode !== "local-only",
       callChat: async (options) => {
         const [apiKey, baseUrl] = await Promise.all([
           readUserEnvironment("DEEPSEEK_API_KEY"),

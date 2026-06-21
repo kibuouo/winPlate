@@ -64,13 +64,25 @@ test("automatic status refresh updates the existing main content DOM", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const refreshStatus = renderer.slice(
     renderer.indexOf("async function refreshStatus()"),
-    renderer.indexOf("if (view === \"main\")")
+    renderer.indexOf("registerRefreshTasks();", renderer.indexOf("async function refreshStatus()"))
   );
 
   assert.match(refreshStatus, /updateMainStatusDom\(\)/);
   assert.doesNotMatch(refreshStatus, /renderMain\(\)/);
   assert.match(renderer, /function syncDomNode\(/);
+  assert.match(renderer, /createRefreshController/);
+  assert.doesNotMatch(renderer, /setInterval\(refreshStatus/);
+  assert.doesNotMatch(renderer, /setInterval\(refreshNetworkSpeed/);
   assert.match(renderer, /currentSection === "Settings"/);
+});
+
+test("versioned settings IPC never returns credential values", () => {
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  assert.match(preload, /getSettings: \(\) => ipcRenderer\.invoke\("settings:get"\)/);
+  assert.match(preload, /saveSettings: \(settings\) => ipcRenderer\.invoke\("settings:save", settings\)/);
+  assert.match(main, /hasToken: Boolean\(githubToken\)/);
+  assert.doesNotMatch(main, /github:\s*\{[\s\S]{0,120}token:\s*githubToken/);
 });
 
 test("weather location changes update every window without an implicit location rewrite", () => {
@@ -79,7 +91,7 @@ test("weather location changes update every window without an implicit location 
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
   const refreshStatus = renderer.slice(
     renderer.indexOf("async function refreshStatus()"),
-    renderer.indexOf("if (view === \"main\")")
+    renderer.indexOf("registerRefreshTasks();", renderer.indexOf("async function refreshStatus()"))
   );
 
   assert.doesNotMatch(refreshStatus, /refreshSelectedWeatherLocation/);
@@ -88,6 +100,16 @@ test("weather location changes update every window without an implicit location 
   assert.match(renderer, /payload\?\.weather[\s\S]*updateFloatingStatusDom\(\)/);
   assert.match(renderer, /weatherVersionAtRequest === weatherUpdateVersion/);
   assert.match(renderer, /const currentWeather = statusData\.weather/);
+});
+
+test("weather cards keep the original QWeather SVG artwork", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(renderer, /return `<img class="\$\{className\}" src="\.\.\/\.\.\/node_modules\/qweather-icons\/icons\/\$\{code\}\.svg"/);
+  assert.match(renderer, /weatherIconMarkup\("100", "qweather-service-icon"\)/);
+  assert.doesNotMatch(renderer, /themed-weather-icon/);
+  assert.doesNotMatch(styles, /themed-weather-icon/);
+  assert.match(styles, /\.weather-icon\s*\{[\s\S]*?filter:\s*brightness\(0\) invert\(1\)/);
 });
 
 test("mail outline escapes external email fields before rendering", () => {

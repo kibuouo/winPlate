@@ -1,4 +1,6 @@
 :root {
+  --window-opacity: .94;
+  --window-opacity-percent: 94%;
   color: #f4f4f5;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", sans-serif;
   font-synthesis: none;
@@ -40,7 +42,7 @@ button { font: inherit; }
   align-items: center;
   gap: 12px;
   color: #f4f4f5;
-  background: rgba(24, 24, 27, 0.72);
+  background: color-mix(in srgb, rgba(24, 24, 27, 0.92) var(--window-opacity-percent), transparent);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 28px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
@@ -272,16 +274,13 @@ html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
   white-space: nowrap;
 }
 .weather-module { min-width: 0; gap: 6px; }
-.themed-weather-icon {
+.weather-icon {
   display: block;
   flex: 0 0 auto;
-  object-fit: contain;
-  filter: brightness(0) invert(1);
-}
-html[data-theme="light"] .themed-weather-icon { filter: brightness(0); }
-.weather-icon {
   width: 20px;
   height: 20px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
 }
 .weather-condition { min-width: 0; overflow: hidden; color: #a1a1aa; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .heart-module {
@@ -404,7 +403,7 @@ html[data-theme="light"] .themed-weather-icon { filter: brightness(0); }
   color: var(--text);
   background: var(--main-bg);
 }
-.main-window-shell { width: 100%; height: 100%; display: grid; grid-template-rows: 44px minmax(0, 1fr); background: var(--main-bg); }
+.main-window-shell { width: 100%; height: 100%; display: grid; grid-template-rows: 44px minmax(0, 1fr); background: color-mix(in srgb, var(--main-bg) var(--window-opacity-percent), transparent); }
 .app-titlebar { position: relative; z-index: 30; height: 44px; display: flex; align-items: center; justify-content: space-between; color: var(--text); border-bottom: 1px solid var(--border); background: #202123; user-select: none; -webkit-app-region: drag; }
 .titlebar-brand { display: flex; align-items: center; padding-left: 14px; }
 .titlebar-brand img { width: 22px; height: 22px; display: block; border-radius: 6px; object-fit: cover; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
@@ -871,10 +870,7 @@ html[data-theme="light"] .qweather-card .large-track > span {
 .qweather-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .qweather-card-heading .card-icon { margin-bottom: 28px; }
 .card-actions { display: flex; align-items: center; gap: 8px; }
-.qweather-service-icon { width: 32px; height: 32px; }
-.qweather-service-icon .qweather-nav-icon { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.qweather-service-icon .qweather-nav-icon circle { stroke: #facc15; }
-.qweather-service-icon .qweather-nav-icon path { stroke: #60a5fa; }
+.qweather-service-icon { width: 32px; height: 32px; object-fit: contain; }
 .service-health { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: #34d399; border-radius: 999px; background: rgba(52,211,153,.1); font-size: 9px; font-weight: 700; }
 .service-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px rgba(52,211,153,.6); }
 .qweather-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
@@ -2150,4 +2146,49 @@ html[data-theme="light"] .deepseek-row-track > span { background: linear-gradien
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+[data-module-id][data-module-health="stale"] { border-color: color-mix(in srgb, #f59e0b 55%, var(--border)); }
+[data-module-id][data-module-health="error"] { border-color: color-mix(in srgb, #ef4444 60%, var(--border)); }
+[data-module-id][data-module-health="loading"] { cursor: progress; }
+[data-module-id][hidden] { display: none !important; }
+.dashboard-card[data-module-health] { position: relative; }
+.dashboard-card[data-module-health="stale"]::after,
+.dashboard-card[data-module-health="error"]::after {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--surface-raised);
+}
+.dashboard-card[data-module-health="stale"]::after { content: "缓存"; color: #f59e0b; }
+.dashboard-card[data-module-health="error"]::after { content: "不可用"; color: #ef4444; }
+
+.product-settings-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.product-settings-panel fieldset + fieldset { border-top: 5px solid var(--surface-muted); }
+.product-settings-panel legend { width: 100%; display: grid; gap: 3px; padding: 12px 18px 10px; border-bottom: 1px solid var(--border); }
+.product-settings-panel label { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(260px, 42%); align-items: center; gap: 20px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.product-settings-panel input,
+.product-settings-panel select { width: 100%; padding: 8px 10px; color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); }
+.module-settings-list { display: grid; }
+.module-settings-row { display: grid; grid-template-columns: minmax(220px, 1fr) 170px 220px; align-items: center; gap: 14px; padding: 9px 18px; border-bottom: 1px solid var(--border); }
+.module-settings-row > label { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px; padding: 0; border: 0; }
+.module-settings-row .module-enabled { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.module-settings-row .module-enabled input { width: auto; }
+.module-settings-row .module-enabled span { display: grid; }
+.product-settings-actions { display: flex; justify-content: space-between; align-items: center; padding: 13px 18px; }
+.product-settings-actions button { padding: 9px 14px; color: #fff; border: 0; border-radius: 8px; background: var(--accent); cursor: pointer; }
+.product-settings-actions button:disabled { cursor: wait; opacity: .6; }
+.product-settings-actions .error { color: #ef4444; }
+
+html[data-density="compact"] .dashboard-card { min-height: 180px; padding: 16px; }
+html[data-density="compact"] .main-content { padding-top: 18px; }
+html[data-density="compact"] .settings-section { margin-top: 14px; }
+
+@media (max-width: 900px) {
+  .module-settings-row { grid-template-columns: 1fr; }
+  .product-settings-panel label { grid-template-columns: 1fr; gap: 8px; }
 }
