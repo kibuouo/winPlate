@@ -102,14 +102,15 @@ test("weather location changes update every window without an implicit location 
   assert.match(renderer, /const currentWeather = statusData\.weather/);
 });
 
-test("weather cards keep the original QWeather SVG artwork", () => {
+test("weather icons use the official local package SVGs and keep floating weather visible", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   assert.match(renderer, /return `<img class="\$\{className\}" src="\.\.\/\.\.\/node_modules\/qweather-icons\/icons\/\$\{code\}\.svg"/);
   assert.match(renderer, /weatherIconMarkup\("100", "qweather-service-icon"\)/);
-  assert.doesNotMatch(renderer, /themed-weather-icon/);
-  assert.doesNotMatch(styles, /themed-weather-icon/);
-  assert.match(styles, /\.weather-icon\s*\{[\s\S]*?filter:\s*brightness\(0\) invert\(1\)/);
+  assert.doesNotMatch(renderer, /qweather-icons-color/);
+  assert.doesNotMatch(renderer, /https:\/\/.*weather/i);
+  assert.match(styles, /\.weather-icon\s*\{[\s\S]*?brightness\(0\) invert\(1\)/);
+  assert.match(styles, /\.weather-tooltip-icon\s*\{[\s\S]*?brightness\(0\) invert\(1\)/);
 });
 
 test("mail outline escapes external email fields before rendering", () => {

@@ -5,7 +5,6 @@ const { MODULES } = require("../shared/moduleRegistry");
 const SETTINGS_VERSION = 1;
 const VALID_THEMES = new Set(["system", "dark", "light"]);
 const VALID_DENSITIES = new Set(["comfortable", "compact"]);
-const VALID_PRIVACY_MODES = new Set(["sanitized", "local-only"]);
 
 function defaultSettings() {
   return {
@@ -24,8 +23,7 @@ function defaultSettings() {
       github: { username: "kibuouo" }
     },
     notificationDigest: {
-      enabled: true,
-      privacyMode: "sanitized"
+      enabled: true
     }
   };
 }
@@ -95,10 +93,11 @@ function normalizeSettings(value = {}, fallback = defaultSettings()) {
       }
     },
     notificationDigest: {
-      enabled: typeof digest.enabled === "boolean" ? digest.enabled : fallback.notificationDigest.enabled,
-      privacyMode: VALID_PRIVACY_MODES.has(digest.privacyMode)
-        ? digest.privacyMode
-        : fallback.notificationDigest.privacyMode
+      enabled: digest.privacyMode === "local-only"
+        ? false
+        : typeof digest.enabled === "boolean"
+          ? digest.enabled
+          : fallback.notificationDigest.enabled
     }
   };
 }

@@ -274,13 +274,19 @@ html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
   white-space: nowrap;
 }
 .weather-module { min-width: 0; gap: 6px; }
-.weather-icon {
+.weather-icon,
+.weather-dashboard-icon,
+.weather-forecast-icon,
+.qweather-service-icon,
+.weather-tooltip-icon {
   display: block;
+  object-fit: contain;
+}
+.weather-icon {
   flex: 0 0 auto;
   width: 20px;
   height: 20px;
-  object-fit: contain;
-  filter: brightness(0) invert(1);
+  filter: brightness(0) invert(1) drop-shadow(0 3px 10px rgba(15, 23, 42, .28));
 }
 .weather-condition { min-width: 0; overflow: hidden; color: #a1a1aa; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .heart-module {
@@ -871,6 +877,16 @@ html[data-theme="light"] .qweather-card .large-track > span {
 .qweather-card-heading .card-icon { margin-bottom: 28px; }
 .card-actions { display: flex; align-items: center; gap: 8px; }
 .qweather-service-icon { width: 32px; height: 32px; object-fit: contain; }
+html:not([data-theme="light"]) .weather-dashboard-icon,
+html:not([data-theme="light"]) .weather-forecast-icon,
+html:not([data-theme="light"]) .qweather-service-icon {
+  filter: brightness(0) invert(1) drop-shadow(0 6px 16px rgba(15, 23, 42, .22));
+}
+html[data-theme="light"] .weather-dashboard-icon,
+html[data-theme="light"] .weather-forecast-icon,
+html[data-theme="light"] .qweather-service-icon {
+  filter: drop-shadow(0 4px 12px rgba(15, 23, 42, .12));
+}
 .service-health { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: #34d399; border-radius: 999px; background: rgba(52,211,153,.1); font-size: 9px; font-weight: 700; }
 .service-health i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px rgba(52,211,153,.6); }
 .qweather-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
@@ -1845,8 +1861,7 @@ html[data-theme="light"] .deepseek-row-track > span { background: linear-gradien
 .weather-tooltip-icon {
   width: 48px;
   height: 48px;
-  object-fit: contain;
-  filter: brightness(0) invert(1) drop-shadow(0 5px 10px rgba(56, 189, 248, .22));
+  filter: brightness(0) invert(1) drop-shadow(0 8px 18px rgba(15, 23, 42, .3));
 }
 
 .weather-tooltip-current > strong {

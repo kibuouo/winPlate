@@ -89,6 +89,19 @@ function invalidateResponseCache(key) {
   responseCacheVersions.set(key, (responseCacheVersions.get(key) || 0) + 1);
 }
 
+async function syncWeatherAlertsIntoNotifications() {
+  try {
+    await fetchJsonCached(
+      "QWeather alerts",
+      "http://127.0.0.1:8765/api/weather/alerts",
+      WEATHER_ALERT_CACHE_TTL_MS
+    );
+    invalidateResponseCache("Notifications");
+  } catch (error) {
+    console.warn("QWeather alert sync skipped:", error.message);
+  }
+}
+
 async function fetchJsonCached(key, url, ttlMs) {
   const now = Date.now();
   const cached = responseCaches.get(key);
@@ -160,10 +173,6 @@ function validateSettingsInput(settings = {}) {
   }
   if (settings?.appearance?.density !== undefined && !["comfortable", "compact"].includes(settings.appearance.density)) {
     throw new Error("界面密度无效");
-  }
-  if (settings?.notificationDigest?.privacyMode !== undefined
-      && !["sanitized", "local-only"].includes(settings.notificationDigest.privacyMode)) {
-    throw new Error("通知摘要隐私模式无效");
   }
   const refreshSeconds = settings?.modules?.refreshSeconds || {};
   MODULES.forEach((module) => {
@@ -492,19 +501,20 @@ if (!gotLock) {
       responseCaches.delete("Mail outline");
       return payload;
     });
-    ipcMain.handle("notifications:get", () => (
-      fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
-    ));
+    ipcMain.handle("notifications:get", async () => {
+      await syncWeatherAlertsIntoNotifications();
+      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
+    });
     const notificationStore = createNotificationStore({
-      loadNotifications: () => (
-        fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS)
-      )
+      loadNotifications: async () => {
+        await syncWeatherAlertsIntoNotifications();
+        return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
+      }
     });
     notificationSummaryService = createNotificationSummaryService({
       store: notificationStore,
       onUpdated: broadcastNotificationDigest,
-      shouldUseAi: () => currentSettings.notificationDigest.enabled
-        && currentSettings.notificationDigest.privacyMode !== "local-only",
+      shouldUseAi: () => currentSettings.notificationDigest.enabled,
       callChat: async (options) => {
         const [apiKey, baseUrl] = await Promise.all([
           readUserEnvironment("DEEPSEEK_API_KEY"),

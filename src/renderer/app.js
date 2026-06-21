@@ -90,7 +90,7 @@ let appSettings = {
     refreshSeconds: Object.fromEntries(moduleDefinitions.map((module) => [module.id, module.defaultRefreshSeconds]))
   },
   integrations: { github: { username: "kibuouo", hasToken: false } },
-  notificationDigest: { enabled: true, privacyMode: "sanitized" }
+  notificationDigest: { enabled: true }
 };
 const refreshController = window.WinPlateRefresh.createRefreshController({
   onHealthChange: (taskId, health) => {
@@ -346,13 +346,6 @@ function productSettingsPanel() {
           <span><strong>启用 AI 摘要</strong><small>关闭后仅使用本地分级、去重和聚合</small></span>
           <input id="notification-ai-enabled" type="checkbox" ${digest.enabled ? "checked" : ""}>
         </label>
-        <label>
-          <span><strong>隐私模式</strong><small>local-only 不会向模型发送通知内容</small></span>
-          <select id="notification-privacy-mode">
-            <option value="sanitized" ${digest.privacyMode === "sanitized" ? "selected" : ""}>脱敏摘要</option>
-            <option value="local-only" ${digest.privacyMode === "local-only" ? "selected" : ""}>仅本地</option>
-          </select>
-        </label>
       </fieldset>
       <div class="product-settings-actions">
         <small id="product-settings-status">配置保存在当前 Windows 用户目录</small>
@@ -399,8 +392,7 @@ function bindProductSettings() {
         }
       },
       notificationDigest: {
-        enabled: form.querySelector("#notification-ai-enabled").checked,
-        privacyMode: form.querySelector("#notification-privacy-mode").value
+        enabled: form.querySelector("#notification-ai-enabled").checked
       }
     };
     try {
@@ -2482,6 +2474,7 @@ function updateMainStatusDom(moduleIds = null) {
     pageContent.replaceChildren(...desiredChildren.map((node) => node.cloneNode(true)));
     if (scrollPosition) mainContent.scrollTo(scrollPosition);
     bindAvatarFallbacks(pageContent);
+    bindWeatherIconFallbacks(pageContent);
     bindGithubControls();
     bindQWeatherUsageControls();
     bindMailControls();

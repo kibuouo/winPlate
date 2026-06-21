@@ -6,7 +6,6 @@ const MAX_TEXT_LENGTH = 28;
 const RECENT_WINDOW_MS = 24 * 60 * 60_000;
 const VALID_LEVELS = new Set(["info", "success", "warning", "critical"]);
 const VALID_SOURCES = new Set(["weather", "mail", "codex", "chatgpt", "github", "system", "local"]);
-const SECRET_FIELD_RE = /token|api[_-]?key|password|authorization|auth|secret/i;
 
 function clampText(value, limit = MAX_TEXT_LENGTH) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
@@ -53,45 +52,18 @@ function normalizeNotificationSummary(summary = {}) {
   });
 }
 
-function sanitizeObject(value, depth = 0) {
-  if (!value || typeof value !== "object" || depth > 2) return undefined;
-  const result = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (SECRET_FIELD_RE.test(key)) continue;
-    if (entry === null || entry === undefined) continue;
-    if (typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean") {
-      result[key] = typeof entry === "string" ? clampText(entry, 160) : entry;
-    } else if (typeof entry === "object") {
-      const nested = sanitizeObject(entry, depth + 1);
-      if (nested && Object.keys(nested).length) result[key] = nested;
-    }
-  }
-  return result;
-}
-
-function sanitizeNotificationForAI(notification) {
-  const source = normalizeSource(notification.source);
-  const base = {
+function notificationForAI(notification) {
+  return {
     id: notification.id,
-    source,
-    title: clampText(notification.title, 120),
+    source: normalizeSource(notification.source),
+    title: notification.title,
+    body: notification.body,
     level: normalizeLevel(notification.level),
     time: notification.time,
-    unread: Boolean(notification.unread)
-  };
-  if (source === "mail") {
-    return {
-      ...base,
-      sender: clampText(notification.sender || notification.body, 80),
-      subject: clampText(notification.subject || notification.title.replace(/^新邮件[:：]\s*/, ""), 120),
-      snippet: clampText(notification.snippet || notification.body, 160),
-      hasAttachment: Boolean(notification.hasAttachment)
-    };
-  }
-  return {
-    ...base,
-    body: clampText(notification.body, 220),
-    meta: sanitizeObject(notification.meta)
+    unread: Boolean(notification.unread),
+    sender: notification.sender,
+    subject: notification.subject,
+    snippet: notification.snippet
   };
 }
 
@@ -196,7 +168,7 @@ function buildSmartBriefPrompt(notifications) {
     "2. 保留最重要的信息。",
     "3. 优先处理天气预警、失败、错误、重要邮件、任务完成。",
     "4. 不要编造通知中不存在的信息。",
-    "5. 邮件只能根据 sender、subject、snippet 判断，不要臆测邮件正文。",
+    "5. 邮件可根据 sender、subject、snippet 和 body 判断，不要臆测输入之外的内容。",
     "6. 相同或重复通知要合并。",
     "7. 输出 1 到 5 条 items。",
     "8. 中文表达要短、直接、适合桌面状态栏。",
@@ -207,7 +179,7 @@ function buildSmartBriefPrompt(notifications) {
     locale: "zh-CN",
     maxItems: MAX_AI_ITEMS,
     maxTextLength: MAX_TEXT_LENGTH,
-    notifications: notifications.map(sanitizeNotificationForAI)
+    notifications: notifications.map(notificationForAI)
   });
   return [
     { role: "system", content: system },
@@ -336,7 +308,7 @@ module.exports = {
   generateSmartBrief,
   normalizeNotificationSummary,
   parseSmartBriefResponse,
-  sanitizeNotificationForAI,
+  notificationForAI,
   scoreNotification,
   selectCandidateNotifications
 };

@@ -19,7 +19,7 @@ test("normalizes settings ranges and keeps every registered module", () => {
       refreshSeconds: { network: 0, mail: 99999 }
     },
     integrations: { github: { username: "bad username" } },
-    notificationDigest: { enabled: false, privacyMode: "local-only" }
+    notificationDigest: { enabled: false }
   });
   assert.equal(value.appearance.opacity, 1);
   assert.equal(value.appearance.density, "compact");
@@ -30,6 +30,13 @@ test("normalizes settings ranges and keeps every registered module", () => {
   assert.equal(value.modules.refreshSeconds.mail, 1800);
   assert.equal(value.integrations.github.username, "kibuouo");
   assert.equal(value.notificationDigest.enabled, false);
+});
+
+test("migrates the removed local-only privacy mode to disabled AI summaries", () => {
+  const value = normalizeSettings({
+    notificationDigest: { enabled: true, privacyMode: "local-only" }
+  });
+  assert.deepEqual(value.notificationDigest, { enabled: false });
 });
 
 test("migrates legacy appearance and mail refresh settings", async () => {

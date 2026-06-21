@@ -6,7 +6,7 @@ const {
   fallbackBrief,
   normalizeNotificationSummary,
   parseSmartBriefResponse,
-  sanitizeNotificationForAI,
+  notificationForAI,
   selectCandidateNotifications
 } = require("./smartBriefService");
 
@@ -50,24 +50,23 @@ test("normalizes and ranks mock notifications for smart brief generation", () =>
   assert.equal(candidates[2].source, "mail");
 });
 
-test("sanitizes mail notifications before AI prompts", () => {
-  const sanitized = sanitizeNotificationForAI(normalizeNotificationSummary({ items: mockItems })[1]);
+test("includes full mail notification content in AI prompts", () => {
+  const notification = notificationForAI(normalizeNotificationSummary({ items: mockItems })[1]);
 
-  assert.equal(sanitized.sender, "Riot Games");
-  assert.equal(sanitized.subject, "Just checking-was this you?");
-  assert.equal(sanitized.snippet, "We noticed a recent account activity...");
-  assert.equal(sanitized.body, undefined);
-  assert.equal(sanitized.meta, undefined);
+  assert.equal(notification.sender, "Riot Games");
+  assert.equal(notification.subject, "Just checking-was this you?");
+  assert.equal(notification.snippet, "We noticed a recent account activity...");
+  assert.equal(notification.body, "full body should not be sent");
 });
 
-test("builds a JSON-only prompt without mail body fields", () => {
+test("builds a JSON-only prompt with mail body fields", () => {
   const messages = buildSmartBriefPrompt(normalizeNotificationSummary({ items: mockItems }));
   const userPayload = JSON.parse(messages[1].content);
 
   assert.equal(messages[0].role, "system");
   assert.match(messages[0].content, /你必须只输出 JSON/);
   assert.equal(userPayload.maxTextLength, 28);
-  assert.equal(userPayload.notifications[1].body, undefined);
+  assert.equal(userPayload.notifications[1].body, "full body should not be sent");
   assert.equal(userPayload.notifications[1].sender, "Riot Games");
   assert.match(messages[0].content, /\{"items":\[\.\.\.\]\}/);
 });
