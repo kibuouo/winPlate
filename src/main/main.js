@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
+const path = require("node:path");
 const { promisify } = require("util");
 const {
   createFloatingWindow,
@@ -20,6 +21,7 @@ const {
   sendToWindow
 } = require("./windows");
 const { createAppTray } = require("./tray");
+const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
@@ -51,6 +53,7 @@ const responseCaches = new Map();
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
 let currentSettings = null;
+const desktopIconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
 
 function broadcastStatusRefresh(weather = null) {
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -213,6 +216,15 @@ if (!gotLock) {
   app.on("second-instance", showMainWindow);
 
   app.whenReady().then(async () => {
+    try {
+      await registerWindowsDesktopApp({
+        app,
+        shell,
+        iconPath: desktopIconPath
+      });
+    } catch (error) {
+      console.warn("WinPlate desktop app registration skipped:", error.message);
+    }
     session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === "geolocation");
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === "geolocation");
@@ -423,6 +435,13 @@ if (!gotLock) {
         WEATHER_USAGE_CACHE_TTL_MS
       )
     ));
+    ipcMain.handle("weather:get-alerts", () => (
+      fetchJsonCached(
+        "QWeather alerts",
+        "http://127.0.0.1:8765/api/weather/alerts",
+        WEATHER_ALERT_CACHE_TTL_MS
+      )
+    ));
     ipcMain.handle("weather:refresh-official-usage", async () => {
       const response = await fetch("http://127.0.0.1:8765/api/weather/usage/official", { method: "POST" });
       if (!response.ok) {
@@ -432,6 +451,7 @@ if (!gotLock) {
       return response.json();
     });
     ipcMain.handle("weather:refresh-alerts", async () => {
+      responseCaches.delete("QWeather alerts");
       const alerts = await fetchJsonCached(
         "QWeather alerts",
         "http://127.0.0.1:8765/api/weather/alerts",

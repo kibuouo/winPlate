@@ -46,6 +46,7 @@ let mailOutline = { source: "loading", availability: "loading", items: [], updat
 let mailRefreshInFlight = false;
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
+let weatherAlerts = { source: "qweather", alerts: [], updatedAt: null, error: "" };
 let notificationDigest = {
   headline: "暂无新通知",
   summary: "当前没有需要关注的新通知。",
@@ -1192,9 +1193,55 @@ function weatherLocationSelect() {
     </div>`;
 }
 
+function normalizeWeatherAlerts(value = {}) {
+  return {
+    source: value?.source || "qweather",
+    alerts: Array.isArray(value?.alerts) ? value.alerts : [],
+    updatedAt: Number.isFinite(Number(value?.updatedAt)) ? Number(value.updatedAt) : null,
+    error: typeof value?.error === "string" ? value.error : ""
+  };
+}
+
+function weatherAlertTone(alert = {}) {
+  if (alert.lifecycle === "resolved") return "resolved";
+  return alert.level === "critical" ? "critical" : "warning";
+}
+
+function weatherAlertStatus(alert = {}) {
+  if (alert.lifecycle === "resolved") return "已解除";
+  if (alert.lifecycle === "upgraded") return "已升级";
+  return alert.level === "critical" ? "高风险" : "生效中";
+}
+
+function weatherAlertsPanel() {
+  const weather = statusData.weather || mockStatus.weather;
+  const alerts = Array.isArray(weatherAlerts.alerts) ? weatherAlerts.alerts.slice(0, 2) : [];
+  if (!alerts.length && weather.source !== "qweather" && !weatherAlerts.error) return "";
+  const helperText = alerts.length
+    ? `${relativeUpdatedAt(weatherAlerts.updatedAt)}同步`
+    : weatherAlerts.error || "当前无天气预警";
+  return `
+    <section class="weather-alerts-panel">
+      <div class="weather-alerts-heading">
+        <strong>天气预警</strong>
+        <span>${escapeHtml(helperText)}</span>
+      </div>
+      ${alerts.length ? `<div class="weather-alerts-list">
+        ${alerts.map((alert) => `
+          <article class="weather-alert-card severity-${weatherAlertTone(alert)}">
+            <span class="weather-alert-badge">${escapeHtml(weatherAlertStatus(alert))}</span>
+            <div class="weather-alert-copy">
+              <strong>${escapeHtml(alert.title || "天气预警")}</strong>
+              <p>${escapeHtml(alert.message || "请留意最新天气变化。")}</p>
+            </div>
+          </article>`).join("")}
+      </div>` : `<p class="weather-alerts-empty${weatherAlerts.error ? " error" : ""}">${escapeHtml(helperText)}</p>`}
+    </section>`;
+}
+
 function weatherDashboardCard() {
   const weather = statusData.weather || mockStatus.weather;
-  const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 3) : [];
+  const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 5) : [];
   const dayLabel = (date, index) => {
     if (index === 0) return "今天";
     if (index === 1) return "明天";
@@ -1219,21 +1266,22 @@ function weatherDashboardCard() {
         <div class="weather-card-current">
           ${weatherIconMarkup(weather.icon, "weather-dashboard-icon")}
           <strong>${weather.temperature ?? "--"}°</strong>
-          <div><b>${weather.condition || "天气未知"}</b><span>${weather.weatherSummary || "天气数据更新后将在这里显示。"}</span></div>
+          <div><b>${weather.condition || "天气未知"}</b><p class="weather-card-summary">${weather.weatherSummary || "天气数据更新后将在这里显示。"}</p></div>
         </div>
+        ${weatherAlertsPanel()}
         <div class="weather-card-details">
           ${details.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("")}
         </div>
       </div>
       <div class="weather-forecast-list">
-        <div class="weather-forecast-title"><strong>未来天气</strong><span>3 天预报</span></div>
+        <div class="weather-forecast-title"><strong>未来天气</strong><span>5 天预报</span></div>
         ${forecast.length ? forecast.map((day, index) => `
           <div class="weather-forecast-day">
             <span>${dayLabel(day.date, index)}</span>
             ${weatherIconMarkup(day.icon, "weather-forecast-icon")}
             <b>${day.condition}</b>
             <strong>${day.tempMax}° <i>${day.tempMin}°</i></strong>
-          </div>`).join("") : `<p class="weather-forecast-empty">配置 QWeather 后显示未来 3 天预报</p>`}
+          </div>`).join("") : `<p class="weather-forecast-empty">配置 QWeather 后显示未来 5 天预报</p>`}
       </div>
     </article>`;
 }
@@ -2967,10 +3015,27 @@ function startMailAutoRefreshTimer() {
 
 async function refreshQWeatherAlerts() {
   try {
-    await window.winplate.refreshQWeatherAlerts();
+    weatherAlerts = normalizeWeatherAlerts(await window.winplate.refreshQWeatherAlerts());
   } catch (error) {
+    weatherAlerts = {
+      ...weatherAlerts,
+      error: error.message || "天气预警读取失败"
+    };
     console.warn("QWeather alerts unavailable:", error.message);
   }
+}
+
+async function hydrateWeatherAlerts() {
+  if (!window.winplate?.getQWeatherAlerts) return weatherAlerts;
+  try {
+    weatherAlerts = normalizeWeatherAlerts(await window.winplate.getQWeatherAlerts());
+  } catch (error) {
+    weatherAlerts = {
+      ...weatherAlerts,
+      error: error.message || "天气预警读取失败"
+    };
+  }
+  return weatherAlerts;
 }
 
 async function hydrateMail(options = {}) {
@@ -3045,6 +3110,7 @@ async function refreshBackendStatus() {
     heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
     weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
   };
+  await hydrateWeatherAlerts();
   await hydrateQWeatherUsage();
   updateCurrentViewDom(["weather", "heart"]);
   if (statusData.weather?.source === "unavailable") {

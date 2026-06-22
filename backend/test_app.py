@@ -183,6 +183,10 @@ class DatabaseTests(unittest.TestCase):
             {"code": "200", "daily": [
                 {"fxDate": "2026-06-13", "iconDay": "305", "textDay": "阵雨", "textNight": "多云", "tempMax": "31", "tempMin": "27", "precip": "2"},
                 {"fxDate": "2026-06-14", "iconDay": "101", "textDay": "多云", "textNight": "晴", "tempMax": "32", "tempMin": "28", "precip": "0"},
+                {"fxDate": "2026-06-15", "iconDay": "104", "textDay": "阴", "textNight": "多云", "tempMax": "31", "tempMin": "27", "precip": "1"},
+                {"fxDate": "2026-06-16", "iconDay": "302", "textDay": "雷阵雨", "textNight": "阵雨", "tempMax": "30", "tempMin": "26", "precip": "6"},
+                {"fxDate": "2026-06-17", "iconDay": "100", "textDay": "晴", "textNight": "晴", "tempMax": "33", "tempMin": "28", "precip": "0"},
+                {"fxDate": "2026-06-18", "iconDay": "101", "textDay": "多云", "textNight": "晴", "tempMax": "34", "tempMin": "29", "precip": "0"},
             ]},
         ]
         with patch.object(main, "qweather_request", side_effect=responses):
@@ -192,12 +196,14 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["icon"], "305")
         self.assertEqual(result["location"], "香港")
         self.assertEqual(result["precipitationProbability"], 75)
-        self.assertEqual(result["weatherSummary"], "今天白天阵雨，夜晚多云，现在30°。")
+        self.assertEqual(result["weatherSummary"], "今天白天阵雨，夜晚多云，现在30°，体感35°，会更闷热一些，东南风3级，出门记得带伞。")
         self.assertEqual(result["precipitation"], 0.3)
         self.assertEqual(result["pressure"], 1005)
         self.assertEqual(result["visibility"], 12)
         self.assertEqual(result["forecast"][0]["tempMax"], 31)
         self.assertEqual(result["forecast"][1]["condition"], "多云")
+        self.assertEqual(len(result["forecast"]), 5)
+        self.assertEqual(result["forecast"][-1]["date"], "2026-06-17")
 
     def test_weather_status_without_location_is_unconfigured(self):
         with (
@@ -353,7 +359,7 @@ class DatabaseTests(unittest.TestCase):
                 }}
             if path == "/v7/weather/24h":
                 return {"code": "200", "hourly": [{"pop": "75"}]}
-            if path == "/v7/weather/3d":
+            if path == "/v7/weather/7d":
                 return {"code": "200", "daily": [
                     {"fxDate": "2026-06-13", "iconDay": "305", "textDay": "阵雨", "textNight": "多云", "tempMax": "31", "tempMin": "27", "precip": "2"},
                 ]}

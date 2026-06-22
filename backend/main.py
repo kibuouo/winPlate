@@ -1400,7 +1400,7 @@ def build_weather_status(location: str, display_location: str | None = None, loc
         }
     weather_payload = qweather_request("/v7/weather/now", {"location": weather_location, "lang": "zh", "unit": "m"})
     hourly_payload = qweather_request("/v7/weather/24h", {"location": weather_location, "lang": "zh", "unit": "m"})
-    daily_payload = qweather_request("/v7/weather/3d", {"location": weather_location, "lang": "zh", "unit": "m"})
+    daily_payload = qweather_request("/v7/weather/7d", {"location": weather_location, "lang": "zh", "unit": "m"})
     now = weather_payload.get("now")
     if not isinstance(now, dict):
         raise RuntimeError("QWeather current weather response is missing 'now'")
@@ -1419,15 +1419,18 @@ def build_weather_status(location: str, display_location: str | None = None, loc
     today = daily[0] if daily and isinstance(daily[0], dict) else {}
     day_condition = str(today.get("textDay", "")).strip()
     night_condition = str(today.get("textNight", "")).strip()
-    weather_summary_parts = []
-    if day_condition and night_condition:
-        weather_summary_parts.append(f"今天白天{day_condition}，夜晚{night_condition}")
-    elif day_condition:
-        weather_summary_parts.append(f"今天白天{day_condition}")
-    elif night_condition:
-        weather_summary_parts.append(f"今天夜晚{night_condition}")
-    weather_summary_parts.append(f"现在{temperature}°")
-    weather_summary = "，".join(weather_summary_parts) + "。"
+    weather_summary = build_weather_summary(
+        temperature,
+        feels_like,
+        day_condition,
+        night_condition,
+        str(now.get("windDir", "")),
+        str(now.get("windScale", "")),
+        precipitation,
+        precipitation_probability,
+        humidity,
+        visibility,
+    )
     place_name = place.get("name", query) if place else (display_location or query)
     admin = place.get("adm1") if place else ""
     forecast = [
@@ -1439,7 +1442,7 @@ def build_weather_status(location: str, display_location: str | None = None, loc
             "tempMin": int(float(item["tempMin"])),
             "precipitationProbability": int(item["precip"]) if str(item.get("precip", "")).isdigit() else None,
         }
-        for item in daily[:3]
+        for item in daily[:5]
         if isinstance(item, dict) and item.get("tempMax") is not None and item.get("tempMin") is not None
     ]
     return {
@@ -1464,6 +1467,81 @@ def build_weather_status(location: str, display_location: str | None = None, loc
         "locationSource": location_source or "",
         "resolvedLocation": resolved_location,
     }
+
+
+def build_weather_wind_phrase(wind_direction: str, wind_scale: str) -> str:
+    direction = str(wind_direction or "").strip()
+    scale = str(wind_scale or "").strip()
+    if direction and scale:
+        return f"{direction}{scale}级"
+    if direction:
+        return direction
+    if scale:
+        return f"{scale}级风"
+    return ""
+
+
+def build_weather_notice(
+    day_condition: str,
+    night_condition: str,
+    precipitation: float,
+    precipitation_probability: int | None,
+    humidity: int,
+    visibility: int,
+) -> str:
+    combined_condition = f"{day_condition} {night_condition}".strip()
+    wet_keywords = ("雨", "雪", "雷", "冰雹")
+    has_wet_weather = any(keyword in combined_condition for keyword in wet_keywords)
+    if has_wet_weather or precipitation >= 0.2 or (precipitation_probability is not None and precipitation_probability >= 50):
+        return "出门记得带伞"
+    if humidity >= 85:
+        return "空气湿润"
+    if humidity <= 35:
+        return "空气偏干"
+    if visibility >= 15:
+        return "视野比较通透"
+    return ""
+
+
+def build_weather_summary(
+    temperature: int,
+    feels_like: int,
+    day_condition: str,
+    night_condition: str,
+    wind_direction: str,
+    wind_scale: str,
+    precipitation: float,
+    precipitation_probability: int | None,
+    humidity: int,
+    visibility: int,
+) -> str:
+    summary_parts = []
+    if day_condition and night_condition:
+        summary_parts.append(f"今天白天{day_condition}，夜晚{night_condition}")
+    elif day_condition:
+        summary_parts.append(f"今天白天{day_condition}")
+    elif night_condition:
+        summary_parts.append(f"今天夜晚{night_condition}")
+    summary_parts.append(f"现在{temperature}°")
+    if abs(feels_like - temperature) >= 3:
+        trend = "会更闷热一些" if feels_like > temperature else "会更凉一些"
+        summary_parts.append(f"体感{feels_like}°，{trend}")
+    else:
+        summary_parts.append(f"体感{feels_like}°")
+    wind_phrase = build_weather_wind_phrase(wind_direction, wind_scale)
+    if wind_phrase:
+        summary_parts.append(wind_phrase)
+    notice = build_weather_notice(
+        day_condition,
+        night_condition,
+        precipitation,
+        precipitation_probability,
+        humidity,
+        visibility,
+    )
+    if notice:
+        summary_parts.append(notice)
+    return "，".join(summary_parts) + "。"
 
 
 def weather_status(

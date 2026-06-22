@@ -113,6 +113,24 @@ test("weather icons use the official local package SVGs and keep floating weathe
   assert.match(styles, /\.weather-tooltip-icon\s*\{[\s\S]*?brightness\(0\) invert\(1\)/);
 });
 
+test("weather detail page has a dedicated QWeather alert panel instead of relying on the notification capsule", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(preload, /getQWeatherAlerts: \(\) => ipcRenderer\.invoke\("weather:get-alerts"\)/);
+  assert.match(preload, /refreshQWeatherAlerts: \(\) => ipcRenderer\.invoke\("weather:refresh-alerts"\)/);
+  assert.match(main, /ipcMain\.handle\("weather:get-alerts"/);
+  assert.match(main, /ipcMain\.handle\("weather:refresh-alerts"[\s\S]*responseCaches\.delete\("QWeather alerts"\)/);
+  assert.match(renderer, /let weatherAlerts = \{ source: "qweather", alerts: \[\], updatedAt: null, error: "" \}/);
+  assert.match(renderer, /function weatherAlertsPanel\(/);
+  assert.match(renderer, /weatherAlerts = normalizeWeatherAlerts\(await window\.winplate\.getQWeatherAlerts\(\)\)/);
+  assert.match(renderer, /weatherAlertsPanel\(\)/);
+  assert.match(styles, /\.weather-alerts-panel/);
+  assert.match(styles, /\.weather-alert-card\.severity-critical/);
+});
+
 test("mail outline escapes external email fields before rendering", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const mailItemCard = renderer.slice(

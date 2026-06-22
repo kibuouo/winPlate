@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("winplate", {
   getWeatherSettings: () => ipcRenderer.invoke("weather:get-settings"),
   saveWeatherSettings: (settings) => ipcRenderer.invoke("weather:save-settings", settings),
   getQWeatherUsage: () => ipcRenderer.invoke("weather:get-usage"),
+  getQWeatherAlerts: () => ipcRenderer.invoke("weather:get-alerts"),
   refreshQWeatherOfficialStats: () => ipcRenderer.invoke("weather:refresh-official-usage"),
   refreshQWeatherAlerts: () => ipcRenderer.invoke("weather:refresh-alerts"),
   onStatusRefresh: (callback) => ipcRenderer.on("status:refresh", (_event, payload) => callback(payload)),
