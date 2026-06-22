@@ -260,14 +260,27 @@ function closeMainWindow() {
   mainWindow?.close();
 }
 
-function normalizeMainSection(section) {
-  return typeof section === "string" && section.trim()
-    ? section
-    : "Dashboard";
+function normalizeMainNavigation(sectionOrPayload) {
+  if (typeof sectionOrPayload === "string" && sectionOrPayload.trim()) {
+    return { section: sectionOrPayload.trim() };
+  }
+  if (sectionOrPayload && typeof sectionOrPayload === "object") {
+    const section = typeof sectionOrPayload.section === "string" && sectionOrPayload.section.trim()
+      ? sectionOrPayload.section.trim()
+      : "Dashboard";
+    return {
+      section,
+      moduleId: typeof sectionOrPayload.moduleId === "string" ? sectionOrPayload.moduleId : null,
+      source: typeof sectionOrPayload.source === "string" ? sectionOrPayload.source : null,
+      sourceId: typeof sectionOrPayload.sourceId === "string" ? sectionOrPayload.sourceId : null,
+      notificationId: typeof sectionOrPayload.notificationId === "string" ? sectionOrPayload.notificationId : null
+    };
+  }
+  return { section: "Dashboard" };
 }
 
 function showMainWindow(section = "Dashboard") {
-  const targetSection = normalizeMainSection(section);
+  const targetNavigation = normalizeMainNavigation(section);
 
   if (!mainWindow) {
     createMainWindow();
@@ -275,13 +288,13 @@ function showMainWindow(section = "Dashboard") {
 
   if (mainWindow.webContents.isLoading()) {
     mainWindow.__showWhenReady = true;
-    mainWindow.__pendingSection = targetSection;
+    mainWindow.__pendingSection = targetNavigation;
     return;
   }
 
   mainWindow.show();
   mainWindow.focus();
-  sendToWindow(mainWindow, "main:navigate", targetSection);
+  sendToWindow(mainWindow, "main:navigate", targetNavigation);
 }
 
 function showFloatingWindow() {

@@ -88,6 +88,8 @@ function createNotificationSummaryService({
   callChat,
   shouldUseAi = () => true,
   onUpdated = () => {},
+  persistDigest = () => Promise.resolve(),
+  aiModel = "",
   debounceMs = 1_500,
   now = () => Date.now()
 }) {
@@ -126,8 +128,21 @@ function createNotificationSummaryService({
           console.warn("notification digest fallback:", error.code || error.message);
         }
       }
+      const generatedAt = now();
       currentHash = hash;
-      current = { ...digest, generatedAt: now(), source };
+      current = { ...digest, generatedAt, source };
+      if (source === "ai") {
+        try {
+          await Promise.resolve(persistDigest({
+            digest: current,
+            localDigest,
+            snapshot,
+            model: aiModel
+          }));
+        } catch (error) {
+          console.warn("notification digest persist failed:", error.message || error);
+        }
+      }
       onUpdated(current);
       return current;
     })().finally(() => {

@@ -45,8 +45,10 @@ let mailSettings = { configured: false, connected: false, windowDays: 30 };
 let mailOutline = { source: "loading", availability: "loading", items: [], updatedAt: null };
 let mailRefreshInFlight = false;
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
+let mailHighlightedUid = null;
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
 let weatherAlerts = { source: "qweather", alerts: [], updatedAt: null, error: "" };
+let selectedWeatherAlertId = null;
 let notificationDigest = {
   headline: "暂无新通知",
   summary: "当前没有需要关注的新通知。",
@@ -62,6 +64,10 @@ let notificationDigest = {
 };
 let notificationActionInFlight = false;
 let notificationRawExpanded = false;
+let notificationDigestExpanded = false;
+let notificationDigestGroupKey = "all";
+let notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
+let notificationActionFeedback = "";
 let networkSpeed = {
   downloadBytesPerSecond: 0,
   uploadBytesPerSecond: 0,
@@ -774,6 +780,44 @@ function normalizedNotifications(summary = notificationSummary) {
   };
 }
 
+function normalizeNavigationPayload(value) {
+  if (typeof value === "string") {
+    return { section: value };
+  }
+  if (value && typeof value === "object") {
+    return {
+      section: typeof value.section === "string" && value.section.trim() ? value.section.trim() : "Dashboard",
+      moduleId: typeof value.moduleId === "string" ? value.moduleId : null,
+      source: typeof value.source === "string" ? value.source : null,
+      sourceId: typeof value.sourceId === "string" ? value.sourceId : null,
+      notificationId: typeof value.notificationId === "string" ? value.notificationId : null
+    };
+  }
+  return { section: "Dashboard", moduleId: null, source: null, sourceId: null, notificationId: null };
+}
+
+function absoluteTimeLabel(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+function notificationItemsForDigest() {
+  const summary = normalizedNotifications();
+  const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
+  if (!notificationDigestExpanded) return summary.items;
+  const group = notificationDigestGroupKey === "all"
+    ? null
+    : digest.groups.find((item) => item.key === notificationDigestGroupKey);
+  const ids = new Set(group?.sourceIds || digest.sourceIds || []);
+  return summary.items.filter((item) => (ids.size ? ids.has(item.id) : true));
+}
+
 function notificationSourceLabel(source) {
   return {
     mail: "Mail",
@@ -1215,7 +1259,13 @@ function weatherAlertStatus(alert = {}) {
 
 function weatherAlertsPanel() {
   const weather = statusData.weather || mockStatus.weather;
-  const alerts = Array.isArray(weatherAlerts.alerts) ? weatherAlerts.alerts.slice(0, 2) : [];
+  const allAlerts = Array.isArray(weatherAlerts.alerts) ? weatherAlerts.alerts : [];
+  const selectedAlert = selectedWeatherAlertId
+    ? allAlerts.find((alert) => String(alert.id || "") === String(selectedWeatherAlertId))
+    : null;
+  const alerts = selectedAlert
+    ? [selectedAlert, ...allAlerts.filter((alert) => alert !== selectedAlert)].slice(0, 3)
+    : allAlerts.slice(0, 2);
   if (!alerts.length && weather.source !== "qweather" && !weatherAlerts.error) return "";
   const helperText = alerts.length
     ? `${relativeUpdatedAt(weatherAlerts.updatedAt)}同步`
@@ -1228,7 +1278,7 @@ function weatherAlertsPanel() {
       </div>
       ${alerts.length ? `<div class="weather-alerts-list">
         ${alerts.map((alert) => `
-          <article class="weather-alert-card severity-${weatherAlertTone(alert)}">
+          <article class="weather-alert-card severity-${weatherAlertTone(alert)} ${String(alert.id || "") === String(selectedWeatherAlertId || "") ? "focused" : ""}">
             <span class="weather-alert-badge">${escapeHtml(weatherAlertStatus(alert))}</span>
             <div class="weather-alert-copy">
               <strong>${escapeHtml(alert.title || "天气预警")}</strong>
@@ -1972,12 +2022,94 @@ function mailDetailDrawer() {
     </aside>`;
 }
 
+function notificationDetailValue(value) {
+  if (Number.isFinite(Number(value)) && Number(value) > 10_000) {
+    return absoluteTimeLabel(Number(value));
+  }
+  return String(value ?? "");
+}
+
+function notificationActionButton(action = {}) {
+  const label = action.label || "执行";
+  const disabled = action.type === "markRead" && label === "已读";
+  return `<button class="notification-detail-action type-${escapeHtml(action.type || "view")}" type="button" data-notification-action-id="${escapeHtml(action.id || "")}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>`;
+}
+
+function notificationDigestExplorer() {
+  if (!notificationDigestExpanded) return "";
+  const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
+  const groups = Array.isArray(digest.groups) ? digest.groups : [];
+  const activeKey = notificationDigestGroupKey || "all";
+  const filteredCount = notificationItemsForDigest().length;
+  return `
+    <section class="notification-digest-explorer">
+      <header>
+        <div>
+          <strong>摘要详情</strong>
+          <p>${escapeHtml(digest.summary || "当前没有需要关注的新通知。")}</p>
+        </div>
+        <button class="notification-digest-close" type="button" data-notification-digest-close="true" aria-label="关闭摘要详情">×</button>
+      </header>
+      <div class="notification-digest-filters">
+        <button class="${activeKey === "all" ? "active" : ""}" type="button" data-notification-digest-group="all">全部 ${digest.sourceIds.length || 0}</button>
+        ${groups.map((group) => `
+          <button class="${activeKey === group.key ? "active" : ""}" type="button" data-notification-digest-group="${escapeHtml(group.key)}">
+            ${escapeHtml(group.label)} ${Math.max(0, Number(group.count) || 0)}
+          </button>`).join("")}
+      </div>
+      <small>当前显示 ${filteredCount} 条通知</small>
+    </section>`;
+}
+
+function notificationDetailDrawer() {
+  if (!notificationDetail.open) return "";
+  const payload = notificationDetail.data || {};
+  const detail = payload.detail || {};
+  const notification = payload.notification || {};
+  const title = notificationDetail.loading
+    ? "正在读取通知..."
+    : notificationDetail.error
+      ? "通知读取失败"
+      : detail.title || notification.title || "通知详情";
+  const body = notificationDetail.loading
+    ? `<div class="notification-detail-state">正在加载通知详情...</div>`
+    : notificationDetail.error
+      ? `<div class="notification-detail-state error">${escapeHtml(notificationDetail.error)}</div>`
+      : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
+  const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
+  const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
+  return `
+    <aside class="notification-detail-drawer" aria-label="通知详情">
+      <header>
+        <div>
+          <span>${escapeHtml(notificationSourceLabel(notification.source || "system"))}</span>
+          <h2>${escapeHtml(title)}</h2>
+        </div>
+        <button class="notification-detail-close" type="button" aria-label="关闭通知详情">×</button>
+      </header>
+      ${notificationDetail.loading || notificationDetail.error ? "" : `
+        <dl class="notification-detail-meta">
+          ${metadata.map((entry) => `
+            <div>
+              <dt>${escapeHtml(entry.label || "")}</dt>
+              <dd>${escapeHtml(notificationDetailValue(entry.value))}</dd>
+            </div>`).join("")}
+        </dl>
+      `}
+      <section class="notification-detail-content">${body}</section>
+      ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
+      <footer>
+        ${actions.map(notificationActionButton).join("")}
+      </footer>
+    </aside>`;
+}
+
 function mailItemCard(item) {
   const uid = item.uid || item.messageId || item.threadId || "";
   const labels = Array.isArray(item.labels) ? item.labels : [];
   const unread = item.unread || labels.includes("UNREAD");
   return `
-    <article class="mail-outline-item ${unread ? "unread" : ""}">
+    <article class="mail-outline-item ${unread ? "unread" : ""} ${String(uid) === String(mailHighlightedUid || "") ? "focused" : ""}">
       <div class="mail-outline-meta">
         <strong>${escapeHtml(item.sender)}</strong>
         <time>${mailTimeLabel(item.sentAt)}</time>
@@ -2035,7 +2167,7 @@ function mailContent() {
 
 function notificationContent() {
   const summary = normalizedNotifications();
-  const items = summary.items;
+  const items = notificationItemsForDigest();
   const digestCard = window.WinPlateNotificationDigest.renderDigestCard(notificationDigest);
   const rows = window.WinPlateNotificationDigest.renderRawNotifications(items, {
     expanded: notificationRawExpanded,
@@ -2054,7 +2186,9 @@ function notificationContent() {
         </div>
       </div>
       ${digestCard}
+      ${notificationDigestExplorer()}
       ${rows}
+      ${notificationDetailDrawer()}
     </section>`;
 }
 
@@ -2765,6 +2899,7 @@ function bindMailControls() {
       const uid = button.dataset.mailUid || "";
       if (!uid) return;
       button.disabled = true;
+      mailHighlightedUid = uid;
       mailDetail = { open: true, loading: true, uid, message: null, error: "" };
       updateMainStatusDom();
       try {
@@ -2889,7 +3024,100 @@ function bindMailControls() {
   };
 }
 
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return;
+  if (window.winplate?.copyNotificationText) {
+    await window.winplate.copyNotificationText(value);
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "absolute";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+async function openNotificationDetail(notificationId) {
+  const id = String(notificationId || "").trim();
+  if (!id) return;
+  notificationDetail = { open: true, loading: true, id, data: null, error: "" };
+  notificationActionFeedback = "";
+  updateMainStatusDom();
+  try {
+    const payload = await window.winplate.getNotificationDetail(id);
+    notificationDetail = { open: true, loading: false, id, data: payload, error: "" };
+  } catch (error) {
+    notificationDetail = {
+      open: true,
+      loading: false,
+      id,
+      data: null,
+      error: error.message || "通知详情加载失败"
+    };
+  }
+  updateMainStatusDom();
+}
+
+function closeNotificationDetail() {
+  notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
+  notificationActionFeedback = "";
+}
+
+async function handleNotificationAction(actionId) {
+  const actions = Array.isArray(notificationDetail.data?.actions) ? notificationDetail.data.actions : [];
+  const action = actions.find((entry) => entry.id === actionId);
+  if (!action) return;
+  if (action.type === "copy") {
+    await copyTextToClipboard(action.payload?.text || "");
+    notificationActionFeedback = "内容已复制到剪贴板";
+    return;
+  }
+  if (action.type === "markRead") {
+    notificationSummary = await window.winplate.markNotificationRead(
+      action.payload?.notificationId || notificationDetail.id
+    );
+    if (notificationDetail.data?.notification) {
+      notificationDetail = {
+        ...notificationDetail,
+        data: {
+          ...notificationDetail.data,
+          notification: {
+            ...notificationDetail.data.notification,
+            unread: false
+          },
+          actions: notificationDetail.data.actions.map((entry) => (
+            entry.type === "markRead"
+              ? { ...entry, label: "已读" }
+              : entry
+          ))
+        }
+      };
+    }
+    await hydrateNotificationDigest();
+    notificationActionFeedback = "已标记为已读";
+    updateMainStatusDom();
+    return;
+  }
+  if (action.type === "navigate") {
+    await window.winplate.navigateNotification(action);
+  }
+}
+
 function bindNotificationControls() {
+  const pageContent = document.querySelector("#page-content");
+  if (pageContent && !pageContent.dataset.notificationDelegationBound) {
+    pageContent.dataset.notificationDelegationBound = "true";
+    pageContent.addEventListener("click", handleNotificationPageClick);
+  }
   const rawSection = document.querySelector(".notification-raw-section");
   if (rawSection) {
     notificationRawExpanded = rawSection.open;
@@ -2948,22 +3176,76 @@ function bindNotificationControls() {
       }
     };
   }
-  document.querySelectorAll("[data-notification-read]").forEach((button) => {
-    button.onclick = async () => {
-      if (notificationActionInFlight || button.disabled) return;
-      notificationActionInFlight = true;
-      button.disabled = true;
-      try {
-        notificationSummary = await window.winplate.markNotificationRead(button.dataset.notificationRead);
-        await hydrateNotificationDigest();
-      } catch (error) {
-        console.error("Failed to mark notification read:", error);
-      } finally {
-        notificationActionInFlight = false;
-        updateMainStatusDom();
-      }
-    };
-  });
+}
+
+async function handleNotificationPageClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !target.closest(".notifications-page")) return;
+
+  const readButton = target.closest("[data-notification-read]");
+  if (readButton) {
+    event.stopPropagation();
+    if (notificationActionInFlight || readButton.disabled) return;
+    notificationActionInFlight = true;
+    readButton.disabled = true;
+    try {
+      notificationSummary = await window.winplate.markNotificationRead(readButton.dataset.notificationRead);
+      await hydrateNotificationDigest();
+    } catch (error) {
+      console.error("Failed to mark notification read:", error);
+    } finally {
+      notificationActionInFlight = false;
+      updateMainStatusDom();
+    }
+    return;
+  }
+
+  const actionButton = target.closest("[data-notification-action-id]");
+  if (actionButton) {
+    if (notificationActionInFlight || actionButton.disabled) return;
+    notificationActionInFlight = true;
+    actionButton.disabled = true;
+    try {
+      await handleNotificationAction(actionButton.dataset.notificationActionId);
+    } catch (error) {
+      console.error("Failed to execute notification action:", error);
+    } finally {
+      notificationActionInFlight = false;
+      updateMainStatusDom();
+    }
+    return;
+  }
+
+  if (target.closest("[data-notification-digest-close]")) {
+    notificationDigestExpanded = false;
+    notificationDigestGroupKey = "all";
+    updateMainStatusDom();
+    return;
+  }
+  if (target.closest(".notification-detail-close")) {
+    closeNotificationDetail();
+    updateMainStatusDom();
+    return;
+  }
+
+  const groupButton = target.closest("[data-notification-digest-group]");
+  if (groupButton) {
+    notificationDigestGroupKey = groupButton.dataset.notificationDigestGroup || "all";
+    updateMainStatusDom();
+    return;
+  }
+
+  const notificationCard = target.closest("[data-notification-open]");
+  if (notificationCard) {
+    if (!notificationActionInFlight) await openNotificationDetail(notificationCard.dataset.notificationOpen);
+    return;
+  }
+
+  if (target.closest("[data-notification-digest-toggle]")) {
+    notificationDigestExpanded = !notificationDigestExpanded;
+    if (!notificationDigestExpanded) notificationDigestGroupKey = "all";
+    updateMainStatusDom();
+  }
 }
 
 async function hydrateQWeatherUsage() {
@@ -3239,6 +3521,20 @@ async function refreshStatus() {
   }
 }
 
+function applyNavigationPayload(value) {
+  const payload = normalizeNavigationPayload(value);
+  currentSection = payload.section;
+  if (payload.moduleId === "mail" && payload.sourceId) {
+    mailHighlightedUid = payload.sourceId;
+  }
+  if (payload.moduleId === "weather" && payload.sourceId) {
+    selectedWeatherAlertId = payload.sourceId;
+  }
+  if (payload.section === "Notifications" && payload.notificationId) {
+    notificationDigestExpanded = true;
+  }
+}
+
 registerRefreshTasks();
 if (view === "main") renderMain();
 hydrateAppearanceSettings().then(async () => {
@@ -3276,8 +3572,8 @@ if (view !== "tooltip") {
   window.winplate.onTooltipUpdate(renderTooltip);
 }
 
-window.winplate.onNavigate((section) => {
-  currentSection = section;
+window.winplate.onNavigate((payload) => {
+  applyNavigationPayload(payload);
   if (view === "main") {
     renderMain();
   }

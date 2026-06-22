@@ -1,6 +1,6 @@
 const { DEFAULT_BASE_URL, normalizeBaseUrl } = require("./deepseekUsage");
 
-const DEFAULT_MODEL = "deepseek-chat";
+const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 6_000;
 
 class DeepSeekChatError extends Error {

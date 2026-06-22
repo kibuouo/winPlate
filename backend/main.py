@@ -134,18 +134,39 @@ class NotificationPayload(BaseModel):
     id: str | None = None
 
 
+class NotificationDigestRecordPayload(BaseModel):
+    title: str
+    summary: str
+    content: str | None = None
+    severity: str = "info"
+    category: str = "system"
+    iconKey: str = "bell"
+    unreadCount: int = 0
+    generatedAt: int | None = None
+    source: str = "deepseek"
+    model: str | None = None
+    sourceIds: list[str] | None = None
+
+
 def environment_setting(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
-    if value or os.name != "nt":
+    if os.name != "nt":
         return value or default
     try:
         import winreg
 
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
             registry_value, _ = winreg.QueryValueEx(key, name)
-            return registry_value if isinstance(registry_value, str) and registry_value else default
+            if not isinstance(registry_value, str) or not registry_value:
+                return value or default
+            if value and name.endswith("_PRIVATE_KEY"):
+                normalized_value = value.replace("\\n", "\n").strip()
+                normalized_registry = registry_value.replace("\\n", "\n").strip()
+                if normalized_value.startswith("-----BEGIN ") and "-----END " not in normalized_value and "-----END " in normalized_registry:
+                    return registry_value
+            return value or registry_value or default
     except (ImportError, FileNotFoundError, OSError):
-        return default
+        return value or default
 
 
 def github_username() -> str:
@@ -432,6 +453,109 @@ def notification_row_to_item(row: sqlite3.Row) -> dict:
         "createdAt": int(row["created_at"]),
         "updatedAt": int(row["updated_at"]),
         "externalUrl": row["external_url"] or None,
+    }
+
+
+def normalize_digest_severity(severity: str) -> str:
+    value = str(severity or "info").strip().lower()
+    return value if value in {"info", "warning", "danger"} else "info"
+
+
+def notification_digest_record_row_to_item(row: sqlite3.Row) -> dict:
+    try:
+        payload = json.loads(row["payload"])
+    except (TypeError, json.JSONDecodeError):
+        payload = {}
+    return {
+        "id": int(row["id"]),
+        "source": row["source"],
+        "model": row["model"] or None,
+        "title": row["title"],
+        "summary": row["summary"],
+        "content": row["content"],
+        "severity": row["severity"],
+        "category": row["category"],
+        "iconKey": row["icon_key"],
+        "unreadCount": int(row["unread_count"]),
+        "generatedAt": int(row["generated_at"]),
+        "generatedAtIso": row["generated_at_iso"],
+        "createdAt": int(row["created_at"]),
+        "payload": payload if isinstance(payload, dict) else {},
+    }
+
+
+def persist_notification_digest_record(payload: NotificationDigestRecordPayload) -> dict:
+    generated_at = int(payload.generatedAt or utc_epoch_seconds() * 1000)
+    created_at = utc_epoch_seconds() * 1000
+    title = clean_mail_text(payload.title, limit=120) or "智能摘要"
+    summary = clean_mail_text(payload.summary, limit=500) or title
+    content = clean_mail_text(payload.content or f"{title} {summary}", limit=800) or summary
+    severity = normalize_digest_severity(payload.severity)
+    category = clean_mail_text(payload.category, limit=40).lower() or "system"
+    icon_key = clean_mail_text(payload.iconKey, limit=80) or "bell"
+    source = normalize_notification_source(payload.source)
+    model = clean_mail_text(payload.model or "", limit=80)
+    unread_count = max(0, int(payload.unreadCount or 0))
+    source_ids = [
+        clean_mail_text(str(item), limit=160)
+        for item in (payload.sourceIds or [])
+        if clean_mail_text(str(item), limit=160)
+    ]
+    stored_payload = json.dumps({
+        "sourceIds": source_ids,
+        "generatedAtIso": datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
+    }, ensure_ascii=False)
+    with closing(connect()) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO notification_digest_records
+            (source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source,
+                model,
+                title,
+                summary,
+                content,
+                severity,
+                category,
+                icon_key,
+                unread_count,
+                generated_at,
+                datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
+                created_at,
+                stored_payload,
+            ),
+        )
+        row = connection.execute(
+            """
+            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
+            FROM notification_digest_records
+            WHERE id = ?
+            """,
+            (cursor.lastrowid,),
+        ).fetchone()
+        connection.commit()
+    return notification_digest_record_row_to_item(row)
+
+
+def notification_digest_records(limit: int = 20) -> dict:
+    safe_limit = max(1, min(100, int(limit or 20)))
+    with closing(connect()) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
+            FROM notification_digest_records
+            ORDER BY generated_at DESC, id DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+    items = [notification_digest_record_row_to_item(row) for row in rows]
+    return {
+        "items": items,
+        "updatedAt": utc_epoch_seconds() * 1000,
     }
 
 
@@ -865,7 +989,7 @@ def read_mail_outline_from_qq() -> tuple[list[dict], int]:
     return outlines, unread_count
 
 
-def read_mail_message(uid: str, mark_read: bool = True) -> dict:
+def read_mail_message(uid: str, mark_read: bool = False) -> dict:
     safe_uid = str(uid or "").strip()
     if not safe_uid or not re.fullmatch(r"[0-9A-Za-z._:-]{1,80}", safe_uid):
         raise RuntimeError("邮件 UID 无效")
@@ -1043,6 +1167,29 @@ def initialize_database() -> None:
                 updated_at INTEGER NOT NULL
             )
             """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notification_digest_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                model TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                content TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                category TEXT NOT NULL,
+                icon_key TEXT NOT NULL,
+                unread_count INTEGER NOT NULL DEFAULT 0,
+                generated_at INTEGER NOT NULL,
+                generated_at_iso TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notification_digest_records_generated ON notification_digest_records (generated_at DESC, id DESC)"
         )
         for module, payload in DEFAULT_STATUS.items():
             initial_payload = deepcopy(payload)
@@ -1264,12 +1411,15 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
         raise RuntimeError("QWeather JWT 项目 ID、凭据 ID 或私钥尚未配置")
 
     now = int(time.time())
-    token = jwt.encode(
-        {"sub": project_id, "iat": now - 30, "exp": now + 900},
-        private_key.replace("\\n", "\n"),
-        algorithm="EdDSA",
-        headers={"kid": credential_id},
-    )
+    try:
+        token = jwt.encode(
+            {"sub": project_id, "iat": now - 30, "exp": now + 900},
+            private_key.replace("\\n", "\n"),
+            algorithm="EdDSA",
+            headers={"kid": credential_id},
+        )
+    except ValueError as error:
+        raise RuntimeError("QWeather 私钥格式无效，请重新粘贴完整的 Ed25519 PEM 私钥") from error
     query = f"?{urlencode(params or {})}" if params else ""
     request = Request(
         f"https://{api_host}{path}{query}",
@@ -1733,6 +1883,22 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
     }
 
 
+def qweather_alert_detail(alert_id: str) -> dict:
+    safe_alert_id = str(alert_id or "").strip()
+    if not safe_alert_id:
+        raise RuntimeError("天气预警 ID 不能为空")
+    payload = qweather_alerts()
+    alerts = payload.get("alerts") if isinstance(payload, dict) else []
+    for alert in alerts:
+        if str(alert.get("id") or "").strip() == safe_alert_id:
+            return {
+                **alert,
+                "source": "qweather",
+                "body": alert.get("message") or "",
+            }
+    raise RuntimeError("天气预警不存在或已失效")
+
+
 def contribution_level(count: int) -> int:
     if count <= 0:
         return 0
@@ -2130,6 +2296,15 @@ def get_weather_alerts() -> dict:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 
+@api.get("/api/weather/alerts/{alert_id}")
+def get_weather_alert_detail(alert_id: str) -> dict:
+    try:
+        return qweather_alert_detail(alert_id)
+    except RuntimeError as error:
+        status_code = 404 if "不存在" in str(error) or "失效" in str(error) else 400
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+
+
 @api.get("/api/mail/settings")
 def get_mail_settings() -> dict:
     return mail_settings()
@@ -2161,14 +2336,32 @@ def read_mail_message_detail(uid: str) -> dict:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@api.get("/api/mail/messages/{uid}")
+def get_mail_message_detail(uid: str) -> dict:
+    try:
+        return read_mail_message(uid, mark_read=False)
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @api.get("/api/notifications")
 def get_notifications(limit: int = 20) -> dict:
     return notification_summary(limit)
 
 
+@api.get("/api/notifications/digest-records")
+def get_notification_digest_records(limit: int = 20) -> dict:
+    return notification_digest_records(limit)
+
+
 @api.post("/api/notifications")
 def create_notification(payload: NotificationPayload) -> dict:
     return push_notification(payload)
+
+
+@api.post("/api/notifications/digest-records")
+def create_notification_digest_record(payload: NotificationDigestRecordPayload) -> dict:
+    return persist_notification_digest_record(payload)
 
 
 @api.post("/api/notifications/{notification_id}/read")

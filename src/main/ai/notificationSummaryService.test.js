@@ -111,3 +111,30 @@ test("uses the complete local digest when AI summaries are disabled", async () =
   assert.equal(digest.source, "local");
   assert.equal(digest.unreadCount, 1);
 });
+
+test("persists DeepSeek-generated digests with timestamped content", async () => {
+  const persisted = [];
+  const service = createNotificationSummaryService({
+    store: { collect: async () => ({ items: raw }) },
+    callChat: async () => JSON.stringify({
+      title: "开发任务已完成",
+      summary: "Codex 测试已通过。",
+      severity: "info",
+      category: "development",
+      iconKey: "check-circle",
+      unreadCount: 1
+    }),
+    persistDigest: async (payload) => {
+      persisted.push(payload);
+    },
+    aiModel: "deepseek-v4-flash",
+    now: () => 123456
+  });
+
+  const digest = await service.refreshNow({ force: true });
+  assert.equal(digest.source, "ai");
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].digest.generatedAt, 123456);
+  assert.equal(persisted[0].digest.summary, "Codex 测试已通过。");
+  assert.equal(persisted[0].model, "deepseek-v4-flash");
+});

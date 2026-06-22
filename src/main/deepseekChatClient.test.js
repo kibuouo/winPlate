@@ -19,6 +19,7 @@ test("calls DeepSeek chat completions without exposing the API key in URL or bod
 
   assert.equal(content, "ok");
   assert.equal(request.url, "https://example.test/chat/completions");
+  assert.equal(request.body.model, "deepseek-v4-flash");
   assert.equal(request.options.headers.Authorization, "Bearer secret-key");
   assert.doesNotMatch(request.url, /secret-key/);
   assert.doesNotMatch(request.options.body, /secret-key/);

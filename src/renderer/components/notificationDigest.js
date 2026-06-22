@@ -40,7 +40,7 @@
     const value = normalizeDigest(digest);
     const iconKey = global.WinPlateSmartNotificationIcons.resolveSmartNotificationIcon(value);
     return `
-      <section class="notification-digest-card severity-${escapeHtml(value.severity)} ${compact ? "compact" : ""}" aria-label="智能通知摘要">
+      <section class="notification-digest-card severity-${escapeHtml(value.severity)} ${compact ? "compact" : ""}" aria-label="智能通知摘要" ${compact ? "" : 'data-notification-digest-toggle="true"'}>
         <div class="notification-digest-heading">
           <span class="notification-digest-kicker">${global.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}智能摘要</span>
           <span class="notification-digest-count">${value.unreadCount} 未读</span>
@@ -55,7 +55,7 @@
     const list = Array.isArray(items) ? items : [];
     // Baseline markup remains <details class="notification-raw-section"> when collapsed.
     const rows = list.length ? `<div class="notification-page-list">${list.map((item) => `
-      <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(item.level)} ${item.unread ? "unread" : ""}">
+      <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(item.level)} ${item.unread ? "unread" : ""}" data-notification-open="${escapeHtml(item.id)}">
         <div class="notification-page-main">
           <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
           <h2>${escapeHtml(item.title)}</h2>

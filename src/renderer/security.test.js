@@ -121,12 +121,15 @@ test("weather detail page has a dedicated QWeather alert panel instead of relyin
 
   assert.match(preload, /getQWeatherAlerts: \(\) => ipcRenderer\.invoke\("weather:get-alerts"\)/);
   assert.match(preload, /refreshQWeatherAlerts: \(\) => ipcRenderer\.invoke\("weather:refresh-alerts"\)/);
+  assert.match(main, /ipcMain\.handle\("weather:get-alert"/);
   assert.match(main, /ipcMain\.handle\("weather:get-alerts"/);
-  assert.match(main, /ipcMain\.handle\("weather:refresh-alerts"[\s\S]*responseCaches\.delete\("QWeather alerts"\)/);
+  assert.match(main, /function clearWeatherAlertCaches\(\)[\s\S]*responseCaches\.delete\("QWeather alerts"\)/);
+  assert.match(main, /ipcMain\.handle\("weather:refresh-alerts"[\s\S]*clearWeatherAlertCaches\(\)/);
   assert.match(renderer, /let weatherAlerts = \{ source: "qweather", alerts: \[\], updatedAt: null, error: "" \}/);
   assert.match(renderer, /function weatherAlertsPanel\(/);
   assert.match(renderer, /weatherAlerts = normalizeWeatherAlerts\(await window\.winplate\.getQWeatherAlerts\(\)\)/);
   assert.match(renderer, /weatherAlertsPanel\(\)/);
+  assert.match(renderer, /weather-alert-card severity-\$\{weatherAlertTone\(alert\)\} \$\{String\(alert\.id \|\| ""\) === String\(selectedWeatherAlertId \|\| ""\) \? "focused" : ""\}/);
   assert.match(styles, /\.weather-alerts-panel/);
   assert.match(styles, /\.weather-alert-card\.severity-critical/);
 });
@@ -207,6 +210,7 @@ test("notifications escape pushed titles and messages before rendering", () => {
   assert.match(component, /escapeHtml\(item\.body \|\| item\.message\)/);
   assert.match(component, /escapeHtml\(value\.headline\)/);
   assert.match(component, /escapeHtml\(value\.summary\)/);
+  assert.match(component, /data-notification-open="\$\{escapeHtml\(item\.id\)\}"/);
 });
 
 test("notification capsule and panel consume the digest instead of a raw title", () => {
@@ -249,9 +253,26 @@ test("notification severity styles cover capsule, badge, and compact popup", () 
 test("notifications expose a clear action through preload and renderer controls", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   assert.match(preload, /clearNotifications: \(\) => ipcRenderer\.invoke\("notifications:clear"\)/);
+  assert.match(preload, /getNotificationDetail: \(id\) => ipcRenderer\.invoke\("notifications:get-detail", id\)/);
+  assert.match(preload, /navigateNotification: \(action\) => ipcRenderer\.invoke\("notifications:navigate", action\)/);
+  assert.match(preload, /copyNotificationText: \(text\) => ipcRenderer\.invoke\("notifications:copy", text\)/);
   assert.match(renderer, /id="clear-notifications"/);
   assert.match(renderer, /window\.winplate\.clearNotifications\(\)/);
+  assert.match(renderer, /window\.winplate\.getNotificationDetail\(id\)/);
+  assert.match(renderer, /window\.winplate\.navigateNotification\(action\)/);
+  assert.match(renderer, /window\.winplate\.copyNotificationText\(value\)/);
+  assert.match(renderer, /pageContent\.addEventListener\("click", handleNotificationPageClick\)/);
+  assert.match(renderer, /event\.stopPropagation\(\)/);
+  assert.match(component, /data-notification-digest-toggle="true"/);
+});
+
+test("notification detail titles stay within the drawer header", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.notification-detail-drawer header > div \{ min-width: 0; flex: 1 1 auto; \}/);
+  assert.match(css, /\.notification-detail-drawer header h2 \{[\s\S]*-webkit-line-clamp: 2;/);
+  assert.match(css, /\.notification-detail-close \{ flex: 0 0 40px; \}/);
 });
 
 test("DeepSeek balance card renders local token usage instead of unavailable placeholder", () => {

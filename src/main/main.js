@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, BrowserWindow, clipboard, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
 const path = require("node:path");
 const { promisify } = require("util");
@@ -30,12 +30,13 @@ const {
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
   readDeepSeekUsage
 } = require("./deepseekUsage");
-const { callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
+const { DEFAULT_MODEL: DEEPSEEK_CHAT_MODEL, callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
 const {
   readDeepSeekTokenUsage,
   recordDeepSeekTokenUsage
 } = require("./deepseekTokenUsage");
 const { createNotificationStore } = require("./notifications/notificationStore");
+const { createNotificationDetailService } = require("./notifications/detailService");
 const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
 const { mainModules, validateMainModules } = require("./modules");
 const { readSettings, writeSettings } = require("./settingsStore");
@@ -52,6 +53,7 @@ const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
+let notificationDetailService = null;
 let currentSettings = null;
 const desktopIconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
 
@@ -77,6 +79,54 @@ function scheduleNotificationDigestRefresh() {
   notificationSummaryService?.scheduleRefresh().catch((error) => {
     console.warn("notification digest refresh failed:", error.message);
   });
+}
+
+function clearNotificationCaches() {
+  responseCaches.delete("Notifications");
+}
+
+function clearMailCaches() {
+  responseCaches.delete("Mail outline");
+}
+
+function clearWeatherAlertCaches() {
+  responseCaches.delete("QWeather alerts");
+}
+
+async function fetchMailMessageByUid(uid, { markRead = false } = {}) {
+  const messageUid = typeof uid === "string" || typeof uid === "number" ? String(uid).trim() : "";
+  if (!messageUid) {
+    throw new Error("邮件 UID 不能为空");
+  }
+  const method = markRead ? "POST" : "GET";
+  const response = await fetch(
+    `http://127.0.0.1:8765/api/mail/messages/${encodeURIComponent(messageUid)}${markRead ? "/read" : ""}`,
+    { method }
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `邮件读取失败: HTTP ${response.status}`);
+  }
+  const message = await response.json();
+  if (markRead) {
+    clearMailCaches();
+    clearNotificationCaches();
+    scheduleNotificationDigestRefresh();
+  }
+  return message;
+}
+
+async function fetchWeatherAlertById(alertId) {
+  const safeAlertId = typeof alertId === "string" || typeof alertId === "number" ? String(alertId).trim() : "";
+  if (!safeAlertId) {
+    throw new Error("天气预警 ID 不能为空");
+  }
+  const response = await fetch(`http://127.0.0.1:8765/api/weather/alerts/${encodeURIComponent(safeAlertId)}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `天气预警读取失败: HTTP ${response.status}`);
+  }
+  return response.json();
 }
 
 function setResponseCache(key, value) {
@@ -144,13 +194,16 @@ async function readUserEnvironment(name) {
     return process.env[name] || "";
   }
   try {
-    const { stdout } = await execFileAsync("reg.exe", [
-      "query", "HKCU\\Environment", "/v", name
-    ], { windowsHide: true });
-    const line = stdout.split(/\r?\n/).find((entry) => entry.includes(name));
-    return line?.trim().split(/\s{2,}/).at(-1) || "";
+    const safeName = String(name).replace(/'/g, "''");
+    const { stdout } = await execFileAsync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `[Environment]::GetEnvironmentVariable('${safeName}', 'User')`
+    ], { windowsHide: true, maxBuffer: 1024 * 1024 });
+    return stdout.replace(/\r?\n$/, "");
   } catch {
-    return "";
+    return process.env[name] || "";
   }
 }
 
@@ -304,23 +357,10 @@ if (!gotLock) {
       return { opened: true };
     });
     ipcMain.handle("email:read-message", async (_event, uid) => {
-      const messageUid = typeof uid === "string" || typeof uid === "number" ? String(uid).trim() : "";
-      if (!messageUid) {
-        throw new Error("邮件 UID 不能为空");
-      }
-      const response = await fetch(
-        `http://127.0.0.1:8765/api/mail/messages/${encodeURIComponent(messageUid)}/read`,
-        { method: "POST" }
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail || `邮件读取失败: HTTP ${response.status}`);
-      }
-      const message = await response.json();
-      responseCaches.delete("Mail outline");
-      responseCaches.delete("Notifications");
-      scheduleNotificationDigestRefresh();
-      return message;
+      return fetchMailMessageByUid(uid, { markRead: true });
+    });
+    ipcMain.handle("mail:get-message", async (_event, uid) => {
+      return fetchMailMessageByUid(uid, { markRead: false });
     });
     ipcMain.handle("github:refresh", async () => {
       const response = await fetch("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });
@@ -442,6 +482,7 @@ if (!gotLock) {
         WEATHER_ALERT_CACHE_TTL_MS
       )
     ));
+    ipcMain.handle("weather:get-alert", async (_event, alertId) => fetchWeatherAlertById(alertId));
     ipcMain.handle("weather:refresh-official-usage", async () => {
       const response = await fetch("http://127.0.0.1:8765/api/weather/usage/official", { method: "POST" });
       if (!response.ok) {
@@ -451,13 +492,13 @@ if (!gotLock) {
       return response.json();
     });
     ipcMain.handle("weather:refresh-alerts", async () => {
-      responseCaches.delete("QWeather alerts");
+      clearWeatherAlertCaches();
       const alerts = await fetchJsonCached(
         "QWeather alerts",
         "http://127.0.0.1:8765/api/weather/alerts",
         WEATHER_ALERT_CACHE_TTL_MS
       );
-      responseCaches.delete("Notifications");
+      clearNotificationCaches();
       scheduleNotificationDigestRefresh();
       return alerts;
     });
@@ -482,7 +523,7 @@ if (!gotLock) {
         writeUserEnvironment("QQ_MAIL_SMTP_PORT", "465")
       ]);
       responseCaches.delete("Mail settings");
-      responseCaches.delete("Mail outline");
+      clearMailCaches();
       return {
         configured: true,
         connected: true,
@@ -505,8 +546,8 @@ if (!gotLock) {
         throw new Error(payload?.detail || `Mail refresh failed: HTTP ${response.status}`);
       }
       const outline = await response.json();
-      responseCaches.delete("Mail outline");
-      responseCaches.delete("Notifications");
+      clearMailCaches();
+      clearNotificationCaches();
       scheduleNotificationDigestRefresh();
       return outline;
     });
@@ -518,23 +559,52 @@ if (!gotLock) {
       }
       const payload = await response.json();
       responseCaches.delete("Mail settings");
-      responseCaches.delete("Mail outline");
+      clearMailCaches();
       return payload;
     });
     ipcMain.handle("notifications:get", async () => {
       await syncWeatherAlertsIntoNotifications();
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
     });
+    const loadNotificationSummary = async () => {
+      await syncWeatherAlertsIntoNotifications();
+      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
+    };
     const notificationStore = createNotificationStore({
-      loadNotifications: async () => {
-        await syncWeatherAlertsIntoNotifications();
-        return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
-      }
+      loadNotifications: loadNotificationSummary
+    });
+    notificationDetailService = createNotificationDetailService({
+      loadNotifications: loadNotificationSummary,
+      fetchMailMessage: (uid) => fetchMailMessageByUid(uid, { markRead: false }),
+      fetchWeatherAlert: (alertId) => fetchWeatherAlertById(alertId)
     });
     notificationSummaryService = createNotificationSummaryService({
       store: notificationStore,
       onUpdated: broadcastNotificationDigest,
       shouldUseAi: () => currentSettings.notificationDigest.enabled,
+      aiModel: DEEPSEEK_CHAT_MODEL,
+      persistDigest: async ({ digest, snapshot, model }) => {
+        const response = await fetch("http://127.0.0.1:8765/api/notifications/digest-records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source: "deepseek",
+            model,
+            title: digest.title,
+            summary: digest.summary,
+            content: `${digest.title}\n${digest.summary}`.trim(),
+            severity: digest.severity,
+            category: digest.category,
+            iconKey: digest.iconKey,
+            unreadCount: digest.unreadCount,
+            generatedAt: digest.generatedAt,
+            sourceIds: Array.isArray(snapshot?.items) ? snapshot.items.map((item) => item.id).filter(Boolean) : []
+          })
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+      },
       callChat: async (options) => {
         const [apiKey, baseUrl] = await Promise.all([
           readUserEnvironment("DEEPSEEK_API_KEY"),
@@ -551,6 +621,27 @@ if (!gotLock) {
     ipcMain.handle("notification:get-digest", () => notificationSummaryService.getDigest());
     ipcMain.handle("notifications:get-smart-brief", () => notificationSummaryService.getDigest());
     ipcMain.handle("notifications:refresh-smart-brief", () => notificationSummaryService.refreshNow({ force: true }));
+    ipcMain.handle("notifications:get-detail", async (_event, id) => notificationDetailService.getNotificationDetail(id));
+    ipcMain.handle("notifications:copy", (_event, value) => {
+      const text = typeof value === "string" ? value : "";
+      if (!text) throw new Error("Notification copy text is empty");
+      clipboard.writeText(text);
+      return { ok: true };
+    });
+    ipcMain.handle("notifications:navigate", async (_event, action) => {
+      const resolvedAction = await notificationDetailService.resolveNavigation(action);
+      if (resolvedAction.type !== "navigate") {
+        throw new Error("Notification action is not navigable");
+      }
+      showMainWindow({
+        section: resolvedAction.payload.section || "Notifications",
+        moduleId: resolvedAction.payload.moduleId || null,
+        source: resolvedAction.payload.source || null,
+        sourceId: resolvedAction.payload.sourceId || null,
+        notificationId: resolvedAction.payload.notificationId || null
+      });
+      return { ok: true, action: resolvedAction };
+    });
     ipcMain.handle("notifications:mark-read", async (_event, id) => {
       const notificationId = typeof id === "string" ? id.trim() : "";
       if (!notificationId) {
@@ -564,7 +655,7 @@ if (!gotLock) {
         throw new Error(`Notification read failed: HTTP ${response.status}`);
       }
       const summary = await response.json();
-      responseCaches.delete("Notifications");
+      clearNotificationCaches();
       scheduleNotificationDigestRefresh();
       return summary;
     });
@@ -574,7 +665,7 @@ if (!gotLock) {
         throw new Error(`Notification read-all failed: HTTP ${response.status}`);
       }
       const summary = await response.json();
-      responseCaches.delete("Notifications");
+      clearNotificationCaches();
       scheduleNotificationDigestRefresh();
       return summary;
     });
@@ -584,7 +675,7 @@ if (!gotLock) {
         throw new Error(`Notification clear failed: HTTP ${response.status}`);
       }
       const summary = await response.json();
-      responseCaches.delete("Notifications");
+      clearNotificationCaches();
       scheduleNotificationDigestRefresh();
       return summary;
     });
@@ -602,7 +693,7 @@ if (!gotLock) {
       if (!response.ok) {
         throw new Error(`Notification push failed: HTTP ${response.status}`);
       }
-      responseCaches.delete("Notifications");
+      clearNotificationCaches();
       scheduleNotificationDigestRefresh();
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });

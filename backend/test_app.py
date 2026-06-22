@@ -2,13 +2,14 @@ import tempfile
 import unittest
 import gzip
 import json
+import sys
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
 import main
@@ -31,6 +32,27 @@ class DatabaseTests(unittest.TestCase):
     def test_environment_setting_prefers_process_environment(self):
         with patch.dict(main.os.environ, {"QWEATHER_API_KEY": "process-key"}):
             self.assertEqual(main.environment_setting("QWEATHER_API_KEY"), "process-key")
+
+    def test_environment_setting_prefers_registry_for_truncated_windows_private_key(self):
+        registry_key = MagicMock()
+        registry_key.__enter__.return_value = object()
+        registry_key.__exit__.return_value = None
+        fake_winreg = MagicMock()
+        fake_winreg.HKEY_CURRENT_USER = object()
+        fake_winreg.OpenKey.return_value = registry_key
+        fake_winreg.QueryValueEx.return_value = (
+            "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
+            1,
+        )
+        with (
+            patch.object(main.os, "name", "nt"),
+            patch.dict(main.os.environ, {"QWEATHER_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----"}, clear=False),
+            patch.dict(sys.modules, {"winreg": fake_winreg}),
+        ):
+            self.assertEqual(
+                main.environment_setting("QWEATHER_PRIVATE_KEY"),
+                "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
+            )
 
     def test_github_token_prefers_process_environment(self):
         with patch.dict(main.os.environ, {"GITHUB_TOKEN": "process-token"}):
@@ -495,6 +517,20 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["success"], 4)
         self.assertEqual(result["errors"], 1)
 
+    def test_qweather_jwt_request_reports_invalid_private_key_format(self):
+        settings = lambda name, default=None: {
+            "QWEATHER_PROJECT_ID": "project",
+            "QWEATHER_CREDENTIAL_ID": "credential",
+            "QWEATHER_PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----",
+            "QWEATHER_API_HOST": "example.com",
+        }.get(name, default)
+        with (
+            patch.object(main, "environment_setting", side_effect=settings),
+            patch.object(main.jwt, "encode", side_effect=ValueError("MalformedFraming")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "QWeather 私钥格式无效"):
+                main.qweather_jwt_request("/weatheralert/v1/current/22.32/114.17")
+
     def test_named_metric_sum_supports_api_keyed_objects(self):
         payload = {
             "data": {
@@ -569,6 +605,28 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["alerts"][0]["riskDelta"], "decreased")
         self.assertEqual(summary["latest"]["level"], "success")
         self.assertIn("风险降低", summary["latest"]["message"])
+
+    def test_qweather_alert_detail_returns_single_alert_or_404_equivalent(self):
+        with patch.object(main, "qweather_alerts", return_value={
+            "source": "qweather",
+            "alerts": [{
+                "id": "a1",
+                "title": "暴雨预警",
+                "message": "未来两小时有强降雨。",
+                "lifecycle": "issued",
+                "severity": "red",
+                "createdAt": 1780000000000,
+            }],
+            "updatedAt": 1780000000000,
+        }):
+            result = main.qweather_alert_detail("a1")
+        self.assertEqual(result["id"], "a1")
+        self.assertEqual(result["body"], "未来两小时有强降雨。")
+        with (
+            patch.object(main, "qweather_alerts", return_value={"source": "qweather", "alerts": [], "updatedAt": None}),
+            self.assertRaises(RuntimeError),
+        ):
+            main.qweather_alert_detail("missing")
 
     def test_mail_query_uses_qq_imap_inbox_window(self):
         self.assertEqual(main.MAIL_QUERY, "IMAP INBOX SINCE 30 days")
@@ -688,6 +746,33 @@ class DatabaseTests(unittest.TestCase):
             summary = main.mark_notification_read("codex:test")
             self.assertEqual(summary["unreadCount"], 0)
         main.DATABASE_PATH = original_path
+
+    def test_persist_notification_digest_record_stores_time_and_content(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            created = main.persist_notification_digest_record(main.NotificationDigestRecordPayload(
+                source="deepseek",
+                model="deepseek-v4-flash",
+                title="开发任务已完成",
+                summary="Codex 测试已通过。",
+                content="开发任务已完成\nCodex 测试已通过。",
+                severity="info",
+                category="development",
+                iconKey="check-circle",
+                unreadCount=1,
+                generatedAt=1780000000000,
+                sourceIds=["codex:1"],
+            ))
+            records = main.notification_digest_records()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(created["model"], "deepseek-v4-flash")
+        self.assertEqual(created["generatedAt"], 1780000000000)
+        self.assertTrue(created["generatedAtIso"].startswith("2026-"))
+        self.assertEqual(created["content"], "开发任务已完成 Codex 测试已通过。")
+        self.assertEqual(created["payload"]["sourceIds"], ["codex:1"])
+        self.assertEqual(records["items"][0]["summary"], "Codex 测试已通过。")
 
     def test_clear_notifications_removes_all_items(self):
         original_path = main.DATABASE_PATH
@@ -914,6 +999,43 @@ class DatabaseTests(unittest.TestCase):
         self.assertIn(("uid", "STORE", "m1", "+FLAGS.SILENT", r"(\Seen)"), fake_connection.calls)
         self.assertEqual(summary["unreadCount"], 0)
         self.assertFalse(outline[0]["unread"])
+
+    def test_read_mail_message_without_mark_read_keeps_unread_state(self):
+        message = EmailMessage()
+        message["Subject"] = "Launch"
+        message["From"] = "Kiko <kiko@qq.com>"
+        message["To"] = "team@example.com"
+        message["Date"] = "Thu, 18 Jun 2026 10:20:30 +0800"
+        message.set_content("Plain body")
+
+        class FakeImapConnection:
+            def __init__(self, raw_message):
+                self.calls = []
+                self.raw_message = raw_message
+
+            def select(self, mailbox, readonly=False):
+                self.calls.append(("select", mailbox, readonly))
+                return ("OK", [b"1"])
+
+            def uid(self, command, uid, *args):
+                self.calls.append(("uid", command, uid, *args))
+                if command == "FETCH":
+                    return ("OK", [(b"1 (UID m1 FLAGS ()) BODY[] {10}", self.raw_message)])
+                if command == "STORE":
+                    raise AssertionError("STORE should not be called for read-only message fetch")
+                raise AssertionError(f"Unexpected IMAP command: {command}")
+
+            def logout(self):
+                self.calls.append(("logout",))
+
+        fake_connection = FakeImapConnection(message.as_bytes())
+        with (
+            patch.object(main, "mail_configured", return_value=True),
+            patch.object(main, "qq_imap_connection", return_value=fake_connection),
+        ):
+            result = main.read_mail_message("m1", mark_read=False)
+        self.assertTrue(result["unread"])
+        self.assertNotIn(("uid", "STORE", "m1", "+FLAGS.SILENT", r"(\Seen)"), fake_connection.calls)
 
 
 if __name__ == "__main__":

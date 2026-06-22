@@ -3,9 +3,9 @@ const { MODULES } = require("../../shared/moduleRegistry");
 const IPC_BY_MODULE = Object.freeze({
   github: ["github:refresh", "github:open-profile"],
   codex: ["codex:usage", "deepseek:usage"],
-  notifications: ["notifications:get", "notification:get-digest"],
-  mail: ["mail:get-outline", "mail:refresh", "email:read-message"],
-  weather: ["status:get", "weather:set-location", "weather:get-usage"],
+  notifications: ["notifications:get", "notification:get-digest", "notifications:get-detail", "notifications:navigate", "notifications:copy"],
+  mail: ["mail:get-outline", "mail:refresh", "mail:get-message", "email:read-message"],
+  weather: ["status:get", "weather:set-location", "weather:get-usage", "weather:get-alert"],
   heart: ["status:get"],
   network: ["network:speed"]
 });
