@@ -219,9 +219,10 @@ test("notification capsule and panel consume the digest instead of a raw title",
   const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   const strip = renderer.slice(renderer.indexOf("function notificationStrip"), renderer.indexOf("function formatSpeedCompact"));
 
-  assert.match(strip, /digest\.headline/);
+  assert.match(strip, /const iconKey = "sparkles"/);
+  assert.match(strip, /formatNotificationSyncTime\(digest\.generatedAt\)/);
+  assert.match(strip, /stripTitle = `\$\{digest\.headline\} · 已同步\$\{syncTime\}`/);
   assert.match(strip, /severity-\$\{escapeHtml\(digest\.severity\)\}/);
-  assert.match(strip, /resolveSmartNotificationIcon\(digest\)/);
   assert.match(strip, /renderSmartNotificationIcon\(iconKey\)/);
   assert.doesNotMatch(strip, /latest\.title/);
   assert.match(preload, /notification:get-digest/);

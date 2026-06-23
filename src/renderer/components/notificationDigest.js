@@ -21,6 +21,7 @@
       iconKey: String(digest.iconKey || "bell"),
       source: String(digest.primarySource || digest.source || "system"),
       unreadCount: Math.max(0, Number(digest.unreadCount) || 0),
+      generatedAt: Number.isFinite(Number(digest.generatedAt)) ? Number(digest.generatedAt) : null,
       groups: Array.isArray(digest.groups) ? digest.groups : [],
       sourceIds: Array.isArray(digest.sourceIds) ? digest.sourceIds : []
     };

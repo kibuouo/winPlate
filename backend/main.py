@@ -2001,23 +2001,7 @@ def github_contribution_days_via_public_page(username: str, now: datetime) -> di
     return contribution_days
 
 
-def build_github_status(username: str) -> dict:
-    encoded_username = quote(username, safe="")
-    paths = {
-        "profile": f"/users/{encoded_username}",
-        "repositories": f"/users/{encoded_username}/repos?sort=pushed&direction=desc&per_page=100",
-    }
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {key: executor.submit(github_request, path) for key, path in paths.items()}
-        futures["contributions"] = executor.submit(github_contribution_days, username)
-        profile = futures["profile"].result()
-        repositories = futures["repositories"].result()
-        contribution_days = futures["contributions"].result()
-
-    if not isinstance(profile, dict) or not isinstance(repositories, list) or not isinstance(contribution_days, dict):
-        raise RuntimeError("GitHub API returned an unexpected response")
-
-    now = datetime.now(timezone.utc)
+def build_github_contribution_summary(contribution_days: dict[str, int], now: datetime) -> dict:
     daily_counts = [0] * 30
     monthly_counts: dict[str, list[int]] = {}
     monthly_commits: dict[str, int] = {}
@@ -2047,8 +2031,6 @@ def build_github_status(username: str) -> dict:
             break
         streak_days += 1
 
-    repository = repositories[0] if repositories else {}
-    display_name = profile.get("name") or profile.get("login") or username
     contribution_months = [
         {
             "key": key,
@@ -2061,6 +2043,67 @@ def build_github_status(username: str) -> dict:
     ]
     current_month = contribution_months[-1]
     return {
+        "commitsThisMonth": current_month["commits"],
+        "streakDays": streak_days,
+        "contributions30d": [contribution_level(count) for count in daily_counts],
+        "contributionMonth": now.strftime("%B"),
+        "contributionMonths": contribution_months,
+    }
+
+
+def cached_github_contribution_summary(username: str) -> dict | None:
+    cached = cached_github_status()
+    if not cached or cached.get("username") != f"@{username}":
+        return None
+    contribution_months = cached.get("contributionMonths")
+    if not isinstance(contribution_months, list) or not contribution_months:
+        return None
+    contributions30d = cached.get("contributions30d")
+    safe_levels = contributions30d[-30:] if isinstance(contributions30d, list) else [0] * 30
+    return {
+        "commitsThisMonth": int(cached.get("commitsThisMonth") or 0),
+        "streakDays": int(cached.get("streakDays") or 0),
+        "contributions30d": safe_levels,
+        "contributionMonth": str(cached.get("contributionMonth") or ""),
+        "contributionMonths": contribution_months,
+    }
+
+
+def build_github_status(username: str) -> dict:
+    encoded_username = quote(username, safe="")
+    paths = {
+        "profile": f"/users/{encoded_username}",
+        "repositories": f"/users/{encoded_username}/repos?sort=pushed&direction=desc&per_page=100",
+    }
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {key: executor.submit(github_request, path) for key, path in paths.items()}
+        futures["contributions"] = executor.submit(github_contribution_days, username)
+        profile = futures["profile"].result()
+        repositories = futures["repositories"].result()
+        contribution_error = None
+        try:
+            contribution_days = futures["contributions"].result()
+        except RuntimeError as error:
+            contribution_error = error
+            contribution_days = None
+
+    if not isinstance(profile, dict) or not isinstance(repositories, list):
+        raise RuntimeError("GitHub API returned an unexpected response")
+
+    now = datetime.now(timezone.utc)
+    used_cached_contributions = False
+    if isinstance(contribution_days, dict):
+        contribution_summary = build_github_contribution_summary(contribution_days, now)
+    else:
+        contribution_summary = cached_github_contribution_summary(username)
+        if contribution_summary:
+            used_cached_contributions = True
+        else:
+            contribution_summary = build_github_contribution_summary({}, now)
+
+    repository = repositories[0] if repositories else {}
+    display_name = profile.get("name") or profile.get("login") or username
+    result = {
         "source": "github",
         "name": display_name,
         "username": f"@{profile.get('login', username)}",
@@ -2069,17 +2112,20 @@ def build_github_status(username: str) -> dict:
         "repos": profile.get("public_repos", 0),
         "followers": profile.get("followers", 0),
         "project": repository.get("name", "No public repositories"),
-        "commitsThisMonth": current_month["commits"],
-        "streakDays": streak_days,
         "status": "Live",
         "language": repository.get("language") or "Unknown",
         "stars": repository.get("stargazers_count", 0),
         "updatedText": repository.get("pushed_at", ""),
-        "contributions30d": [contribution_level(count) for count in daily_counts],
-        "contributionMonth": now.strftime("%B"),
-        "contributionMonths": contribution_months,
+        **contribution_summary,
         "updatedAt": int(time.time() * 1000),
     }
+    if contribution_error:
+        result["stateMessage"] = (
+            "GitHub contributions are temporarily unavailable; showing last known contribution history."
+            if used_cached_contributions
+            else "GitHub contributions are temporarily unavailable; contribution history may be incomplete."
+        )
+    return result
 
 
 def persist_github_status(data: dict) -> None:

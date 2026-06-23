@@ -118,6 +118,43 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["commitsThisMonth"], 5)
         self.assertEqual(result["streakDays"], 2)
 
+    def test_build_github_status_keeps_live_profile_when_contributions_temporarily_fail(self):
+        responses = {
+            "/users/octocat": {
+                "login": "octocat",
+                "name": "The Octocat",
+                "html_url": "https://github.com/octocat",
+                "avatar_url": "avatar",
+                "public_repos": 8,
+                "followers": 42,
+            },
+            "/users/octocat/repos?sort=pushed&direction=desc&per_page=100": [
+                {"name": "hello-world", "language": "Python", "stargazers_count": 9, "pushed_at": "2026-06-12T00:00:00Z"}
+            ],
+        }
+        cached_summary = {
+            "source": "github",
+            "username": "@octocat",
+            "commitsThisMonth": 13,
+            "streakDays": 4,
+            "contributions30d": [1] * 30,
+            "contributionMonth": "June",
+            "contributionMonths": [{"key": "2026-06", "label": "June 2026", "commits": 13, "counts": [1] * 30, "levels": [1] * 30}],
+        }
+        with (
+            patch.object(main, "github_request", side_effect=lambda path: responses[path]),
+            patch.object(main, "github_contribution_days", side_effect=RuntimeError("slow: GitHub unavailable")),
+            patch.object(main, "cached_github_status", return_value=cached_summary),
+        ):
+            result = main.build_github_status("octocat")
+        self.assertEqual(result["source"], "github")
+        self.assertEqual(result["status"], "Live")
+        self.assertEqual(result["project"], "hello-world")
+        self.assertEqual(result["commitsThisMonth"], 13)
+        self.assertEqual(result["streakDays"], 4)
+        self.assertEqual(result["contributionMonths"], cached_summary["contributionMonths"])
+        self.assertIn("last known contribution history", result["stateMessage"])
+
     def test_github_contribution_days_public_page_fallback_parses_counts(self):
         html = """
         <td data-date="2026-06-15" class="ContributionCalendar-day"></td>

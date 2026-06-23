@@ -60,7 +60,8 @@ let notificationDigest = {
   unreadCount: 0,
   groups: [],
   spokenText: "当前没有需要关注的新通知。",
-  sourceIds: []
+  sourceIds: [],
+  generatedAt: null
 };
 let notificationActionInFlight = false;
 let notificationRawExpanded = false;
@@ -841,14 +842,25 @@ function notificationLevelLabel(level) {
 
 function notificationStrip() {
   const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
-  const iconKey = window.WinPlateSmartNotificationIcons.resolveSmartNotificationIcon(digest);
+  const iconKey = "sparkles";
   const unread = digest.unreadCount;
+  const syncTime = formatNotificationSyncTime(digest.generatedAt);
+  const stripTitle = `${digest.headline} · 已同步${syncTime}`;
   return `
     <button class="notification-strip ${unread ? "has-unread" : ""} severity-${escapeHtml(digest.severity)} no-drag" id="notification-strip" type="button" aria-label="打开${digest.severity === "danger" ? "危险" : digest.severity === "warning" ? "预警" : "信息"}通知摘要">
       ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}
-      <span class="notification-title">${escapeHtml(digest.headline)}</span>
+      <span class="notification-title">${escapeHtml(stripTitle)}</span>
       ${unread ? `<span class="notification-badge" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>` : ""}
     </button>`;
+}
+
+function formatNotificationSyncTime(timestamp) {
+  const value = Number(timestamp);
+  if (!Number.isFinite(value) || value <= 0) return "--：--";
+  const date = new Date(value);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}：${minutes}`;
 }
 
 function formatSpeedCompact(bytesPerSecond) {
