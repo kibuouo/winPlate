@@ -38,7 +38,7 @@
 
   function renderDigestCard(digest, { compact = false } = {}) {
     const value = normalizeDigest(digest);
-    const iconKey = global.WinPlateSmartNotificationIcons.resolveSmartNotificationIcon(value);
+    const iconKey = "sparkles";
     return `
       <section class="notification-digest-card severity-${escapeHtml(value.severity)} ${compact ? "compact" : ""}" aria-label="智能通知摘要" ${compact ? "" : 'data-notification-digest-toggle="true"'}>
         <div class="notification-digest-heading">

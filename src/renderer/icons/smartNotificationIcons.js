@@ -37,7 +37,8 @@
     "git-pull-request": '<circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M6 7v12M18 17V9a4 4 0 0 0-4-4h-2M12 3l-2 2 2 2"></path>',
     "git-commit": '<circle cx="12" cy="12" r="3"></circle><path d="M3 12h6M15 12h6"></path>',
     star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1Z"></path>',
-    tag: '<path d="M20 13 13 20l-10-10V3h7Z"></path><circle cx="7" cy="7" r="1"></circle>'
+    tag: '<path d="M20 13 13 20l-10-10V3h7Z"></path><circle cx="7" cy="7" r="1"></circle>',
+    sparkles: '<path d="M12 3.5 13.9 8.1 18.5 10 13.9 11.9 12 16.5 10.1 11.9 5.5 10 10.1 8.1 12 3.5Z"></path><path d="M19 3v4"></path><path d="M21 5h-4"></path><path d="M5 16v2"></path><path d="M6 17H4"></path>'
   });
 
   function renderSmartNotificationIcon(iconKey) {

@@ -2044,11 +2044,11 @@ function notificationDigestExplorer() {
   return `
     <section class="notification-digest-explorer">
       <header>
-        <div>
-          <strong>摘要详情</strong>
-          <p>${escapeHtml(digest.summary || "当前没有需要关注的新通知。")}</p>
-        </div>
-        <button class="notification-digest-close" type="button" data-notification-digest-close="true" aria-label="关闭摘要详情">×</button>
+        <strong class="notification-digest-kicker notification-digest-explorer-kicker">
+          ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("sparkles")}
+          摘要详情
+        </strong>
+        <p>${escapeHtml(digest.summary || "当前没有需要关注的新通知。")}</p>
       </header>
       <div class="notification-digest-filters">
         <button class="${activeKey === "all" ? "active" : ""}" type="button" data-notification-digest-group="all">全部 ${digest.sourceIds.length || 0}</button>
@@ -3216,12 +3216,6 @@ async function handleNotificationPageClick(event) {
     return;
   }
 
-  if (target.closest("[data-notification-digest-close]")) {
-    notificationDigestExpanded = false;
-    notificationDigestGroupKey = "all";
-    updateMainStatusDom();
-    return;
-  }
   if (target.closest(".notification-detail-close")) {
     closeNotificationDetail();
     updateMainStatusDom();

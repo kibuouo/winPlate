@@ -228,7 +228,7 @@ test("notification capsule and panel consume the digest instead of a raw title",
   assert.match(preload, /notification:digest-updated/);
   assert.match(component, /<details class="notification-raw-section">/);
   assert.match(component, /notification-digest-groups/);
-  assert.match(component, /resolveSmartNotificationIcon\(value\)/);
+  assert.match(component, /const iconKey = "sparkles"/);
   assert.match(component, /renderSmartNotificationIcon\(iconKey\)/);
 });
 

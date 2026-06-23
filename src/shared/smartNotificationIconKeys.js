@@ -8,7 +8,7 @@
     "thermometer-snowflake", "mail", "mail-unread", "mail-warning", "paperclip",
     "check-circle", "x-circle", "loader", "terminal", "message-bot", "code", "bug",
     "monitor", "cpu", "memory-stick", "wifi", "download", "upload", "wallet", "plug",
-    "github", "git-pull-request", "git-commit", "star", "tag"
+    "github", "git-pull-request", "git-commit", "star", "tag", "sparkles"
   ]);
   const ICON_KEY_SET = new Set(ICON_KEYS);
 

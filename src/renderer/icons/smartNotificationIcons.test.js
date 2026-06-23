@@ -8,7 +8,7 @@ const {
 } = require("./smartNotificationIcons");
 
 test("registers the complete local smart notification icon whitelist", () => {
-  assert.equal(ICON_KEYS.length, 30);
+  assert.equal(ICON_KEYS.length, 31);
   assert.deepEqual(new Set(Object.keys(SMART_NOTIFICATION_ICON_REGISTRY)), new Set(ICON_KEYS));
   for (const key of ICON_KEYS) {
     const svg = renderSmartNotificationIcon(key);
@@ -36,6 +36,7 @@ test("resolves content rules before AI iconKey", () => {
 });
 
 test("uses whitelisted AI keys, then source defaults, then bell", () => {
+  assert.equal(renderSmartNotificationIcon("sparkles"), renderSmartNotificationIcon("sparkles"));
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", iconKey: "tag" }), "tag");
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "chatgpt" }), "message-bot");
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "codex" }), "terminal");
