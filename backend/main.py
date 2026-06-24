@@ -2121,9 +2121,9 @@ def build_github_status(username: str) -> dict:
     }
     if contribution_error:
         result["stateMessage"] = (
-            "GitHub contributions are temporarily unavailable; showing last known contribution history."
+            "GitHub 贡献历史暂时不可用，当前显示最近一次成功同步的数据。"
             if used_cached_contributions
-            else "GitHub contributions are temporarily unavailable; contribution history may be incomplete."
+            else "GitHub 贡献历史暂时不可用，当前统计可能不完整。"
         )
     return result
 
@@ -2160,10 +2160,10 @@ def cached_github_status() -> dict | None:
 def github_failure_state(error: RuntimeError) -> tuple[str, str]:
     reason, _, _detail = str(error).partition(":")
     messages = {
-        "auth": "Authentication unavailable; showing last known data.",
-        "rate-limit": "GitHub rate limit reached; showing last known data.",
-        "slow": "GitHub is responding slowly; showing last known data.",
-        "unavailable": "GitHub is unavailable; showing last known data.",
+        "auth": "GitHub 身份验证不可用，当前显示最近一次成功同步的数据。",
+        "rate-limit": "GitHub 请求频率受限，当前显示最近一次成功同步的数据。",
+        "slow": "GitHub 响应较慢，当前显示最近一次成功同步的数据。",
+        "unavailable": "GitHub 当前不可用，显示最近一次成功同步的数据。",
     }
     normalized = reason if reason in messages else "unavailable"
     return normalized, messages[normalized]
@@ -2202,7 +2202,12 @@ def github_status(force: bool = False) -> dict:
             "profileUrl": f"https://github.com/{username}",
             "status": "Unavailable",
             "availability": reason,
-            "stateMessage": message.replace("showing last known data", "no cached data is available"),
+            "stateMessage": {
+                "auth": "GitHub 身份验证不可用，且当前没有可回退的缓存数据。",
+                "rate-limit": "GitHub 请求频率受限，且当前没有可回退的缓存数据。",
+                "slow": "GitHub 响应较慢，且当前没有可回退的缓存数据。",
+                "unavailable": "GitHub 当前不可用，且当前没有可回退的缓存数据。",
+            }[reason],
         }
 
 

@@ -85,6 +85,31 @@ test("versioned settings IPC never returns credential values", () => {
   assert.doesNotMatch(main, /github:\s*\{[\s\S]{0,120}token:\s*githubToken/);
 });
 
+test("main process guards cached status and GitHub refresh calls with a local API timeout", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+
+  assert.match(main, /const LOCAL_API_TIMEOUT_MS = 12_000;/);
+  assert.match(main, /async function fetchWithTimeout\(url, options = \{\}, timeoutMs = LOCAL_API_TIMEOUT_MS\)/);
+  assert.match(main, /const promise = fetchWithTimeout\(url\)\.then\(async \(response\) => \{/);
+  assert.match(main, /fetchWithTimeout\("http:\/\/127\.0\.0\.1:8765\/api\/github\/refresh", \{ method: "POST" \}\)/);
+});
+
+test("github month navigation uses stable page-level delegation across rerenders", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const githubControls = renderer.slice(
+    renderer.indexOf("function bindGithubControls()"),
+    renderer.indexOf("function updateMaximizeButton()")
+  );
+
+  assert.match(renderer, /pageContent\.onclick = \(event\) => \{/);
+  assert.match(renderer, /event\.target\.closest\("\[data-month-direction\]"\)/);
+  assert.match(renderer, /changeGithubContributionMonth\(Number\(monthButton\.dataset\.monthDirection\)\)/);
+  assert.match(renderer, /function changeGithubContributionMonth\(direction\)/);
+  assert.match(githubControls, /\.onclick = \(\) => window\.winplate\.openGithubProfile/);
+  assert.match(githubControls, /refreshButton\.onclick = async \(\) => \{/);
+  assert.doesNotMatch(githubControls, /\.addEventListener\("click"/);
+});
+
 test("weather location changes update every window without an implicit location rewrite", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");

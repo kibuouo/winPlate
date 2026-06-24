@@ -153,7 +153,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["commitsThisMonth"], 13)
         self.assertEqual(result["streakDays"], 4)
         self.assertEqual(result["contributionMonths"], cached_summary["contributionMonths"])
-        self.assertIn("last known contribution history", result["stateMessage"])
+        self.assertIn("最近一次成功同步的数据", result["stateMessage"])
 
     def test_github_contribution_days_public_page_fallback_parses_counts(self):
         html = """
@@ -226,7 +226,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(result["source"], "unavailable")
             self.assertEqual(result["availability"], "auth")
             self.assertEqual(result["status"], "Unavailable")
-            self.assertIn("no cached data", result["stateMessage"])
+            self.assertIn("没有可回退的缓存数据", result["stateMessage"])
         main.DATABASE_PATH = original_path
         main._github_cache = original_cache
 

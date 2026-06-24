@@ -2585,6 +2585,12 @@ function renderMain() {
       bindNotificationControls();
     });
   });
+  const pageContent = document.querySelector("#page-content");
+  pageContent.onclick = (event) => {
+    const monthButton = event.target.closest("[data-month-direction]");
+    if (!monthButton || !pageContent.contains(monthButton) || monthButton.disabled) return;
+    changeGithubContributionMonth(Number(monthButton.dataset.monthDirection));
+  };
   bindThemeControls();
   bindProductSettings();
   bindWeatherSettings();
@@ -3343,23 +3349,23 @@ async function hydrateMail(options = {}) {
   }
 }
 
+function changeGithubContributionMonth(direction) {
+  const months = githubContributionMonths(normalizeGithub(statusData.github));
+  const currentIndex = months.findIndex((month) => month.key === selectedContributionMonth);
+  const safeIndex = currentIndex >= 0 ? currentIndex : months.length - 1;
+  const nextIndex = Math.max(0, Math.min(months.length - 1, safeIndex + direction));
+  if (nextIndex === safeIndex) return;
+  selectedContributionMonth = months[nextIndex].key;
+  updateMainStatusDom();
+}
+
 function bindGithubControls() {
   document.querySelectorAll("[data-open-github]").forEach((button) => {
-    button.addEventListener("click", () => window.winplate.openGithubProfile(statusData.github.profileUrl));
-  });
-  document.querySelectorAll("[data-month-direction]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const months = githubContributionMonths(normalizeGithub(statusData.github));
-      const currentIndex = months.findIndex((month) => month.key === selectedContributionMonth);
-      const safeIndex = currentIndex >= 0 ? currentIndex : months.length - 1;
-      const nextIndex = Math.max(0, Math.min(months.length - 1, safeIndex + Number(button.dataset.monthDirection)));
-      selectedContributionMonth = months[nextIndex].key;
-      updateMainStatusDom();
-    });
+    button.onclick = () => window.winplate.openGithubProfile(statusData.github.profileUrl);
   });
   const refreshButton = document.querySelector("#refresh-github");
   if (!refreshButton) return;
-  refreshButton.addEventListener("click", async () => {
+  refreshButton.onclick = async () => {
     if (githubRefreshInFlight) return;
     githubRefreshInFlight = true;
     updateMainStatusDom();
@@ -3377,7 +3383,7 @@ function bindGithubControls() {
       githubRefreshInFlight = false;
       updateMainStatusDom("github");
     }
-  });
+  };
 }
 
 function updateMaximizeButton() {

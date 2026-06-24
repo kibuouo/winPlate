@@ -49,6 +49,7 @@ const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
 const WEATHER_ALERT_CACHE_TTL_MS = 10 * 60_000;
 const MAIL_CACHE_TTL_MS = 60_000;
 const NOTIFICATION_CACHE_TTL_MS = 5_000;
+const LOCAL_API_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 const responseCacheVersions = new Map();
@@ -142,6 +143,24 @@ function invalidateResponseCache(key) {
   responseCacheVersions.set(key, (responseCacheVersions.get(key) || 0) + 1);
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = LOCAL_API_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function syncWeatherAlertsIntoNotifications() {
   try {
     await fetchJsonCached(
@@ -166,7 +185,7 @@ async function fetchJsonCached(key, url, ttlMs) {
   }
 
   const cacheVersion = responseCacheVersions.get(key) || 0;
-  const promise = fetch(url).then(async (response) => {
+  const promise = fetchWithTimeout(url).then(async (response) => {
     if (!response.ok) {
       throw new Error(`${key} failed: HTTP ${response.status}`);
     }
@@ -363,7 +382,7 @@ if (!gotLock) {
       return fetchMailMessageByUid(uid, { markRead: false });
     });
     ipcMain.handle("github:refresh", async () => {
-      const response = await fetch("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });
+      const response = await fetchWithTimeout("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });
       if (!response.ok) {
         throw new Error(`GitHub refresh failed: HTTP ${response.status}`);
       }
