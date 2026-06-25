@@ -109,7 +109,7 @@ function createNotificationSummaryService({
       if (!force && current && currentHash === hash) return current;
       let digest = localDigest;
       let source = "local";
-      const aiEnabled = snapshot.items.length
+      const aiEnabled = localDigest.unreadCount > 0
         && typeof callChat === "function"
         && await Promise.resolve(shouldUseAi());
       if (aiEnabled) {

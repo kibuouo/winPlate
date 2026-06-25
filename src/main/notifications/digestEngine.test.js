@@ -81,6 +81,7 @@ test("a newly issued orange alert is published, not misclassified as upgraded", 
     source: "qweather",
     title: "发布暴雨橙色预警",
     level: "critical",
+    unread: true,
     createdAt: 200
   });
   assert.equal(issued.meta.lifecycle, "issued");
@@ -97,4 +98,15 @@ test("deduplicates by source and dedupeKey and builds the requested groups", () 
   const digest = createLocalDigest(values, 10);
   assert.deepEqual(new Set(digest.groups.map((group) => group.label)), new Set(["开发", "GitHub"]));
   assert.deepEqual(new Set(digest.sourceIds), new Set(["2", "3"]));
+});
+
+test("returns an empty actionable digest when all notifications are already read", () => {
+  const digest = createLocalDigest([
+    { id: "mail:1", source: "mail", title: "新邮件", body: "", createdAt: 2, unread: false, dedupeKey: "mail:1", level: "info", meta: {} }
+  ], 3);
+  assert.equal(digest.unreadCount, 0);
+  assert.equal(digest.headline, "暂无新通知");
+  assert.equal(digest.summary, "当前没有需要关注的新通知。");
+  assert.deepEqual(digest.groups, []);
+  assert.deepEqual(digest.sourceIds, []);
 });

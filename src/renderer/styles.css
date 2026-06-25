@@ -452,7 +452,7 @@ html[data-theme="light"] .main-body {
 html[data-theme="light"] .app-titlebar {
   background: #ffffff;
 }
-.workspace { display: grid; grid-template-columns: 224px 1fr; width: 100%; min-height: 0; background: radial-gradient(circle at 92% 0, var(--main-glow), transparent 32%), var(--main-bg); transition: grid-template-columns 180ms ease; }
+.workspace { display: grid; grid-template-columns: 224px 1fr; width: 100%; min-height: 0; background: var(--main-bg); transition: grid-template-columns 180ms ease; }
 .workspace.sidebar-collapsed { grid-template-columns: 72px 1fr; }
 .sidebar { display: flex; flex-direction: column; gap: 18px; padding: 18px 12px 8px; border-right: 1px solid var(--border); background: var(--sidebar-bg); box-shadow: inset -1px 0 0 rgba(255,255,255,.03); }
 .sidebar-top { min-height: 36px; display: flex; align-items: center; }
@@ -485,7 +485,7 @@ html[data-theme="light"] .app-titlebar {
 nav { display: grid; gap: 5px; }
 nav button { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--text-soft); border: 1px solid transparent; border-radius: 12px; background: transparent; text-align: left; cursor: pointer; transition: color 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease; }
 nav button:hover { color: var(--text); background: var(--surface); }
-nav button.active { color: var(--text); border-color: var(--border-strong); background: linear-gradient(135deg, var(--surface-raised), var(--surface)); box-shadow: 0 12px 28px color-mix(in srgb, var(--shadow) 65%, transparent); }
+nav button.active { color: var(--text); border-color: var(--border-strong); background: var(--surface-raised); box-shadow: 0 12px 28px color-mix(in srgb, var(--shadow) 65%, transparent); }
 nav i { width: 18px; height: 18px; display: grid; place-items: center; font-style: normal; }
 nav button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity 140ms ease; }
 .sidebar-collapsed .sidebar { align-items: center; gap: 10px; padding-inline: 12px; }
@@ -521,7 +521,7 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .page-heading h1 { margin: 0 0 9px; font-size: clamp(28px, 3vw, 42px); letter-spacing: -.045em; }
 .page-heading > span { color: #71717a; font-size: 14px; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 38px; }
-.dashboard-card { min-height: 220px; padding: 22px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end)); box-shadow: 0 18px 40px var(--shadow); }
+.dashboard-card { min-height: 220px; padding: 22px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-card); box-shadow: 0 18px 40px var(--shadow); }
 .dashboard-card:hover { border-color: var(--border-strong); transform: translateY(-2px); transition: 160ms ease; }
 .card-icon { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 28px; color: #d4d4d8; font-size: 25px; }
 .github-card .card-icon { color: #0fbf3e; }
@@ -534,10 +534,7 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
   min-height: 286px;
   padding: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 25% 0, rgba(255, 255, 255, .045), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, .01)),
-    linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end));
+  background: var(--surface-card);
 }
 .github-dashboard-top {
   display: flex;
@@ -814,7 +811,7 @@ html[data-theme="light"] .qweather-card .large-track > span {
 .heart-card .card-icon { color: #fb7185; }
 .qweather-card .card-icon { color: #60a5fa; }
 .qweather-card .large-track { margin-top: 18px; }
-.weather-dashboard-card { grid-column: 1 / -1; min-height: 260px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 28px; background: radial-gradient(circle at 12% 5%, rgba(56,189,248,.13), transparent 36%), linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end)); }
+.weather-dashboard-card { grid-column: 1 / -1; min-height: 260px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 28px; background: var(--surface-card); }
 .qweather-page-grid .qweather-card { grid-column: 1 / -1; min-height: 250px; }
 .weather-card-main { min-width: 0; display: flex; flex-direction: column; }
 .weather-card-heading, .weather-forecast-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -1252,16 +1249,15 @@ html[data-theme="light"] .qweather-service-icon {
   top: 24px;
   right: 24px;
   z-index: 30;
-  width: min(580px, calc(100vw - 48px));
+  width: min(420px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   display: grid;
-  grid-template-rows: auto auto minmax(180px, 1fr) auto auto;
   gap: 16px;
-  padding: 26px 28px 24px;
+  padding: 24px;
   overflow: auto;
   color: var(--text);
   border: 1px solid var(--mail-glass-border);
-  border-radius: 26px;
+  border-radius: 24px;
   background:
     linear-gradient(145deg, var(--mail-glass-highlight), transparent 36%),
     var(--mail-glass-bg);
@@ -1272,9 +1268,21 @@ html[data-theme="light"] .qweather-service-icon {
   -webkit-backdrop-filter: blur(30px) saturate(150%);
 }
 .mail-detail-drawer header,
-.mail-detail-drawer footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.mail-detail-drawer header span { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
-.mail-detail-drawer header h2 { margin: 5px 0 0; font-size: 22px; line-height: 1.22; letter-spacing: 0; }
+.mail-detail-drawer footer { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.mail-detail-drawer header > div { min-width: 0; flex: 1 1 auto; }
+.mail-detail-drawer header span { flex: 0 0 auto; color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .16em; white-space: nowrap; }
+.mail-detail-drawer header h2 {
+  margin: 5px 0 0;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: clamp(18px, 2.1vw, 22px);
+  line-height: 1.28;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .mail-detail-close,
 .mail-detail-drawer footer button {
   color: var(--text);
@@ -1289,6 +1297,7 @@ html[data-theme="light"] .qweather-service-icon {
   background: color-mix(in srgb, var(--mail-glass-panel-strong) 72%, var(--accent));
 }
 .mail-detail-close { width: 40px; height: 40px; font-size: 24px; line-height: 1; }
+.mail-detail-close { flex: 0 0 40px; }
 .mail-detail-meta {
   display: grid;
   gap: 8px;
@@ -1319,16 +1328,19 @@ html[data-theme="light"] .qweather-service-icon {
 .mail-detail-frame {
   display: block;
   width: 100%;
-  min-height: 420px;
+  min-height: 360px;
   border: 0;
-  background: #fff;
+  background: #18191c;
+}
+html:not([data-theme="light"]) .mail-detail-frame {
+  filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.96);
 }
 .mail-detail-state,
 .mail-detail-empty { padding: 18px; color: var(--text-muted); font-size: 13px; }
 .mail-detail-state.error { color: #fca5a5; }
 .mail-attachments { display: grid; gap: 7px; color: var(--text-muted); font-size: 12px; }
 .mail-attachments strong { color: var(--text); }
-.mail-detail-drawer footer { justify-content: flex-end; }
+.mail-detail-drawer footer { justify-content: flex-end; flex-wrap: wrap; }
 .mail-detail-drawer footer button { padding: 9px 14px; font-size: 12px; font-weight: 700; }
 .mail-detail-drawer footer button:disabled { cursor: default; opacity: .55; }
 html[data-theme="light"] .mail-detail-drawer {
@@ -1342,6 +1354,7 @@ html[data-theme="light"] .mail-detail-meta {
 }
 html[data-theme="light"] .mail-detail-frame {
   background: rgba(255, 255, 255, .96);
+  filter: none;
 }
 .notification-detail-drawer {
   position: fixed;
@@ -1610,13 +1623,14 @@ html[data-theme="light"] .mail-detail-frame {
   .notification-actions { justify-content: start; }
   .notification-page-item { display: grid; }
   .notification-read-button { justify-self: start; }
+  .mail-detail-drawer,
   .notification-detail-drawer { width: min(100vw - 32px, 420px); right: 16px; top: 16px; }
 }
 
 .codex-page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
 .codex-page-header h1 { margin: 0; font-size: clamp(30px, 3.2vw, 46px); letter-spacing: .04em; }
 .codex-update { color: var(--text-muted); font-size: 12px; }
-.codex-usage-panel { padding: 28px; border: 1px solid var(--border); border-radius: 18px; background: linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end)); box-shadow: 0 18px 40px var(--shadow); }
+.codex-usage-panel { padding: 28px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface-card); box-shadow: 0 18px 40px var(--shadow); }
 .codex-panel-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .codex-panel-title > div { display: flex; align-items: center; gap: 12px; }
 .codex-panel-title h2 { margin: 0; font-size: 15px; letter-spacing: -.01em; }

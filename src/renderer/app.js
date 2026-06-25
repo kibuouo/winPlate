@@ -46,6 +46,7 @@ let mailOutline = { source: "loading", availability: "loading", items: [], updat
 let mailRefreshInFlight = false;
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let mailHighlightedUid = null;
+const MAIL_DETAIL_READ_TIMEOUT_MS = 8_000;
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
 let weatherAlerts = { source: "qweather", alerts: [], updatedAt: null, error: "" };
 let selectedWeatherAlertId = null;
@@ -1952,10 +1953,88 @@ function mailLabelPills(labels = []) {
   }).join("");
 }
 
+function twitchLogoDataUri() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 42"><text x="0" y="32" fill="#9146ff" font-family="Arial Black, Arial, sans-serif" font-size="32" font-weight="900">Twitch</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function prepareMailHtml(body = "") {
+  const value = String(body || "");
+  if (typeof DOMParser === "undefined") return value;
+  try {
+    const document = new DOMParser().parseFromString(value, "text/html");
+    document.querySelectorAll("img").forEach((image) => {
+      const src = image.getAttribute("src") || "";
+      const width = Number(image.getAttribute("width") || image.style.width?.replace("px", ""));
+      const height = Number(image.getAttribute("height") || image.style.height?.replace("px", ""));
+      if (/^https:\/\/spade\.twitch\.tv\/track/i.test(src) || (width === 1 && height === 1)) {
+        image.remove();
+        return;
+      }
+      if (/^https:\/\/static-cdn\.jtvnw\.net\/growth-assets\/email_twitch_logo_uv/i.test(src)) {
+        image.src = twitchLogoDataUri();
+        image.alt = image.alt || "Twitch";
+      }
+      image.referrerPolicy = "no-referrer";
+      image.loading = "lazy";
+    });
+    return document.body.innerHTML || value;
+  } catch (error) {
+    return value;
+  }
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId = null;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+async function readMailMessageWithFallback(uid) {
+  if (typeof window.winplate.getMailMessage === "function") {
+    try {
+      return await withTimeout(
+        window.winplate.getMailMessage(uid),
+        MAIL_DETAIL_READ_TIMEOUT_MS,
+        "邮件正文读取超时"
+      );
+    } catch (error) {
+      console.error("Mail readonly fetch failed; falling back to read-sync:", error);
+    }
+  }
+  try {
+    return await withTimeout(
+      window.winplate["email:read-message"](uid),
+      MAIL_DETAIL_READ_TIMEOUT_MS,
+      "邮件已读同步超时"
+    );
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function syncMailReadStateInBackground(uid, requestId) {
+  try {
+    await withTimeout(
+      window.winplate["email:read-message"](uid),
+      MAIL_DETAIL_READ_TIMEOUT_MS,
+      "邮件已读同步超时"
+    );
+    if (mailDetail.requestId !== requestId) return;
+    notificationSummary = await window.winplate.getNotifications();
+    await hydrateNotificationDigest();
+    updateMainStatusDom();
+  } catch (error) {
+    console.error("Failed to sync mail read state:", error);
+  }
+}
+
 function mailIframeDocument(body = "", isPlainText = false) {
   const content = isPlainText
     ? `<pre class="mail-plain-text">${escapeHtml(body)}</pre>`
-    : String(body || "");
+    : prepareMailHtml(body);
   return `<!doctype html>
 <html>
 <head>
@@ -1963,14 +2042,15 @@ function mailIframeDocument(body = "", isPlainText = false) {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src https: http: data: cid:;">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    html, body { margin: 0; min-width: 0; background: #fff; color: #111827; }
+    html, body { margin: 0; min-width: 0; }
+    html, body { background: #fff; color: #111827; color-scheme: light; }
     body { overflow-wrap: anywhere; }
     img { max-width: 100%; height: auto; }
     table { max-width: 100%; }
     .mail-plain-text {
       margin: 0;
       padding: 18px 20px;
-      color: #111827;
+      color: inherit;
       font: 13px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -1982,11 +2062,11 @@ function mailIframeDocument(body = "", isPlainText = false) {
 }
 
 function mailDetailBody(message = {}) {
-  if (message.textBody) {
-    return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
-  }
   if (message.htmlBody) {
     return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
+  }
+  if (message.textBody) {
+    return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
   }
   return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
 }
@@ -2892,67 +2972,11 @@ async function refreshSelectedWeatherLocation({ force = false, allowSystem = fal
 }
 
 function bindMailControls() {
-  const closeButton = document.querySelector(".mail-detail-close");
-  if (closeButton) {
-    closeButton.onclick = () => {
-      mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
-      updateMainStatusDom();
-    };
+  const pageContent = document.querySelector("#page-content");
+  if (pageContent && !pageContent.dataset.mailDelegationBound) {
+    pageContent.dataset.mailDelegationBound = "true";
+    pageContent.addEventListener("click", handleMailPageClick);
   }
-  const externalButton = document.querySelector(".mail-open-external-button");
-  if (externalButton) {
-    externalButton.onclick = async () => {
-      externalButton.disabled = true;
-      try {
-        await window.winplate.openMail();
-      } catch (error) {
-        console.error("Failed to open QQ mail:", error);
-      } finally {
-        externalButton.disabled = false;
-      }
-    };
-  }
-  document.querySelectorAll(".mail-open-button").forEach((button) => {
-    button.onclick = async () => {
-      const uid = button.dataset.mailUid || "";
-      if (!uid) return;
-      button.disabled = true;
-      mailHighlightedUid = uid;
-      mailDetail = { open: true, loading: true, uid, message: null, error: "" };
-      updateMainStatusDom();
-      try {
-        const message = await window.winplate["email:read-message"](uid);
-        mailDetail = { open: true, loading: false, uid, message, error: "" };
-        mailOutline = {
-          ...mailOutline,
-          items: (mailOutline.items || []).map((item) => {
-            const itemUid = item.uid || item.messageId || item.threadId;
-            if (String(itemUid) !== String(uid)) return item;
-            const labels = Array.isArray(item.labels) ? item.labels.filter((label) => label !== "UNREAD") : [];
-            return {
-              ...item,
-              labels,
-              unread: false,
-              action: message.action || "归档参考"
-            };
-          })
-        };
-        notificationSummary = await window.winplate.getNotifications();
-        await hydrateNotificationDigest();
-      } catch (error) {
-        mailDetail = {
-          open: true,
-          loading: false,
-          uid,
-          message: null,
-          error: error.message || "邮件正文加载失败"
-        };
-      } finally {
-        button.disabled = false;
-        updateMainStatusDom();
-      }
-    };
-  });
   const form = document.querySelector("#mail-settings-form");
   if (form) {
     const addressInput = form.querySelector("#qq-mail-address");
@@ -3040,6 +3064,78 @@ function bindMailControls() {
       updateMainStatusDom();
     }
   };
+}
+
+async function openMailDetail(uid, triggerButton = null) {
+  if (!uid || mailDetail.loading) return;
+  if (triggerButton) triggerButton.disabled = true;
+  const requestId = `${uid}:${Date.now()}`;
+  mailHighlightedUid = uid;
+  mailDetail = { open: true, loading: true, uid, requestId, message: null, error: "" };
+  updateMainStatusDom();
+  try {
+    const message = await readMailMessageWithFallback(uid);
+    if (mailDetail.requestId !== requestId) return;
+    mailDetail = { open: true, loading: false, uid, requestId, message, error: "" };
+    mailOutline = {
+      ...mailOutline,
+      items: (mailOutline.items || []).map((item) => {
+        const itemUid = item.uid || item.messageId || item.threadId;
+        if (String(itemUid) !== String(uid)) return item;
+        const labels = Array.isArray(item.labels) ? item.labels.filter((label) => label !== "UNREAD") : [];
+        return {
+          ...item,
+          labels,
+          unread: false,
+          action: message.action || "归档参考"
+        };
+      })
+    };
+    updateMainStatusDom();
+    syncMailReadStateInBackground(uid, requestId);
+  } catch (error) {
+    if (mailDetail.requestId !== requestId) return;
+    mailDetail = {
+      open: true,
+      loading: false,
+      uid,
+      requestId,
+      message: null,
+      error: error.message || "邮件正文加载失败"
+    };
+  } finally {
+    if (triggerButton) triggerButton.disabled = false;
+    updateMainStatusDom();
+  }
+}
+
+async function handleMailPageClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !target.closest(".mail-page")) return;
+
+  if (target.closest(".mail-detail-close")) {
+    mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
+    updateMainStatusDom();
+    return;
+  }
+
+  const externalButton = target.closest(".mail-open-external-button");
+  if (externalButton) {
+    externalButton.disabled = true;
+    try {
+      await window.winplate.openMail();
+    } catch (error) {
+      console.error("Failed to open QQ mail:", error);
+    } finally {
+      externalButton.disabled = false;
+    }
+    return;
+  }
+
+  const openButton = target.closest(".mail-open-button");
+  if (openButton) {
+    await openMailDetail(openButton.dataset.mailUid || "", openButton);
+  }
 }
 
 async function copyTextToClipboard(text) {

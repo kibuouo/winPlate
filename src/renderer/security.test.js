@@ -16,13 +16,13 @@ function extractFunction(source, name) {
   throw new Error(`Could not extract ${name}`);
 }
 
-test("content security policy permits GitHub avatar images", () => {
+test("content security policy permits external HTTPS images for avatars and mail", () => {
   const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 
   assert.match(
     html,
-    /img-src[^;]*https:\/\/avatars\.githubusercontent\.com/,
-    "GitHub avatar CDN must be allowed by the renderer CSP"
+    /img-src[^;]*https:/,
+    "external HTTPS images must be allowed by the renderer CSP"
   );
 });
 
@@ -185,9 +185,12 @@ test("mail outline view action reads the message by uid in-app", () => {
   );
 
   assert.match(preload, /"email:read-message": \(uid\) => ipcRenderer\.invoke\("email:read-message", uid\)/);
+  assert.match(preload, /getMailMessage: \(uid\) => ipcRenderer\.invoke\("mail:get-message", uid\)/);
   assert.match(mailItemCard, /class="mail-open-button"/);
   assert.match(mailItemCard, /data-mail-uid="\$\{escapeHtml\(uid\)\}"/);
-  assert.match(mailControls, /window\.winplate\["email:read-message"\]\(uid\)/);
+  assert.match(mailControls, /readMailMessageWithFallback\(uid\)/);
+  assert.match(renderer, /window\.winplate\["email:read-message"\]\(uid\)/);
+  assert.match(renderer, /window\.winplate\.getMailMessage\(uid\)/);
   assert.doesNotMatch(mailControls, /button\.dataset\.mailSubject/);
 });
 
@@ -215,6 +218,19 @@ test("mail detail renders message body inside a sandboxed srcdoc iframe", () => 
   assert.match(mailDetailBody, /mailIframeDocument\(message\.htmlBody, false\)/);
   assert.match(mailDetailBody, /mailIframeDocument\(message\.textBody, true\)/);
   assert.doesNotMatch(mailDetailBody, /sanitizeMailHtml/);
+});
+
+test("mail detail prefers html body before falling back to plain text", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const mailDetailBody = renderer.slice(
+    renderer.indexOf("function mailDetailBody"),
+    renderer.indexOf("function mailDetailDrawer")
+  );
+
+  assert.ok(
+    mailDetailBody.indexOf("message.htmlBody") < mailDetailBody.indexOf("message.textBody"),
+    "htmlBody should render before textBody so rich emails keep their layout"
+  );
 });
 
 test("notifications escape pushed titles and messages before rendering", () => {

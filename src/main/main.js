@@ -100,7 +100,7 @@ async function fetchMailMessageByUid(uid, { markRead = false } = {}) {
     throw new Error("邮件 UID 不能为空");
   }
   const method = markRead ? "POST" : "GET";
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `http://127.0.0.1:8765/api/mail/messages/${encodeURIComponent(messageUid)}${markRead ? "/read" : ""}`,
     { method }
   );
@@ -559,7 +559,7 @@ if (!gotLock) {
       fetchJsonCached("Mail outline", "http://127.0.0.1:8765/api/mail/outline", MAIL_CACHE_TTL_MS)
     ));
     ipcMain.handle("mail:refresh", async () => {
-      const response = await fetch("http://127.0.0.1:8765/api/mail/refresh", { method: "POST" });
+      const response = await fetchWithTimeout("http://127.0.0.1:8765/api/mail/refresh", { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail || `Mail refresh failed: HTTP ${response.status}`);
@@ -571,7 +571,7 @@ if (!gotLock) {
       return outline;
     });
     ipcMain.handle("mail:connect", async () => {
-      const response = await fetch("http://127.0.0.1:8765/api/mail/connect", { method: "POST" });
+      const response = await fetchWithTimeout("http://127.0.0.1:8765/api/mail/connect", { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail || `QQ 邮箱连接失败: HTTP ${response.status}`);

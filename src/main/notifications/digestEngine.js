@@ -138,7 +138,8 @@ function categoryForSource(source) {
 function createLocalDigest(rawItems, now = Date.now()) {
   const items = dedupeNotifications(Array.isArray(rawItems) ? rawItems : [])
     .sort((a, b) => scoreNotification(b, now) - scoreNotification(a, now) || b.createdAt - a.createdAt);
-  if (!items.length) {
+  const unreadItems = items.filter((item) => item.unread);
+  if (!unreadItems.length) {
     return {
       title: "暂无新通知",
       headline: "暂无新通知",
@@ -154,23 +155,23 @@ function createLocalDigest(rawItems, now = Date.now()) {
       sourceIds: []
     };
   }
-  const groups = buildGroups(items, now);
-  const headline = localHeadline(items);
+  const groups = buildGroups(unreadItems, now);
+  const headline = localHeadline(unreadItems);
   const summary = groups.map((group) => `${group.label}：${group.summary}`).join("；");
-  const topScore = scoreNotification(items[0], now);
+  const topScore = scoreNotification(unreadItems[0], now);
   return {
     title: headline,
     headline,
     summary,
     priority: PRIORITY_BY_SCORE.find(([threshold]) => topScore >= threshold)?.[1] || "low",
-    severity: highestSeverity(items),
-    category: categoryForSource(items[0].source),
+    severity: highestSeverity(unreadItems),
+    category: categoryForSource(unreadItems[0].source),
     iconKey: "bell",
-    primarySource: items[0].source,
-    unreadCount: items.filter((item) => item.unread).length,
+    primarySource: unreadItems[0].source,
+    unreadCount: unreadItems.length,
     groups,
     spokenText: `${headline}。${summary}`,
-    sourceIds: items.map((item) => item.id)
+    sourceIds: unreadItems.map((item) => item.id)
   };
 }
 

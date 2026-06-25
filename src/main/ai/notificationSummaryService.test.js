@@ -112,6 +112,37 @@ test("uses the complete local digest when AI summaries are disabled", async () =
   assert.equal(digest.unreadCount, 1);
 });
 
+test("skips AI summaries when there are no unread notifications", async () => {
+  let calls = 0;
+  const service = createNotificationSummaryService({
+    store: {
+      collect: async () => ({
+        items: [{
+          id: "mail:1",
+          source: "mail",
+          type: "mail",
+          title: "课程通知",
+          body: "明天上课",
+          level: "info",
+          createdAt: Date.now(),
+          unread: false,
+          dedupeKey: "mail:1",
+          meta: {}
+        }]
+      })
+    },
+    callChat: async () => {
+      calls += 1;
+      return {};
+    }
+  });
+  const digest = await service.refreshNow({ force: true });
+  assert.equal(calls, 0);
+  assert.equal(digest.source, "local");
+  assert.equal(digest.unreadCount, 0);
+  assert.equal(digest.headline, "暂无新通知");
+});
+
 test("persists DeepSeek-generated digests with timestamped content", async () => {
   const persisted = [];
   const service = createNotificationSummaryService({
