@@ -457,30 +457,36 @@ html[data-theme="light"] .status-capsule .network-speed-arrow { color: #0284c7; 
 .refresh-notice-region {
   position: fixed;
   z-index: 80;
-  top: 64px;
-  right: 28px;
-  width: min(340px, calc(100vw - 56px));
+  top: 50px;
+  left: 50%;
+  width: min(300px, calc(100vw - 360px));
+  transform: translateX(-50%);
   pointer-events: none;
 }
 .refresh-notice {
-  padding: 14px 16px;
+  min-height: 32px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 7px 13px;
+  display: flex;
+  align-items: center;
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-left-width: 4px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-card) 94%, transparent);
-  box-shadow: 0 16px 38px color-mix(in srgb, var(--shadow) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-card) 92%, #000 8%);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow) 78%, transparent);
   backdrop-filter: blur(18px);
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-5px);
   transition: opacity 180ms ease, transform 180ms ease;
 }
 .refresh-notice.is-visible { opacity: 1; transform: translateY(0); }
-.refresh-notice.is-success { border-left-color: #10a37f; }
-.refresh-notice.is-error { border-left-color: #ef4444; }
-.refresh-notice > div { min-width: 0; display: grid; gap: 4px; }
-.refresh-notice strong { font-size: 13px; line-height: 1.35; }
-.refresh-notice span { overflow-wrap: anywhere; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.refresh-notice.is-success,
+.refresh-notice.is-error { border-color: var(--border-strong); }
+.refresh-notice > div { min-width: 0; display: flex; align-items: baseline; gap: 7px; overflow: hidden; }
+.refresh-notice strong { flex: 0 0 auto; font-size: 12px; line-height: 1.35; white-space: nowrap; }
+.refresh-notice span { min-width: 0; overflow: hidden; color: var(--text-muted); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   .refresh-notice { transition: none; transform: none; }
 }

@@ -160,8 +160,10 @@ test("manual GitHub and mail refreshes announce success and failure in the app",
   assert.match(renderer, /showRefreshNotice\("error", "邮件刷新失败", message\)/);
   assert.match(renderer, /showRefreshNotice\("success", "GitHub 刷新成功", "贡献数据已更新。"\)/);
   assert.match(renderer, /showRefreshNotice\("error", "GitHub 刷新失败", error\.message \|\| "请稍后重试。"\)/);
-  assert.match(css, /\.refresh-notice\.is-success \{ border-left-color: #10a37f; \}/);
-  assert.match(css, /\.refresh-notice\.is-error \{ border-left-color: #ef4444; \}/);
+  assert.match(css, /\.refresh-notice\.is-success,\s*\.refresh-notice\.is-error \{ border-color: var\(--border-strong\); \}/);
+  assert.doesNotMatch(css, /\.refresh-notice\.is-(?:success|error)\s*\{[^}]*border-left-color:/);
+  assert.match(css, /\.refresh-notice-region\s*\{[\s\S]*top:\s*50px;[\s\S]*left:\s*50%;[\s\S]*width:\s*min\(300px,[^;]+;[\s\S]*transform:\s*translateX\(-50%\);/);
+  assert.match(css, /\.refresh-notice > div \{[^}]*display:\s*flex;/);
 });
 
 test("github month navigation uses stable page-level delegation across rerenders", () => {
