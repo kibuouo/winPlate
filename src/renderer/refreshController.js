@@ -4,10 +4,18 @@
   if (globalScope) globalScope.WinPlateRefresh = api;
 })(typeof window !== "undefined" ? window : globalThis, () => {
   const VALID_STATES = new Set(["loading", "live", "stale", "error"]);
+  const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
 
   function normalizeInterval(value) {
     const interval = Number(value);
     return Number.isFinite(interval) && interval > 0 ? Math.round(interval) : 0;
+  }
+
+  function normalizeTimeout(value) {
+    const timeout = Number(value);
+    return Number.isFinite(timeout) && timeout > 0
+      ? Math.round(timeout)
+      : DEFAULT_REFRESH_TIMEOUT_MS;
   }
 
   function createRefreshController({
@@ -37,6 +45,7 @@
         id,
         refresh: definition.refresh,
         intervalMs: normalizeInterval(definition.intervalMs),
+        timeoutMs: normalizeTimeout(definition.timeoutMs),
         timer: null,
         inFlight: null,
         forceQueued: false,
@@ -69,11 +78,18 @@
         lastAttemptAt: attemptedAt,
         error: ""
       });
-      const operation = Promise.resolve()
+      let timeout = null;
+      const refreshPromise = Promise.resolve()
         .then(() => entry.refresh({
           force: Boolean(options.force),
           reason: options.reason || "manual"
-        }))
+        }));
+      const timeoutPromise = new Promise((resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${entry.id} 刷新超时，请稍后重试`));
+        }, entry.timeoutMs);
+      });
+      const operation = Promise.race([refreshPromise, timeoutPromise])
         .then((value) => {
           emit(entry, {
             state: "live",
@@ -90,6 +106,7 @@
           throw error;
         })
         .finally(() => {
+          clearTimeout(timeout);
           if (entry.inFlight === operation) entry.inFlight = null;
         });
       entry.inFlight = operation;
@@ -126,10 +143,11 @@
       return Promise.allSettled(ids.map((id) => refresh(id, options)));
     }
 
-    function configure(id, { intervalMs } = {}) {
+    function configure(id, { intervalMs, timeoutMs } = {}) {
       const entry = entries.get(id);
       if (!entry) throw new Error(`unknown refresh task: ${id}`);
       entry.intervalMs = normalizeInterval(intervalMs);
+      if (timeoutMs !== undefined) entry.timeoutMs = normalizeTimeout(timeoutMs);
       schedule(entry);
       return controller;
     }
@@ -172,5 +190,5 @@
     return controller;
   }
 
-  return { createRefreshController, normalizeInterval };
+  return { createRefreshController, normalizeInterval, normalizeTimeout, DEFAULT_REFRESH_TIMEOUT_MS };
 });

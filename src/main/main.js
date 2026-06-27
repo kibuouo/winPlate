@@ -1,5 +1,6 @@
 const { app, BrowserWindow, clipboard, ipcMain, nativeTheme, session, shell } = require("electron");
 const { execFile } = require("child_process");
+const http = require("node:http");
 const path = require("node:path");
 const { promisify } = require("util");
 const {
@@ -144,6 +145,9 @@ function invalidateResponseCache(key) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = LOCAL_API_TIMEOUT_MS) {
+  if (String(url).startsWith("http://127.0.0.1:8765/")) {
+    return fetchLocalApi(url, options, timeoutMs);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs);
   try {
@@ -156,6 +160,50 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = LOCAL_API_TIMEOUT
       throw new Error(`Request timed out after ${timeoutMs}ms`);
     }
     throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function fetchLocalApi(url, options = {}, timeoutMs = LOCAL_API_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = http.request({
+      hostname: target.hostname,
+      port: target.port,
+      path: `${target.pathname}${target.search}`,
+      method: options.method || "GET",
+      headers: options.headers || {}
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        const status = Number(response.statusCode) || 0;
+        resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          json: async () => JSON.parse(body),
+          text: async () => body
+        });
+      });
+    });
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+    request.on("error", reject);
+    if (options.body !== undefined) request.write(options.body);
+    request.end();
+  });
+}
+
+async function readJsonWithTimeout(response, label, timeoutMs = LOCAL_API_TIMEOUT_MS) {
+  let timeout = null;
+  const timeoutPromise = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(`${label} response timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([response.json(), timeoutPromise]);
   } finally {
     clearTimeout(timeout);
   }
@@ -189,7 +237,7 @@ async function fetchJsonCached(key, url, ttlMs) {
     if (!response.ok) {
       throw new Error(`${key} failed: HTTP ${response.status}`);
     }
-    const value = await response.json();
+    const value = await readJsonWithTimeout(response, key);
     if ((responseCacheVersions.get(key) || 0) === cacheVersion) {
       setResponseCache(key, { value, updatedAt: Date.now() });
     }
@@ -346,6 +394,8 @@ if (!gotLock) {
           }
         }
       });
+      const payload = await publicSettingsPayload();
+      broadcastSettingsUpdated(payload);
       return {
         theme: currentSettings.appearance.theme,
         mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
@@ -386,7 +436,7 @@ if (!gotLock) {
       if (!response.ok) {
         throw new Error(`GitHub refresh failed: HTTP ${response.status}`);
       }
-      const github = await response.json();
+      const github = await readJsonWithTimeout(response, "GitHub refresh");
       invalidateResponseCache("Status");
       return github;
     });
@@ -561,10 +611,10 @@ if (!gotLock) {
     ipcMain.handle("mail:refresh", async () => {
       const response = await fetchWithTimeout("http://127.0.0.1:8765/api/mail/refresh", { method: "POST" });
       if (!response.ok) {
-        const payload = await response.json().catch(() => null);
+        const payload = await readJsonWithTimeout(response, "Mail refresh error").catch(() => null);
         throw new Error(payload?.detail || `Mail refresh failed: HTTP ${response.status}`);
       }
-      const outline = await response.json();
+      const outline = await readJsonWithTimeout(response, "Mail refresh");
       clearMailCaches();
       clearNotificationCaches();
       scheduleNotificationDigestRefresh();

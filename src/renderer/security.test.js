@@ -85,13 +85,83 @@ test("versioned settings IPC never returns credential values", () => {
   assert.doesNotMatch(main, /github:\s*\{[\s\S]{0,120}token:\s*githubToken/);
 });
 
+test("appearance-only saves broadcast the updated theme to every window", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const appearanceSaveHandler = main.slice(
+    main.indexOf('ipcMain.handle("appearance:save-settings"'),
+    main.indexOf('createMainWindow(initialTheme)')
+  );
+
+  assert.match(appearanceSaveHandler, /const payload = await publicSettingsPayload\(\);/);
+  assert.match(appearanceSaveHandler, /broadcastSettingsUpdated\(payload\);/);
+});
+
 test("main process guards cached status and GitHub refresh calls with a local API timeout", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
 
   assert.match(main, /const LOCAL_API_TIMEOUT_MS = 12_000;/);
+  assert.match(main, /const http = require\("node:http"\);/);
   assert.match(main, /async function fetchWithTimeout\(url, options = \{\}, timeoutMs = LOCAL_API_TIMEOUT_MS\)/);
+  assert.match(main, /function fetchLocalApi\(url, options = \{\}, timeoutMs = LOCAL_API_TIMEOUT_MS\)/);
+  assert.match(main, /String\(url\)\.startsWith\("http:\/\/127\.0\.0\.1:8765\/"\)/);
+  assert.match(main, /async function readJsonWithTimeout\(response, label, timeoutMs = LOCAL_API_TIMEOUT_MS\)/);
   assert.match(main, /const promise = fetchWithTimeout\(url\)\.then\(async \(response\) => \{/);
+  assert.match(main, /const value = await readJsonWithTimeout\(response, key\);/);
   assert.match(main, /fetchWithTimeout\("http:\/\/127\.0\.0\.1:8765\/api\/github\/refresh", \{ method: "POST" \}\)/);
+  assert.match(main, /readJsonWithTimeout\(response, "GitHub refresh"\)/);
+  assert.match(main, /readJsonWithTimeout\(response, "Mail refresh"\)/);
+});
+
+test("renderer releases a manual mail refresh when IPC never settles", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const timeoutHelper = renderer.slice(
+    renderer.indexOf("function withRendererRefreshTimeout"),
+    renderer.indexOf("function normalizeNavigationPayload")
+  );
+  const mailControls = renderer.slice(
+    renderer.indexOf("function bindMailControls"),
+    renderer.indexOf("async function openMailDetail")
+  );
+
+  assert.match(timeoutHelper, /Promise\.race/);
+  assert.match(renderer, /refreshLocalJson\("\/api\/mail\/refresh", "邮件刷新"\)/);
+  assert.match(renderer, /refreshLocalJson\("\/api\/github\/refresh", "GitHub 刷新"\)/);
+  assert.match(mailControls, /withRendererRefreshTimeout/);
+  assert.doesNotMatch(mailControls, /const settings = await window\.winplate\.getMailSettings/);
+  assert.match(mailControls, /resetRefreshButton\("#refresh-mail"\)/);
+  assert.match(mailControls, /finally\s*\{[\s\S]*mailRefreshInFlight = false/);
+});
+
+test("manual refresh state is released even when the initial redraw fails", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const mailControls = renderer.slice(
+    renderer.indexOf("function bindMailControls"),
+    renderer.indexOf("async function openMailDetail")
+  );
+  const githubControls = renderer.slice(
+    renderer.indexOf("function bindGithubControls"),
+    renderer.indexOf("function updateMaximizeButton")
+  );
+
+  assert.match(renderer, /function bindWeatherIconFallbacks\(root = document\)/);
+  assert.match(mailControls, /mailRefreshInFlight = true;\s*try \{\s*updateMainStatusDom\(\);/);
+  assert.match(githubControls, /githubRefreshInFlight = true;\s*try \{\s*updateMainStatusDom\(\);/);
+  assert.match(mailControls, /finally\s*\{\s*mailRefreshInFlight = false;/);
+  assert.match(githubControls, /finally\s*\{\s*githubRefreshInFlight = false;/);
+});
+
+test("manual GitHub and mail refreshes announce success and failure in the app", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(renderer, /id="refresh-notice-region" aria-live="polite" aria-atomic="true"/);
+  assert.match(renderer, /function showRefreshNotice\(type, title, message\)/);
+  assert.match(renderer, /showRefreshNotice\("success", "邮件刷新成功", "邮件大纲已更新。"\)/);
+  assert.match(renderer, /showRefreshNotice\("error", "邮件刷新失败", message\)/);
+  assert.match(renderer, /showRefreshNotice\("success", "GitHub 刷新成功", "贡献数据已更新。"\)/);
+  assert.match(renderer, /showRefreshNotice\("error", "GitHub 刷新失败", error\.message \|\| "请稍后重试。"\)/);
+  assert.match(css, /\.refresh-notice\.is-success \{ border-left-color: #10a37f; \}/);
+  assert.match(css, /\.refresh-notice\.is-error \{ border-left-color: #ef4444; \}/);
 });
 
 test("github month navigation uses stable page-level delegation across rerenders", () => {
@@ -366,4 +436,17 @@ test("floating network capsule is wider than heart while sharing the icon grid",
   assert.match(floatingStatusCss, /\.network-speed\s*\{[\s\S]*grid-template-columns:\s*16px max-content;/);
   assert.match(floatingStatusCss, /\.network-speed\s*\{[\s\S]*gap:\s*3px;/);
   assert.doesNotMatch(floatingStatusCss, /transform:\s*translateX/);
+});
+
+test("floating capsule defines distinct light and dark theme tokens", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const floatingStatusCss = css.slice(0, css.indexOf(".main-body"));
+
+  assert.match(floatingStatusCss, /\.status-capsule\s*\{[\s\S]*--capsule-surface:\s*rgba\(24, 24, 27, \.92\);/);
+  assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule\s*\{[\s\S]*--capsule-surface:\s*rgba\(250, 250, 252, \.94\);/);
+  assert.match(floatingStatusCss, /background:\s*color-mix\(in srgb, var\(--capsule-surface\)/);
+  assert.match(floatingStatusCss, /\.usage-track\s*\{[\s\S]*background:\s*var\(--capsule-track\);/);
+  assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.weather-icon/);
+  assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.notification-strip\.severity-info/);
+  assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.network-speed-arrow/);
 });

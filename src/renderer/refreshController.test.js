@@ -100,3 +100,43 @@ test("reconfigures and stops timers without duplicating them", async () => {
   controller.stop();
   assert.equal(active.size, 0);
 });
+
+test("times out a hung task and allows a later refresh", async () => {
+  const never = deferred();
+  let calls = 0;
+  const controller = createRefreshController();
+  controller.register({
+    id: "github",
+    timeoutMs: 10,
+    refresh: () => {
+      calls += 1;
+      return calls === 1 ? never.promise : Promise.resolve("recovered");
+    }
+  });
+
+  await assert.rejects(controller.refresh("github"), /github 刷新超时/);
+  assert.equal(controller.getHealth("github").state, "error");
+  assert.equal(await controller.refresh("github"), "recovered");
+  assert.equal(controller.getHealth("github").state, "live");
+});
+
+test("forced refresh queued behind a hung task runs after the timeout", async () => {
+  const never = deferred();
+  let calls = 0;
+  const controller = createRefreshController();
+  controller.register({
+    id: "mail",
+    timeoutMs: 10,
+    refresh: ({ force }) => {
+      calls += 1;
+      return calls === 1 ? never.promise : Promise.resolve(force ? "forced" : "normal");
+    }
+  });
+
+  const initial = controller.refresh("mail", { reason: "timer" });
+  await Promise.resolve();
+  const forced = controller.refresh("mail", { force: true, reason: "button" });
+  await assert.rejects(initial, /mail 刷新超时/);
+  assert.equal(await forced, "forced");
+  assert.equal(calls, 2);
+});

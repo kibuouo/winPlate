@@ -38,6 +38,7 @@ let mainWindowMaximized = false;
 let sidebarCollapsed = false;
 let selectedContributionMonth = null;
 let githubRefreshInFlight = false;
+let refreshNoticeTimer = null;
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
 let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" };
@@ -47,6 +48,7 @@ let mailRefreshInFlight = false;
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let mailHighlightedUid = null;
 const MAIL_DETAIL_READ_TIMEOUT_MS = 8_000;
+const RENDERER_REFRESH_TIMEOUT_MS = 15_000;
 let notificationSummary = { unreadCount: 0, latest: null, items: [], updatedAt: null };
 let weatherAlerts = { source: "qweather", alerts: [], updatedAt: null, error: "" };
 let selectedWeatherAlertId = null;
@@ -782,6 +784,68 @@ function normalizedNotifications(summary = notificationSummary) {
   };
 }
 
+function withRendererRefreshTimeout(operation, label, timeoutMs = RENDERER_REFRESH_TIMEOUT_MS) {
+  let timer = null;
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}超时，请稍后重试`)), timeoutMs);
+  });
+  return Promise.race([Promise.resolve(operation), timeout]).finally(() => clearTimeout(timer));
+}
+
+async function refreshLocalJson(path, label) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RENDERER_REFRESH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`http://127.0.0.1:8765${path}`, {
+      method: "POST",
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.detail || `${label}失败: HTTP ${response.status}`);
+    return payload;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error(`${label}超时，请稍后重试`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function resetRefreshButton(selector) {
+  const button = document.querySelector(selector);
+  if (!button) return;
+  button.disabled = false;
+  button.classList.remove("refreshing");
+  const label = button.querySelector("span:last-child");
+  if (label) label.textContent = "刷新";
+}
+
+function showRefreshNotice(type, title, message) {
+  const region = document.querySelector("#refresh-notice-region");
+  if (!region) return;
+  if (refreshNoticeTimer) clearTimeout(refreshNoticeTimer);
+
+  const notice = document.createElement("div");
+  notice.className = `refresh-notice is-${type === "success" ? "success" : "error"}`;
+
+  const copy = document.createElement("div");
+  const heading = document.createElement("strong");
+  const detail = document.createElement("span");
+  heading.textContent = title;
+  detail.textContent = message;
+  copy.append(heading, detail);
+  notice.append(copy);
+  region.replaceChildren(notice);
+
+  requestAnimationFrame(() => notice.classList.add("is-visible"));
+  refreshNoticeTimer = setTimeout(() => {
+    notice.classList.remove("is-visible");
+    setTimeout(() => {
+      if (notice.parentNode === region) notice.remove();
+    }, 180);
+  }, 4_000);
+}
+
 function normalizeNavigationPayload(value) {
   if (typeof value === "string") {
     return { section: value };
@@ -1217,6 +1281,18 @@ function weatherDateTime(now = new Date()) {
 function weatherIconMarkup(iconCode, className = "weather-icon") {
   const code = /^\d{3,4}$/.test(String(iconCode || "")) ? String(iconCode) : "999";
   return `<img class="${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
+}
+
+function bindWeatherIconFallbacks(root = document) {
+  root.querySelectorAll("img.weather-icon, img.weather-detail-icon").forEach((image) => {
+    const showFallback = () => {
+      if (image.dataset.fallbackApplied === "true") return;
+      image.dataset.fallbackApplied = "true";
+      image.src = "../../node_modules/qweather-icons/icons/999.svg";
+    };
+    image.addEventListener("error", showFallback, { once: true });
+    if (image.complete && !image.naturalWidth) showFallback();
+  });
 }
 
 function selectedWeatherLocationOption() {
@@ -2641,7 +2717,8 @@ function renderMain() {
           </header>
           <section id="page-content">${dashboardContent(currentSection)}</section>
         </main>
-      </div>`;
+      </div>
+      <div class="refresh-notice-region" id="refresh-notice-region" aria-live="polite" aria-atomic="true"></div>`;
   updateProgressBars(appRoot);
   if (previousScrollPosition) {
     document.querySelector(".main-content").scrollTo(previousScrollPosition);
@@ -2736,6 +2813,7 @@ function updateMainStatusDom(moduleIds = null) {
     const structureChanged = syncRequestedModuleNodes(pageContent, template.content, requested);
     if (structureChanged) {
       bindAvatarFallbacks(pageContent);
+      bindWeatherIconFallbacks(pageContent);
       if (requested.includes("github")) bindGithubControls();
       if (requested.includes("weather")) bindQWeatherUsageControls();
       if (requested.includes("mail")) bindMailControls();
@@ -2776,6 +2854,7 @@ function updateMainStatusDom(moduleIds = null) {
   }
   if (structureChanged) {
     bindAvatarFallbacks(pageContent);
+    bindWeatherIconFallbacks(pageContent);
     bindGithubControls();
     bindQWeatherUsageControls();
     bindMailControls();
@@ -3048,19 +3127,28 @@ function bindMailControls() {
   refreshButton.onclick = async () => {
     if (mailRefreshInFlight) return;
     mailRefreshInFlight = true;
-    updateMainStatusDom();
     try {
-      mailOutline = await window.winplate.refreshMailOutline();
-      mailSettings = await window.winplate.getMailSettings();
-      await hydrateNotifications();
+      updateMainStatusDom();
+      const refreshed = await withRendererRefreshTimeout((async () => {
+        const outline = await refreshLocalJson("/api/mail/refresh", "邮件刷新");
+        return { outline };
+      })(), "邮件刷新");
+      mailOutline = refreshed.outline;
+      showRefreshNotice("success", "邮件刷新成功", "邮件大纲已更新。");
+      hydrateNotifications().then(() => {
+        updateCurrentViewDom("notifications");
+      });
     } catch (error) {
+      const message = error.message || "邮件刷新失败";
       mailOutline = {
         ...mailOutline,
         availability: "unavailable",
-        error: error.message || "邮件刷新失败"
+        error: message
       };
+      showRefreshNotice("error", "邮件刷新失败", message);
     } finally {
       mailRefreshInFlight = false;
+      resetRefreshButton("#refresh-mail");
       updateMainStatusDom();
     }
   };
@@ -3464,9 +3552,10 @@ function bindGithubControls() {
   refreshButton.onclick = async () => {
     if (githubRefreshInFlight) return;
     githubRefreshInFlight = true;
-    updateMainStatusDom();
     try {
+      updateMainStatusDom();
       await refreshController.refresh("github", { force: true, reason: "button" });
+      showRefreshNotice("success", "GitHub 刷新成功", "贡献数据已更新。");
     } catch (error) {
       console.error("GitHub refresh failed:", error);
       statusData.github = normalizeGithub({
@@ -3475,8 +3564,10 @@ function bindGithubControls() {
         availability: "unavailable",
         stateMessage: "Refresh failed; showing last known data."
       }, statusData.github);
+      showRefreshNotice("error", "GitHub 刷新失败", error.message || "请稍后重试。");
     } finally {
       githubRefreshInFlight = false;
+      resetRefreshButton("#refresh-github");
       updateMainStatusDom("github");
     }
   };
@@ -3511,7 +3602,7 @@ async function refreshBackendStatus() {
 
 async function refreshGithubData({ force = false } = {}) {
   const github = force
-    ? await window.winplate.refreshGithub()
+    ? await refreshLocalJson("/api/github/refresh", "GitHub 刷新")
     : (await window.winplate.getStatus()).github;
   statusData.github = normalizeGithub({
     ...github,
@@ -3550,8 +3641,10 @@ async function refreshDeepSeekData({ force = false } = {}) {
 
 async function refreshMailData({ force = false } = {}) {
   await hydrateMail({ force });
-  await hydrateNotifications();
-  updateCurrentViewDom(["mail", "notifications"]);
+  updateCurrentViewDom("mail");
+  hydrateNotifications().then(() => {
+    updateCurrentViewDom("notifications");
+  });
   if (mailOutline.availability === "unavailable") {
     throw new Error(mailOutline.error || "邮件服务不可用");
   }
