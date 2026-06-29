@@ -4,12 +4,28 @@ Electron desktop UI with a local FastAPI and SQLite backend.
 
 ## Development
 
-```powershell
-npm run venv:create
-npm run backend:install
+### macOS
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
 npm install
 npm run dev
 ```
+
+macOS starts from one menu bar item and does not create a desktop floating
+capsule.
+
+### Windows (PowerShell)
+
+```powershell
+py -m venv .venv
+.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+npm install
+npm run dev
+```
+
+Windows starts with the existing desktop capsule.
 
 Electron starts `backend/main.py`, waits for `http://127.0.0.1:8765/api/health`,
 then creates the main and floating windows. The renderer refreshes

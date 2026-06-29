@@ -1,11 +1,11 @@
 {
   "name": "winplate",
   "version": "0.1.0",
-  "description": "A floating Windows status plate built with Electron.",
+  "description": "A native status center for Windows and macOS built with Electron.",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "chcp 65001 >nul && cross-env FORCE_COLOR=1 electron .",
+    "dev": "cross-env FORCE_COLOR=1 electron .",
     "backend": "uvicorn backend.main:api --host 127.0.0.1 --port 8765 --reload --use-colors --log-config backend/logging.json",
     "frontend": "echo Frontend ready",
     "electron": "electron .",
