@@ -4,7 +4,7 @@
 
 WinPlate will add a native macOS menu bar experience based on the supplied hand-drawn reference. One native status item combines a monochrome WinPlate icon with the current temperature. Clicking it opens a narrow, vertically ordered status panel for Codex quota, DeepSeek balance, and weather. This specification replaces the 2 × 2 macOS popover layout in `2026-06-28-winplate-windows-macos-design.md`; the rest of that cross-platform design remains valid.
 
-The feature is fully interactive and uses the project's existing data sources. Windows keeps its current floating window, main window, and status presentation unchanged.
+The feature is fully interactive and uses the project's existing data sources. Windows keeps its current floating window, main window, and status presentation unchanged. macOS does not create, display, or configure a desktop floating capsule.
 
 ## Menu Bar Item
 
@@ -108,9 +108,10 @@ Weather does not add another service-status point. Its content or fallback copy 
 - Separate menu bar items for the WinPlate icon and temperature.
 - Replacing or redrawing macOS system status items.
 - The previous 2 × 2 macOS popover grid.
+- A macOS desktop floating capsule, including its enablement and pinning preferences.
 - New alerts, system notifications, data sources, or quota-severity rules.
 - Changes to the existing Windows visual design.
 
 ## Completion Criteria
 
-On macOS, WinPlate presents one stable native menu bar item with a live temperature and a compact anchored panel ordered as Codex, DeepSeek, weather, and actions. Real data refreshes without disrupting the open panel, partial failures degrade locally, Codex never uses quota warning colors, service availability uses the Windows green/gray status points, and the existing Windows product behavior remains intact.
+On macOS, WinPlate presents one stable native menu bar item with a live temperature and a compact anchored panel ordered as Codex, DeepSeek, weather, and actions, with no desktop floating capsule. Real data refreshes without disrupting the open panel, partial failures degrade locally, Codex never uses quota warning colors, service availability uses the Windows green/gray status points, and the existing Windows product behavior remains intact.
