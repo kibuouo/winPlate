@@ -1,4 +1,16 @@
-const { app, ipcMain, nativeTheme, session, shell } = require("electron");
+const path = require("path");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  screen,
+  session,
+  shell,
+  Tray
+} = require("electron");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const {
@@ -18,6 +30,8 @@ const {
   closeMainWindow
 } = require("./windows");
 const { createAppTray } = require("./tray");
+const { createMacMenuBar } = require("./macMenuBar");
+const { startupPolicy } = require("./startupPolicy");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
 const {
@@ -31,11 +45,17 @@ const {
 } = require("./appearanceSettings");
 
 let tray;
+let macMenuBar;
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
+
+function quitApplication() {
+  setQuitting(true);
+  app.quit();
+}
 
 function setResponseCache(key, value) {
   responseCaches.delete(key);
@@ -126,19 +146,62 @@ if (!gotLock) {
       writeAppearanceSettings(app.getPath("userData"), settings)
     ));
     createMainWindow(initialTheme);
-    createFloatingWindow();
+    const policy = startupPolicy();
+    app.on("activate", showMainWindow);
 
-    tray = createAppTray({
-      showMainWindow,
-      showFloatingWindow,
-      hideFloatingWindow,
-      quit: () => {
-        setQuitting(true);
-        app.quit();
+    if (policy.createFloatingWindow) {
+      createFloatingWindow();
+      ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
+      ipcMain.on("floating:pin-interactive", (_event, value) => {
+        setFloatingPinInteractive(value);
+      });
+      ipcMain.on("tooltip:show", (_event, payload) => showTooltipWindow(payload));
+      ipcMain.on("tooltip:hide", hideTooltipWindow);
+    }
+
+    if (policy.createWindowsTray) {
+      tray = createAppTray({
+        showMainWindow,
+        showFloatingWindow,
+        hideFloatingWindow,
+        quit: quitApplication
+      });
+    }
+
+    if (policy.createMacMenuBar) {
+      try {
+        macMenuBar = createMacMenuBar({
+          BrowserWindow,
+          Menu,
+          Tray,
+          nativeImage,
+          screen,
+          preloadPath: path.join(__dirname, "..", "preload", "preload.js"),
+          rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
+          iconPath: path.join(__dirname, "..", "..", "assets", "icon-transparent.png"),
+          actions: {
+            showMainWindow,
+            quit: quitApplication
+          }
+        });
+      } catch (error) {
+        console.error("Failed to create macOS menu bar:", error.message);
+        macMenuBar = null;
+        showMainWindow("Dashboard");
       }
-    });
+    }
 
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
+    ipcMain.on("menubar:update-temperature", (event, payload) => {
+      if (macMenuBar?.ownsSender(event.sender)) {
+        macMenuBar.setTemperature(payload);
+      }
+    });
+    ipcMain.on("menubar:hide", (event) => {
+      if (macMenuBar?.ownsSender(event.sender)) {
+        macMenuBar.hide();
+      }
+    });
     ipcMain.on("github:open-profile", (_event, url) => {
       if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
         shell.openExternal(url);
@@ -278,17 +341,12 @@ if (!gotLock) {
     ipcMain.on("window:minimize", minimizeMainWindow);
     ipcMain.handle("window:toggle-maximize", toggleMaximizeMainWindow);
     ipcMain.on("window:close", closeMainWindow);
-    ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
-    ipcMain.on("floating:pin-interactive", (_event, value) => {
-      setFloatingPinInteractive(value);
-    });
-    ipcMain.on("tooltip:show", (_event, payload) => showTooltipWindow(payload));
-    ipcMain.on("tooltip:hide", hideTooltipWindow);
-    app.on("activate", showMainWindow);
   });
 
   app.on("before-quit", () => {
     setQuitting(true);
+    macMenuBar?.destroy();
+    macMenuBar = null;
     stopPythonService();
   });
   app.on("window-all-closed", (event) => event.preventDefault());

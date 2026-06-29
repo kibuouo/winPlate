@@ -528,6 +528,24 @@ test("exposes panel toggling on the controller", async () => {
   assert.equal(panel.showCalls, 1);
 });
 
+test("owns only the live panel webContents sender", () => {
+  const { controller, panel } = createFixture();
+
+  assert.equal(controller.ownsSender(panel.webContents), true);
+  assert.equal(controller.ownsSender({}), false);
+  assert.equal(controller.ownsSender(null), false);
+});
+
+test("does not own any sender after destroy", () => {
+  const { controller, panel } = createFixture();
+  const sender = panel.webContents;
+
+  controller.destroy();
+
+  assert.equal(controller.ownsSender(sender), false);
+  assert.equal(controller.ownsSender(panel.webContents), false);
+});
+
 test("panel blur hides the live panel", () => {
   const { panel } = createFixture();
 

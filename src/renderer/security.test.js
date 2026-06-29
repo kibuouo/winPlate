@@ -4,6 +4,156 @@ const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function loadPreloadBridge() {
+  const preload = fs.readFileSync(
+    path.join(__dirname, "..", "preload", "preload.js"),
+    "utf8"
+  );
+  const listeners = new Map();
+  const calls = { invoked: [], removed: [], sent: [] };
+  let exposed;
+  const ipcRenderer = {
+    invoke(channel, ...args) {
+      calls.invoked.push([channel, ...args]);
+    },
+    on(channel, listener) {
+      listeners.set(channel, listener);
+    },
+    removeListener(channel, listener) {
+      calls.removed.push([channel, listener]);
+      if (listeners.get(channel) === listener) listeners.delete(channel);
+    },
+    send(channel, ...args) {
+      calls.sent.push([channel, ...args]);
+    }
+  };
+
+  vm.runInNewContext(preload, {
+    require(moduleName) {
+      assert.equal(moduleName, "electron");
+      return {
+        contextBridge: {
+          exposeInMainWorld(name, api) {
+            assert.equal(name, "winplate");
+            exposed = api;
+          }
+        },
+        ipcRenderer
+      };
+    }
+  }, { filename: "preload.js" });
+
+  return { api: exposed, calls, listeners, ipcRenderer };
+}
+
+test("preload exposes narrow menu bar APIs without raw Electron capabilities", () => {
+  const { api, calls, ipcRenderer } = loadPreloadBridge();
+
+  assert.equal(typeof api.updateMenuBarTemperature, "function");
+  assert.equal(typeof api.hideMenuBarPanel, "function");
+  assert.equal(typeof api.onMenuBarRefresh, "function");
+  assert.equal(api.ipcRenderer, undefined);
+  assert.equal(api.require, undefined);
+  assert.equal(api.send, undefined);
+  assert.equal(api.invoke, undefined);
+  assert.notEqual(api, ipcRenderer);
+
+  api.updateMenuBarTemperature(19.6);
+  api.hideMenuBarPanel();
+  assert.deepEqual(calls.sent, [
+    ["menubar:update-temperature", 19.6],
+    ["menubar:hide"]
+  ]);
+});
+
+test("menu bar refresh subscription uses one exact channel and returns cleanup", () => {
+  const { api, calls, listeners } = loadPreloadBridge();
+  const refreshes = [];
+  const callback = (payload) => refreshes.push(payload);
+
+  assert.throws(() => api.onMenuBarRefresh(null), {
+    name: "TypeError",
+    message: "callback must be a function"
+  });
+  const cleanup = api.onMenuBarRefresh(callback);
+  assert.equal(typeof cleanup, "function");
+  assert.deepEqual([...listeners.keys()], ["menubar:refresh"]);
+
+  listeners.get("menubar:refresh")({ sender: "private" }, "refresh-now");
+  assert.deepEqual(refreshes, ["refresh-now"]);
+
+  const registeredListener = listeners.get("menubar:refresh");
+  cleanup();
+  assert.deepEqual(calls.removed, [["menubar:refresh", registeredListener]]);
+  assert.equal(listeners.has("menubar:refresh"), false);
+});
+
+test("main startup imports native menu bar dependencies and gates platform UI", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const electronImport = main.match(/const\s*\{([^}]+)\}\s*=\s*require\("electron"\)/)?.[1] || "";
+
+  for (const dependency of ["BrowserWindow", "Menu", "Tray", "nativeImage", "screen"]) {
+    assert.match(electronImport, new RegExp(`\\b${dependency}\\b`));
+  }
+  assert.match(main, /const path = require\("path"\)/);
+  assert.match(main, /require\("\.\/macMenuBar"\)/);
+  assert.match(main, /require\("\.\/startupPolicy"\)/);
+  assert.equal((main.match(/startupPolicy\(\)/g) || []).length, 1);
+
+  assert.match(
+    main,
+    /if \(policy\.createFloatingWindow\)\s*\{[\s\S]*?createFloatingWindow\(\);[\s\S]*?floating:set-pinned[\s\S]*?tooltip:hide[\s\S]*?\}/
+  );
+  assert.match(
+    main,
+    /if \(policy\.createWindowsTray\)\s*\{[\s\S]*?createAppTray\(/
+  );
+  assert.match(
+    main,
+    /if \(policy\.createMacMenuBar\)\s*\{[\s\S]*?macMenuBar = createMacMenuBar\(/
+  );
+
+  const afterPolicySelection = main.slice(main.indexOf("const policy = startupPolicy();"));
+  const floatingCalls = [...afterPolicySelection.matchAll(/createFloatingWindow\(\)/g)];
+  assert.equal(floatingCalls.length, 1);
+});
+
+test("main accepts menu bar IPC only from the controller panel sender", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+
+  assert.match(
+    main,
+    /ipcMain\.on\("menubar:update-temperature", \(event, payload\) => \{\s*if \(macMenuBar\?\.ownsSender\(event\.sender\)\) \{\s*macMenuBar\.setTemperature\(payload\);\s*\}\s*\}\);/
+  );
+  assert.match(
+    main,
+    /ipcMain\.on\("menubar:hide", \(event\) => \{\s*if \(macMenuBar\?\.ownsSender\(event\.sender\)\) \{\s*macMenuBar\.hide\(\);\s*\}\s*\}\);/
+  );
+  assert.equal((main.match(/menubar:update-temperature/g) || []).length, 1);
+  assert.equal((main.match(/menubar:hide/g) || []).length, 1);
+
+  const menuBarHandlers = main.slice(
+    main.indexOf('ipcMain.on("menubar:update-temperature"'),
+    main.indexOf('ipcMain.on("github:open-profile"')
+  );
+  assert.doesNotMatch(menuBarHandlers, /getURL|\.url\b/);
+});
+
+test("main keeps activation reachable and falls back if menu bar construction fails", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const activation = 'app.on("activate", showMainWindow);';
+  const activationIndex = main.indexOf(activation);
+  const controllerIndex = main.indexOf("macMenuBar = createMacMenuBar(");
+
+  assert.equal((main.match(/app\.on\("activate", showMainWindow\)/g) || []).length, 1);
+  assert.notEqual(activationIndex, -1);
+  assert.equal(activationIndex < controllerIndex, true);
+  assert.match(
+    main,
+    /if \(policy\.createMacMenuBar\) \{\s*try \{\s*macMenuBar = createMacMenuBar\([\s\S]*?\);\s*\} catch \(error\) \{\s*console\.error\([^;]+error\.message\);\s*macMenuBar = null;\s*showMainWindow\("Dashboard"\);\s*\}\s*\}/
+  );
+});
+
 test("content security policy permits GitHub avatar images", () => {
   const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 

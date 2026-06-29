@@ -23,6 +23,19 @@ contextBridge.exposeInMainWorld("winplate", {
   closeWindow: () => ipcRenderer.send("window:close"),
   onMaximizedChange: (callback) => ipcRenderer.on("window:maximized", (_event, value) => callback(value)),
 
+  updateMenuBarTemperature: (temperature) => (
+    ipcRenderer.send("menubar:update-temperature", temperature)
+  ),
+  hideMenuBarPanel: () => ipcRenderer.send("menubar:hide"),
+  onMenuBarRefresh: (callback) => {
+    if (typeof callback !== "function") {
+      throw new TypeError("callback must be a function");
+    }
+    const listener = (_event, ...args) => callback(...args);
+    ipcRenderer.on("menubar:refresh", listener);
+    return () => ipcRenderer.removeListener("menubar:refresh", listener);
+  },
+
   setFloatingPinned: (value) => ipcRenderer.invoke("floating:set-pinned", value),
   setFloatingPinInteractive: (value) => ipcRenderer.send("floating:pin-interactive", value),
   showTooltip: (payload) => ipcRenderer.send("tooltip:show", payload),

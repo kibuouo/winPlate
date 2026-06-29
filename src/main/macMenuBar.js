@@ -256,6 +256,10 @@ function createMacMenuBar(dependencies) {
       return title;
     }
 
+    function ownsSender(sender) {
+      return !destroyed && !panel.isDestroyed() && sender === panel.webContents;
+    }
+
     function destroy() {
       if (destroyed) {
         return;
@@ -315,7 +319,14 @@ function createMacMenuBar(dependencies) {
       handleLoadFailure();
     }
 
-    return { toggle: handleClick, setTemperature, refresh, hide, destroy };
+    return {
+      toggle: handleClick,
+      setTemperature,
+      refresh,
+      hide,
+      ownsSender,
+      destroy
+    };
   } catch (error) {
     safelyDestroy(panel);
     safelyDestroy(tray);
