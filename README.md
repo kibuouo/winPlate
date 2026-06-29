@@ -28,16 +28,18 @@ npm run dev
 Windows starts with the existing desktop capsule.
 
 Electron starts `backend/main.py`, waits for `http://127.0.0.1:8765/api/health`,
-then creates the main and floating windows. The renderer refreshes
-`GET /api/status` every 30 seconds.
+then creates the platform-specific shell: the existing Tray and floating window
+on Windows, or one native menu bar item and anchored panel on macOS. The renderer
+refreshes `GET /api/status` every 30 seconds.
 
 Codex usage is read separately by the Electron main process. It starts a hidden
 Codex CLI PTY, sends `/status`, parses the primary remaining percentage and
 reset text, and caches the result for 30 seconds. The UI treats a longer bar as
 more quota remaining.
 
-Electron automatically uses `.venv\Scripts\python.exe` when it exists, so the
-virtual environment does not need to be activated before `npm run dev`.
+Electron automatically uses `.venv/bin/python` on macOS or
+`.venv\Scripts\python.exe` on Windows, so the virtual environment does not need
+to be activated before `npm run dev`.
 `WINPLATE_PYTHON` can override the interpreter path when needed.
 
 GitHub data is loaded from the public GitHub REST API. The default account is

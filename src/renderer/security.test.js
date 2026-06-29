@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 
 function loadPreloadBridge() {
   const preload = fs.readFileSync(
-    path.join(__dirname, "..", "preload", "preload.js"),
+    path.join(__dirname, "..", "preload", "menuBarPreload.js"),
     "utf8"
   );
   const listeners = new Map();
@@ -41,13 +41,23 @@ function loadPreloadBridge() {
         ipcRenderer
       };
     }
-  }, { filename: "preload.js" });
+  }, { filename: "menuBarPreload.js" });
 
   return { api: exposed, calls, listeners, ipcRenderer };
 }
 
 test("preload exposes narrow menu bar APIs without raw Electron capabilities", () => {
   const { api, calls, ipcRenderer } = loadPreloadBridge();
+
+  assert.deepEqual(Object.keys(api).sort(), [
+    "getCodexUsage",
+    "getDeepSeekUsage",
+    "getStatus",
+    "hideMenuBarPanel",
+    "onMenuBarRefresh",
+    "showMainWindow",
+    "updateMenuBarTemperature"
+  ]);
 
   assert.equal(typeof api.updateMenuBarTemperature, "function");
   assert.equal(typeof api.hideMenuBarPanel, "function");
@@ -99,6 +109,12 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
   assert.match(main, /require\("\.\/macMenuBar"\)/);
   assert.match(main, /require\("\.\/startupPolicy"\)/);
   assert.equal((main.match(/startupPolicy\(\)/g) || []).length, 1);
+  assert.match(main, /"preload",\s*"menuBarPreload\.js"/);
+  assert.match(
+    main,
+    /"assets",\s*"menu-bar-icon\.png"/,
+    "the native menu bar should use a crisp monochrome 16px source icon"
+  );
 
   assert.match(
     main,
@@ -263,7 +279,9 @@ function createMenuBarHarness(options = {}) {
   const errors = [];
   const calls = {
     codex: 0,
+    codexOptions: [],
     deepseek: 0,
+    deepseekOptions: [],
     destinations: [],
     hidden: 0,
     status: 0,
@@ -295,8 +313,9 @@ function createMenuBarHarness(options = {}) {
         }
       };
     },
-    getCodexUsage() {
+    getCodexUsage(options) {
       calls.codex += 1;
+      calls.codexOptions.push(options.force);
       return {
         status: "Normal",
         windows: {
@@ -306,8 +325,9 @@ function createMenuBarHarness(options = {}) {
         updatedAt: "2026-06-29T09:00:00.000Z"
       };
     },
-    getDeepSeekUsage() {
+    getDeepSeekUsage(options) {
       calls.deepseek += 1;
+      calls.deepseekOptions.push(options.force);
       return {
         status: "Normal",
         balances: [{ currency: "CNY", total_balance: "88.50" }],
@@ -436,10 +456,12 @@ test("menu bar renderer updates fields in place and refreshes every 30 seconds",
   assert.doesNotMatch(js, /replaceChildren|innerHTML/);
   assert.doesNotMatch(updatePanelDom, /createElement|appendChild/);
   assert.match(js, /Promise\.allSettled\(/);
-  assert.match(js, /getCodexUsage\(\{\s*force:\s*true\s*\}\)/);
-  assert.match(js, /getDeepSeekUsage\(\{\s*force:\s*true\s*\}\)/);
+  assert.match(js, /async function refresh\(\{\s*force\s*=\s*false\s*\}\s*=\s*\{\}\)/);
+  assert.match(js, /getCodexUsage\(\{\s*force\s*\}\)/);
+  assert.match(js, /getDeepSeekUsage\(\{\s*force\s*\}\)/);
   assert.match(js, /setInterval\(refresh,\s*30_000\)/);
-  assert.match(js, /onMenuBarRefresh\(refresh\)/);
+  assert.match(js, /onMenuBarRefresh\(\(\)\s*=>\s*refresh\(\{\s*force:\s*true\s*\}\)\)/);
+  assert.match(js, /refreshButton\.addEventListener\("click",\s*\(\)\s*=>\s*refresh\(\{\s*force:\s*true\s*\}\)\)/);
   assert.match(js, /updateMenuBarTemperature\(/);
   assert.match(js, /hideMenuBarPanel\(\)/);
 });
@@ -510,6 +532,20 @@ test("menu bar renderer performs its initial refresh and updates named DOM field
   assert.equal(typeof harness.refresh, "function");
   assert.equal(harness.intervals.length, 1);
   assert.equal(harness.intervals[0].delay, 30_000);
+  assert.deepEqual(harness.calls.codexOptions, [false]);
+  assert.deepEqual(harness.calls.deepseekOptions, [false]);
+});
+
+test("automatic refresh uses caches while explicit refresh bypasses them", async () => {
+  const harness = createMenuBarHarness();
+  await harness.settle();
+
+  await harness.intervals[0].callback();
+  await harness.refresh();
+  await harness.element("#refresh-panel").dispatch("click");
+
+  assert.deepEqual(harness.calls.codexOptions, [false, false, true, true]);
+  assert.deepEqual(harness.calls.deepseekOptions, harness.calls.codexOptions);
 });
 
 test("menu bar refresh isolates synchronous source failures and restores controls", async () => {

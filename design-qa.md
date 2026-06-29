@@ -1,36 +1,50 @@
 # Design QA
 
-- Source visual truth: `C:\Users\kiko\AppData\Local\Temp\codex-clipboard-64bb8ee1-b4c3-415e-8d2c-da1f91475124.png`
-- Implementation target: WinPlate Electron main window, GitHub section
-- Viewport: 1080 x 720
-- State: light theme, live GitHub data
-- Implementation screenshot: completed with Computer Use on 2026-06-14
+- Source visual truth: `/tmp/codex-remote-attachments/019f11b8-c332-7bb3-99a0-60beda859ce2/81A40378-ACED-42CF-950A-A8C32EFA8E9C/1-照片-1.jpg`
+- Implementation target: WinPlate native macOS menu bar item and anchored status panel
+- Viewport: macOS 1440 × 900 points (2880 × 1800 capture)
+- State: dark system appearance with Codex, DeepSeek, and weather unavailable fallbacks
+- Combined reference/implementation evidence: `docs/qa/macos-menu-bar-2026-06-29-comparison.png`
 
-## Full-view comparison evidence
+## Visual comparison findings
 
-The reference and existing WinPlate shell were reviewed before implementation. The new layout preserves the WinPlate sidebar and title bar while translating the reference into a profile column plus a contribution-focused main column.
+- The implementation preserves the sketch's single menu bar item, temperature title, narrow anchored panel, and Codex → DeepSeek → weather order.
+- The panel uses native macOS placement and vibrancy while retaining WinPlate's existing neutral surfaces, dividers, typography, progress bars, and action treatment.
+- Codex and DeepSeek use the Windows green-active / gray-unavailable status points. Codex quota values never introduce yellow or red warning presentation.
+- The final 16 px QWeather template image remains crisp in the menu bar and appears beside the `--°` failure title.
+- No overlapping controls, clipped rows, horizontal overflow, desktop floating capsule, or detached tooltip window were found.
 
-## Focused region comparison evidence
+## macOS menu bar smoke test — 2026-06-29
 
-Focused rendered comparison was completed in the 1080 x 720 Electron main window using the light theme and live GitHub data.
+- [x] Left click opens and closes the panel beneath the status item.
+- [x] Right click offers Open WinPlate, Settings, Refresh, and Quit.
+- [x] Blur dismisses the panel in the running app; Escape dismissal passes the renderer interaction test.
+- [x] Deterministic bounds tests keep the panel on-screen at left/right edges, short work areas, and negative-coordinate secondary displays.
+- [x] Dark appearance was inspected in the running app; light/dark template image, text, divider, weather-icon, and focus styling pass regression coverage.
+- [x] No macOS desktop floating capsule is created.
+- [x] Codex shows 5-hour and 7-day values with neutral progress bars.
+- [x] Codex and DeepSeek use the Windows green active / gray unavailable status points.
+- [x] Quota changes never add yellow or red presentation.
+- [x] DeepSeek unconfigured/unavailable states do not fabricate a balance and retain the Settings route.
+- [x] Weather failure keeps the status item visible as `--°`.
+- [x] Refresh updates values in place without closing or rebuilding the panel.
+- [x] Partial and all-source failures keep Open WinPlate, Settings, Refresh, and Quit usable.
 
-## Findings
+## Patches made during QA
 
-- No code-level P0/P1/P2 issues were found by syntax, unit, backend, and diff checks.
-- The profile summary, pinned repository, contribution calendar, legend, and activity section remain readable at the target viewport.
-- The top and scrolled lower sections show no overlapping controls, horizontal overflow, clipped cards, or unreachable content.
-- The implementation preserves the WinPlate shell and card language rather than reproducing the GitHub page pixel for pixel.
-
-## Patches made
-
-- Added GitHub profile summary, avatar, repository/follower/streak metrics, and live state.
-- Added pinned repository, 30-day contribution calendar, legend, activity summary, profile link, and refresh interaction.
-- Added responsive layout rules for the existing minimum window sizes.
+- Replaced the oversized illustration source with a crisp monochrome QWeather template icon converted from the installed icon library.
+- Added a dedicated seven-method menu bar preload bridge; the main-window preload no longer exposes menu-only channels.
+- Kept initial and 30-second refreshes cache-aware while reserving forced reads for explicit button/native-menu refreshes.
+- Added a platform-neutral virtualenv Python launcher so `npm run backend:test` works on both macOS and Windows.
+- Added regression coverage for the menu bar icon source, narrow bridge, refresh policy, and cross-platform Python launcher.
 
 ## Verification
 
 - `npm run check`: passed
-- `npm run backend:test`: passed
+- `npm run backend:test`: passed (17 tests)
+- `node --test src/main/startupPolicy.test.js src/renderer/security.test.js`: passed
 - `git diff --check`: passed
+- Manual macOS smoke test: passed for status item, anchored panel, left click, right-click native menu, refresh availability, and blur dismissal
+- Open P0/P1/P2 findings: none
 
 final result: passed

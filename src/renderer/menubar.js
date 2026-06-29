@@ -121,7 +121,7 @@ function settledResult(result) {
     : { ok: false, error: result.reason };
 }
 
-async function refresh() {
+async function refresh({ force = false } = {}) {
   if (refreshing) return;
 
   refreshing = true;
@@ -131,8 +131,8 @@ async function refresh() {
   try {
     const [status, codex, deepseek] = await Promise.allSettled([
       Promise.resolve().then(() => window.winplate.getStatus()),
-      Promise.resolve().then(() => window.winplate.getCodexUsage({ force: true })),
-      Promise.resolve().then(() => window.winplate.getDeepSeekUsage({ force: true }))
+      Promise.resolve().then(() => window.winplate.getCodexUsage({ force })),
+      Promise.resolve().then(() => window.winplate.getDeepSeekUsage({ force }))
     ]);
 
     panelState = reducePanelState(panelState, {
@@ -162,12 +162,12 @@ elements.deepseekConfigure.addEventListener("click", () => {
   window.winplate.showMainWindow("Settings");
 });
 
-refreshButton.addEventListener("click", refresh);
+refreshButton.addEventListener("click", () => refresh({ force: true }));
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") window.winplate.hideMenuBarPanel();
 });
 
-window.winplate.onMenuBarRefresh(refresh);
+window.winplate.onMenuBarRefresh(() => refresh({ force: true }));
 refresh();
 setInterval(refresh, 30_000);

@@ -176,9 +176,9 @@ if (!gotLock) {
           Tray,
           nativeImage,
           screen,
-          preloadPath: path.join(__dirname, "..", "preload", "preload.js"),
+          preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
           rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
-          iconPath: path.join(__dirname, "..", "..", "assets", "icon-transparent.png"),
+          iconPath: path.join(__dirname, "..", "..", "assets", "menu-bar-icon.png"),
           actions: {
             showMainWindow,
             quit: quitApplication
