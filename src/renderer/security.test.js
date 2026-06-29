@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -44,4 +45,378 @@ test("automatic status refresh updates the existing main content DOM", () => {
   assert.doesNotMatch(refreshStatus, /renderMain\(\)/);
   assert.match(renderer, /function syncDomNode\(/);
   assert.match(renderer, /currentSection === "Settings"/);
+});
+
+function readMenuBarRenderer() {
+  return {
+    html: fs.readFileSync(path.join(__dirname, "menubar.html"), "utf8"),
+    css: fs.readFileSync(path.join(__dirname, "menubar.css"), "utf8"),
+    js: fs.readFileSync(path.join(__dirname, "menubar.js"), "utf8")
+  };
+}
+
+function createFakeElement(onRootReplacement) {
+  const attributes = new Map();
+  const classes = new Set(["inactive"]);
+  const listeners = new Map();
+  let innerHTML = "";
+
+  return {
+    alt: "",
+    disabled: false,
+    hidden: false,
+    src: "",
+    textContent: "",
+    value: 0,
+    classList: {
+      contains: (name) => classes.has(name),
+      toggle(name, force) {
+        if (force) classes.add(name);
+        else classes.delete(name);
+      }
+    },
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    dispatch(type, event = {}) {
+      return listeners.get(type)?.(event);
+    },
+    getAttribute(name) {
+      return attributes.get(name) ?? null;
+    },
+    removeAttribute(name) {
+      attributes.delete(name);
+      if (name === "src") this.src = "";
+    },
+    replaceChildren() {
+      onRootReplacement();
+    },
+    setAttribute(name, value) {
+      attributes.set(name, String(value));
+    },
+    get innerHTML() {
+      return innerHTML;
+    },
+    set innerHTML(value) {
+      innerHTML = value;
+      onRootReplacement();
+    }
+  };
+}
+
+function createMenuBarHarness(options = {}) {
+  const renderer = fs.readFileSync(path.join(__dirname, "menubar.js"), "utf8");
+  const realModel = require("../shared/menuBarModel.js");
+  const elements = new Map();
+  const documentListeners = new Map();
+  const intervals = [];
+  const errors = [];
+  const calls = {
+    codex: 0,
+    deepseek: 0,
+    destinations: [],
+    hidden: 0,
+    status: 0,
+    temperatures: []
+  };
+  let rootReplacements = 0;
+  let refreshListener = null;
+
+  const getElement = (selector) => {
+    if (!elements.has(selector)) {
+      elements.set(selector, createFakeElement(() => {
+        rootReplacements += 1;
+      }));
+    }
+    return elements.get(selector);
+  };
+
+  const bridge = {
+    getStatus() {
+      calls.status += 1;
+      return {
+        weather: {
+          source: "qweather",
+          temperature: 23.6,
+          condition: "晴",
+          location: "上海",
+          icon: "100",
+          updatedAt: "2026-06-29T09:00:00.000Z"
+        }
+      };
+    },
+    getCodexUsage() {
+      calls.codex += 1;
+      return {
+        status: "Normal",
+        windows: {
+          fiveHour: { remainingPct: 73, resetText: "18:00" },
+          sevenDay: { remainingPct: 42, resetText: "周一" }
+        },
+        updatedAt: "2026-06-29T09:00:00.000Z"
+      };
+    },
+    getDeepSeekUsage() {
+      calls.deepseek += 1;
+      return {
+        status: "Normal",
+        balances: [{ currency: "CNY", total_balance: "88.50" }],
+        updatedAt: "2026-06-29T09:00:00.000Z"
+      };
+    },
+    hideMenuBarPanel() {
+      calls.hidden += 1;
+    },
+    onMenuBarRefresh(listener) {
+      refreshListener = listener;
+    },
+    showMainWindow(destination) {
+      calls.destinations.push(destination);
+    },
+    updateMenuBarTemperature(temperature) {
+      calls.temperatures.push(temperature);
+    },
+    ...options.bridge
+  };
+
+  const model = options.reducePanelState
+    ? { ...realModel, reducePanelState: options.reducePanelState }
+    : realModel;
+  const document = {
+    addEventListener(type, listener) {
+      documentListeners.set(type, listener);
+    },
+    querySelector: getElement
+  };
+
+  vm.runInNewContext(renderer, {
+    console: { error: (...args) => errors.push(args) },
+    document,
+    setInterval(callback, delay) {
+      intervals.push({ callback, delay });
+      return intervals.length;
+    },
+    window: {
+      WinPlateMenuBarModel: model,
+      winplate: bridge
+    }
+  }, { filename: "menubar.js" });
+
+  return {
+    bridge,
+    calls,
+    dispatchDocument(type, event) {
+      return documentListeners.get(type)?.(event);
+    },
+    element: getElement,
+    errors,
+    intervals,
+    refresh: () => refreshListener(),
+    rootReplacements: () => rootReplacements,
+    settle: () => new Promise((resolve) => setImmediate(resolve))
+  };
+}
+
+test("menu bar panel has a strict CSP and fixed accessible section order", () => {
+  const { html } = readMenuBarRenderer();
+  const csp = html.match(/<meta[^>]+http-equiv="Content-Security-Policy"[^>]+content="([^"]+)"/i)?.[1];
+
+  assert.equal(/<html[^>]+lang="zh-CN"/i.test(html), true);
+  assert.match(html, /<meta[^>]+name="viewport"/i);
+  assert.match(csp || "", /default-src 'self'/);
+  assert.match(csp || "", /style-src 'self'/);
+  assert.match(csp || "", /script-src 'self'/);
+  assert.match(csp || "", /img-src 'self' data:/);
+  assert.match(csp || "", /connect-src 'self'[^;]*http:\/\/localhost:8765/);
+
+  const sectionIds = [...html.matchAll(/<(?:section|footer)\b[^>]+id="([^"]+)"/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(sectionIds, [
+    "codex-section",
+    "deepseek-section",
+    "weather-section",
+    "panel-actions"
+  ]);
+  assert.match(html, /<main\b[^>]+role="region"[^>]+aria-label=/);
+});
+
+test("menu bar markup avoids inline behavior and loads its model before renderer", () => {
+  const { html } = readMenuBarRenderer();
+
+  assert.doesNotMatch(html, /\sstyle\s*=/i);
+  assert.doesNotMatch(html, /\sonclick\s*=/i);
+  assert.doesNotMatch(html, /<svg\b/i);
+  assert.match(html, /<link[^>]+href="menubar\.css"/);
+
+  const scripts = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(scripts, ["../shared/menuBarModel.js", "menubar.js"]);
+});
+
+test("menu bar uses semantic controls and real QWeather artwork", () => {
+  const { html, js } = readMenuBarRenderer();
+
+  assert.match(html, /<label[^>]+for="codex-five-hour-progress"/);
+  assert.match(html, /<progress[^>]+id="codex-five-hour-progress"[^>]+max="100"/);
+  assert.match(html, /<label[^>]+for="codex-seven-day-progress"/);
+  assert.match(html, /<progress[^>]+id="codex-seven-day-progress"[^>]+max="100"/);
+  assert.equal((html.match(/<button\b/g) || []).length, 4);
+  assert.match(html, /<img[^>]+id="weather-icon"/);
+  assert.match(js, /\.\.\/\.\.\/node_modules\/qweather-icons\/icons\/\$\{icon\}\.svg/);
+  assert.match(js, /\^\\d\{3\}\$/);
+});
+
+test("menu bar status and quota styling follows WinPlate neutral tokens", () => {
+  const { css, js } = readMenuBarRenderer();
+
+  assert.match(css, /\.status-point\s*\{[\s\S]*?width:\s*7px[\s\S]*?height:\s*7px[\s\S]*?background:\s*#34d399[\s\S]*?box-shadow:/);
+  assert.match(css, /\.status-point\.inactive\s*\{[\s\S]*?background:\s*#71717a[\s\S]*?box-shadow:\s*none/);
+  assert.match(css, /progress[\s\S]*?accent-color:\s*(?:#d4d4d8|var\(--progress-neutral\))/);
+  assert.doesNotMatch(`${css}\n${js}`, /warning|critical|danger|quota-low/i);
+  assert.doesNotMatch(css, /progress[\s\S]{0,180}(?:#facc15|#f59e0b|#ef4444|#dc2626)/i);
+});
+
+test("menu bar renderer updates fields in place and refreshes every 30 seconds", () => {
+  const { js } = readMenuBarRenderer();
+  const updateStart = js.indexOf("function updatePanelDom(");
+  const updateEnd = js.indexOf("\n}", updateStart);
+  const updatePanelDom = js.slice(updateStart, updateEnd + 2);
+
+  assert.notEqual(updateStart, -1);
+  assert.doesNotMatch(js, /replaceChildren|innerHTML/);
+  assert.doesNotMatch(updatePanelDom, /createElement|appendChild/);
+  assert.match(js, /Promise\.allSettled\(/);
+  assert.match(js, /getCodexUsage\(\{\s*force:\s*true\s*\}\)/);
+  assert.match(js, /getDeepSeekUsage\(\{\s*force:\s*true\s*\}\)/);
+  assert.match(js, /setInterval\(refresh,\s*30_000\)/);
+  assert.match(js, /onMenuBarRefresh\(refresh\)/);
+  assert.match(js, /updateMenuBarTemperature\(/);
+  assert.match(js, /hideMenuBarPanel\(\)/);
+});
+
+test("menu bar actions use the existing main-window bridge with a destination", () => {
+  const { js } = readMenuBarRenderer();
+
+  assert.match(js, /showMainWindow\("Dashboard"\)/);
+  assert.equal((js.match(/showMainWindow\("Settings"\)/g) || []).length, 2);
+  assert.doesNotMatch(js, /openDashboard|openSettings/);
+});
+
+test("menu bar scroll container follows shortened BrowserWindow viewports", () => {
+  const { css } = readMenuBarRenderer();
+  const documentRule = css.match(/html,\s*\nbody\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+  const panelRule = css.match(/\.panel\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+
+  assert.match(css, /\*\s*\{[\s\S]*?box-sizing:\s*border-box/);
+  assert.match(documentRule, /height:\s*100%/);
+  assert.match(panelRule, /height:\s*(?:100%|100vh)/);
+  assert.match(panelRule, /max-height:\s*none/);
+  assert.match(panelRule, /overflow-y:\s*auto/);
+  assert.doesNotMatch(panelRule, /max-height:\s*420px/);
+});
+
+test("menu bar weather icon and focus ring remain legible in both themes", () => {
+  const { css } = readMenuBarRenderer();
+
+  assert.match(css, /--focus-ring:\s*#005fcc/);
+  assert.match(css, /button:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--focus-ring\)/);
+  assert.doesNotMatch(css, /outline:[^;]*color-mix/);
+  assert.match(css, /\.weather-icon\s*\{[\s\S]*?filter:\s*brightness\(0\)/);
+  assert.match(css, /@media \(prefers-color-scheme: dark\)[\s\S]*?--focus-ring:\s*#60a5fa/);
+  assert.match(css, /@media \(prefers-color-scheme: dark\)[\s\S]*?\.weather-icon\s*\{[\s\S]*?filter:\s*brightness\(0\) invert\(1\)/);
+});
+
+test("menu bar refresh adopts synchronous bridge failures and handles unexpected errors", () => {
+  const { js } = readMenuBarRenderer();
+
+  assert.equal((js.match(/Promise\.resolve\(\)\.then\(\(\) => window\.winplate\.get/g) || []).length, 3);
+  assert.match(js, /catch \(error\)\s*\{[\s\S]*?console\.error\(/);
+});
+
+test("menu bar labels Codex percentages as remaining quota", () => {
+  const { html } = readMenuBarRenderer();
+
+  assert.match(html, />5 小时剩余</);
+  assert.match(html, />7 天剩余</);
+  assert.doesNotMatch(html, />[57] (?:小时|天)用量</);
+});
+
+test("menu bar renderer performs its initial refresh and updates named DOM fields", async () => {
+  const harness = createMenuBarHarness();
+  await harness.settle();
+
+  assert.equal(harness.calls.status, 1);
+  assert.equal(harness.calls.codex, 1);
+  assert.equal(harness.calls.deepseek, 1);
+  assert.equal(harness.element("#codex-five-hour-progress").value, 73);
+  assert.equal(harness.element("#codex-five-hour-percent").textContent, "73%");
+  assert.equal(harness.element("#deepseek-balance").textContent, "¥88.50");
+  assert.equal(harness.element("#weather-temperature").textContent, "24°");
+  assert.match(harness.element("#weather-icon").src, /qweather-icons\/icons\/100\.svg$/);
+  assert.deepEqual(harness.calls.temperatures, [24]);
+  assert.equal(harness.element("#refresh-panel").disabled, false);
+  assert.equal(harness.element("#menu-bar-panel").getAttribute("aria-busy"), null);
+  assert.equal(harness.rootReplacements(), 0);
+  assert.equal(typeof harness.refresh, "function");
+  assert.equal(harness.intervals.length, 1);
+  assert.equal(harness.intervals[0].delay, 30_000);
+});
+
+test("menu bar refresh isolates synchronous source failures and restores controls", async () => {
+  const harness = createMenuBarHarness();
+  await harness.settle();
+  const calls = { codex: 0, deepseek: 0, status: 0 };
+
+  harness.bridge.getStatus = () => {
+    calls.status += 1;
+    throw new Error("status unavailable");
+  };
+  harness.bridge.getCodexUsage = () => {
+    calls.codex += 1;
+    return { status: "Normal", remainingPct: 61, resetText: "稍后" };
+  };
+  harness.bridge.getDeepSeekUsage = () => {
+    calls.deepseek += 1;
+    return { status: "Unavailable" };
+  };
+
+  await assert.doesNotReject(harness.refresh());
+  assert.deepEqual(calls, { codex: 1, deepseek: 1, status: 1 });
+  assert.equal(harness.element("#codex-five-hour-percent").textContent, "61%");
+  assert.equal(harness.element("#weather-temperature").textContent, "--°");
+  assert.equal(harness.element("#refresh-panel").disabled, false);
+  assert.equal(harness.element("#menu-bar-panel").getAttribute("aria-busy"), null);
+});
+
+test("menu bar refresh logs unexpected reducer errors without rejecting", async () => {
+  const realModel = require("../shared/menuBarModel.js");
+  let reductions = 0;
+  const harness = createMenuBarHarness({
+    reducePanelState(...args) {
+      reductions += 1;
+      if (reductions === 2) throw new Error("render failed");
+      return realModel.reducePanelState(...args);
+    }
+  });
+  await harness.settle();
+
+  await assert.doesNotReject(harness.intervals[0].callback());
+  assert.equal(harness.errors.length, 1);
+  assert.match(String(harness.errors[0][0]), /menu bar panel/i);
+  assert.equal(harness.element("#refresh-panel").disabled, false);
+  assert.equal(harness.element("#menu-bar-panel").getAttribute("aria-busy"), null);
+});
+
+test("menu bar actions and Escape invoke their bridge handlers", async () => {
+  const harness = createMenuBarHarness();
+  await harness.settle();
+
+  harness.element("#open-dashboard").dispatch("click");
+  harness.element("#open-settings").dispatch("click");
+  harness.element("#deepseek-configure").dispatch("click");
+  harness.dispatchDocument("keydown", { key: "Escape" });
+  harness.dispatchDocument("keydown", { key: "Enter" });
+
+  assert.deepEqual(harness.calls.destinations, ["Dashboard", "Settings", "Settings"]);
+  assert.equal(harness.calls.hidden, 1);
 });
