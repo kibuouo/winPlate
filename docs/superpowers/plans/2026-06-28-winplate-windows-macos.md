@@ -1,5 +1,7 @@
 # WinPlate Windows + macOS Implementation Plan
 
+> **Superseded for implementation:** Do not execute this plan. The approved macOS menu bar direction, including removal of the macOS desktop floating capsule, is defined by `2026-06-29-macos-menu-bar.md`. This file remains only as historical planning context.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 
 **Goal:** Turn the repository into a two-platform Electron application that preserves the Windows floating-capsule experience and adds a native macOS menu bar center, main window, preferences, and optional capsule.
