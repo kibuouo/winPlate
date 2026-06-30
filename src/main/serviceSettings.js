@@ -143,17 +143,49 @@ async function readServiceSettings(userDataPath, safeStorage) {
   });
 }
 
-function encryptedSecrets(settings, safeStorage) {
+async function encryptedSecretsToPreserve(userDataPath) {
+  let contents;
+  try {
+    contents = await fs.readFile(serviceSettingsPath(userDataPath), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  }
+
+  const persisted = JSON.parse(contents);
+  if (!persisted || typeof persisted !== "object" || Array.isArray(persisted)) {
+    throw new Error("Invalid service settings document");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(persisted, "version")
+    && persisted.version !== 1
+  ) {
+    throw new Error(`Unsupported service settings version: ${persisted.version}`);
+  }
+  const encrypted = persisted.encrypted && typeof persisted.encrypted === "object"
+    ? persisted.encrypted
+    : {};
+  return Object.fromEntries(SECRET_FIELDS.flatMap((field) => (
+    typeof encrypted[field] === "string" && encrypted[field].length > 0
+      ? [[field, encrypted[field]]]
+      : []
+  )));
+}
+
+function encryptedSecrets(settings, safeStorage, preservedEncrypted) {
   const encrypted = {};
   for (const field of SECRET_FIELDS) {
     if (settings[field]) {
       encrypted[field] = Buffer.from(safeStorage.encryptString(settings[field])).toString("base64");
+    } else if (preservedEncrypted[field]) {
+      encrypted[field] = preservedEncrypted[field];
     }
   }
   return encrypted;
 }
 
 async function writeServiceSettings(userDataPath, value, safeStorage) {
+  const preservedEncrypted = await encryptedSecretsToPreserve(userDataPath);
   const settings = normalizeServiceSettings(value);
   const hasSecrets = SECRET_FIELDS.some((field) => settings[field]);
   if (hasSecrets) {
@@ -166,7 +198,7 @@ async function writeServiceSettings(userDataPath, value, safeStorage) {
     qweatherProjectId: settings.qweatherProjectId,
     qweatherCredentialId: settings.qweatherCredentialId,
     deepseekBaseUrl: settings.deepseekBaseUrl,
-    encrypted: encryptedSecrets(settings, safeStorage)
+    encrypted: encryptedSecrets(settings, safeStorage, preservedEncrypted)
   };
   const target = serviceSettingsPath(userDataPath);
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;

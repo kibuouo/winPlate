@@ -13,6 +13,14 @@ const defaults = Object.freeze({
   deepseekBaseUrl: "https://api.deepseek.com"
 });
 
+function deferred() {
+  let resolvePromise;
+  const promise = new Promise((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
+
 function resolve(stored, environment) {
   return {
     ...stored,
@@ -124,4 +132,62 @@ test("persist merges object patches, injects effective settings, and returns no 
     hasDeepSeekApiKey: true
   });
   assert.equal(Object.hasOwn(result, "deepseekApiKey"), false);
+});
+
+test("concurrent persists serialize and merge each patch from the latest successful write", async () => {
+  const firstWriteEntered = deferred();
+  const releaseFirstWrite = deferred();
+  const writes = [];
+  const { lifecycle } = createHarness({
+    write: async (settings) => {
+      writes.push({ ...settings });
+      if (writes.length === 1) {
+        firstWriteEntered.resolve();
+        await releaseFirstWrite.promise;
+      }
+      return { ...settings };
+    },
+    publicProjection: (settings) => ({ ...settings })
+  });
+  await lifecycle.loadForStartup();
+
+  const weatherSave = lifecycle.persist({ qweatherApiHost: "weather.concurrent.example" });
+  await firstWriteEntered.promise;
+  const deepSeekSave = lifecycle.persist({ deepseekBaseUrl: "https://deepseek.concurrent.example" });
+  await Promise.resolve();
+  assert.equal(writes.length, 1);
+
+  releaseFirstWrite.resolve();
+  await weatherSave;
+  const finalResult = await deepSeekSave;
+
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].qweatherApiHost, "weather.concurrent.example");
+  assert.equal(writes[1].deepseekBaseUrl, "https://deepseek.concurrent.example");
+  assert.equal(finalResult.qweatherApiHost, "weather.concurrent.example");
+  assert.equal(finalResult.deepseekBaseUrl, "https://deepseek.concurrent.example");
+});
+
+test("a failed persist does not poison the queue for the next operation", async () => {
+  const writes = [];
+  const firstError = new Error("first write failed");
+  const { lifecycle } = createHarness({
+    write: async (settings) => {
+      writes.push({ ...settings });
+      if (writes.length === 1) throw firstError;
+      return { ...settings };
+    },
+    publicProjection: (settings) => ({ ...settings })
+  });
+  await lifecycle.loadForStartup();
+
+  const failed = lifecycle.persist({ qweatherApiHost: "failed.example" });
+  const succeeding = lifecycle.persist({ deepseekBaseUrl: "https://succeeding.example" });
+  await assert.rejects(failed, firstError);
+  const result = await succeeding;
+
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].qweatherApiHost, defaults.qweatherApiHost);
+  assert.equal(writes[1].deepseekBaseUrl, "https://succeeding.example");
+  assert.equal(result.deepseekBaseUrl, "https://succeeding.example");
 });

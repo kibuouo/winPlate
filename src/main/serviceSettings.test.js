@@ -180,6 +180,61 @@ test("decrypt errors and missing ciphertext affect only their own secrets", asyn
   });
 });
 
+test("public-only writes preserve recoverable ciphertext after an isolated decrypt failure", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const requested = completeSettings();
+  const availableStorage = createSafeStorage();
+  await writeServiceSettings(directory, requested, availableStorage);
+  const target = path.join(directory, SETTINGS_FILE);
+  const before = JSON.parse(await fs.readFile(target, "utf8"));
+  const transientFailureStorage = createSafeStorage();
+  transientFailureStorage.decryptString = (value) => {
+    const contents = value.toString("utf8");
+    if (contents === `sealed:${requested.qweatherApiKey}`) {
+      throw new Error("transient decrypt failure");
+    }
+    return contents.slice("sealed:".length);
+  };
+
+  const partiallyRead = await readServiceSettings(directory, transientFailureStorage);
+  assert.equal(partiallyRead.qweatherApiKey, "");
+  assert.equal(partiallyRead.qweatherPrivateKey, requested.qweatherPrivateKey);
+  assert.equal(partiallyRead.deepseekApiKey, requested.deepseekApiKey);
+
+  await writeServiceSettings(directory, {
+    ...partiallyRead,
+    qweatherApiHost: "updated.weather.example"
+  }, transientFailureStorage);
+
+  const after = JSON.parse(await fs.readFile(target, "utf8"));
+  assert.equal(after.encrypted.qweatherApiKey, before.encrypted.qweatherApiKey);
+  assert.equal(typeof after.encrypted.qweatherPrivateKey, "string");
+  assert.equal(typeof after.encrypted.deepseekApiKey, "string");
+  assert.deepEqual(await readServiceSettings(directory, availableStorage), {
+    ...requested,
+    qweatherApiHost: "updated.weather.example"
+  });
+});
+
+test("writes reject corrupt or unsupported existing documents without replacing them", async (t) => {
+  for (const [contents, expected] of [
+    ["{invalid", { name: "SyntaxError" }],
+    [JSON.stringify({ version: 2, encrypted: { qweatherApiKey: "opaque" } }), {
+      message: "Unsupported service settings version: 2"
+    }]
+  ]) {
+    const directory = await createTemporaryDirectory(t);
+    const target = path.join(directory, SETTINGS_FILE);
+    await fs.writeFile(target, contents, "utf8");
+
+    await assert.rejects(
+      writeServiceSettings(directory, { qweatherApiHost: "replacement.example" }, createSafeStorage()),
+      expected
+    );
+    assert.equal(await fs.readFile(target, "utf8"), contents);
+  }
+});
+
 test("encrypted settings reject when secure storage is unavailable without changing the file", async (t) => {
   const directory = await createTemporaryDirectory(t);
   await writeServiceSettings(directory, completeSettings(), createSafeStorage());

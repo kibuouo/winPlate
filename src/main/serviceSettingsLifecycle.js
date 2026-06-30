@@ -15,6 +15,7 @@ function createServiceSettingsLifecycle({
 }) {
   let storedSettings = { ...defaults };
   let startupLoadFailed = false;
+  let persistQueue = Promise.resolve();
 
   function effectiveSettings() {
     return resolve(storedSettings, externalEnvironment);
@@ -48,14 +49,19 @@ function createServiceSettingsLifecycle({
       return publicProjection(effectiveSettings());
     },
 
-    async persist(patch) {
-      if (startupLoadFailed) {
-        await reload();
-      }
-      const merged = { ...storedSettings, ...safeObject(patch) };
-      storedSettings = await write(merged);
-      const effective = injectEffectiveEnvironment();
-      return publicProjection(effective);
+    persist(patch) {
+      const safePatch = { ...safeObject(patch) };
+      const operation = persistQueue.then(async () => {
+        if (startupLoadFailed) {
+          await reload();
+        }
+        const merged = { ...storedSettings, ...safePatch };
+        storedSettings = await write(merged);
+        const effective = injectEffectiveEnvironment();
+        return publicProjection(effective);
+      });
+      persistQueue = operation.catch(() => undefined);
+      return operation;
     }
   };
 }
