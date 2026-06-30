@@ -701,6 +701,67 @@ test("public operations do not touch native objects after destroy", async () => 
   assert.deepEqual(panel.webContents.sent, []);
 });
 
+test("failed native destroy blocks operations, cleans the other resource, and retries", async () => {
+  const failure = new Error("panel teardown failed");
+  const { calls, controller, panel, tray } = createFixture();
+  await settlePromises();
+  panel.destroy = function destroyPanel() {
+    this.destroyCalls += 1;
+    if (this.destroyCalls === 1) {
+      throw failure;
+    }
+    this.destroyed = true;
+  };
+
+  assert.throws(
+    () => controller.destroy(),
+    (error) => error === failure
+  );
+
+  assert.equal(panel.destroyed, false);
+  assert.equal(panel.destroyCalls, 1);
+  assert.equal(tray.destroyed, true);
+  assert.equal(tray.destroyCalls, 1);
+  assert.equal(controller.ownsSender(panel.webContents), false);
+
+  controller.toggle();
+  controller.refresh();
+  controller.hide();
+  assert.equal(controller.setTemperature(24.4), "24°C");
+
+  assert.equal(panel.showCalls, 0);
+  assert.equal(panel.hideCalls, 0);
+  assert.deepEqual(panel.webContents.sent, []);
+  assert.equal(tray.title, "--°");
+  assert.equal(calls.menuTemplates.length, 0);
+
+  controller.destroy();
+  controller.destroy();
+
+  assert.equal(panel.destroyed, true);
+  assert.equal(panel.destroyCalls, 2);
+  assert.equal(tray.destroyCalls, 1);
+});
+
+test("listener cleanup failure does not prevent independent native cleanup", () => {
+  const failure = new Error("panel listener cleanup failed");
+  const { controller, panel, tray } = createFixture();
+  panel.removeListener = () => {
+    throw failure;
+  };
+
+  assert.throws(
+    () => controller.destroy(),
+    (error) => error === failure
+  );
+
+  assert.equal(panel.destroyCalls, 1);
+  assert.equal(tray.destroyCalls, 1);
+  assert.equal(tray.listenerCount("click"), 0);
+  assert.equal(tray.listenerCount("right-click"), 0);
+  assert.doesNotThrow(() => controller.destroy());
+});
+
 test("controller paths tolerate an independently destroyed Tray", async () => {
   const { calls, controller, panel, tray } = createFixture();
   await settlePromises();

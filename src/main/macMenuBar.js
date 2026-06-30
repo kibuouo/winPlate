@@ -162,6 +162,7 @@ function createMacMenuBar(dependencies) {
       "BrowserWindow.webContents.send"
     );
 
+    let teardownRequested = false;
     let destroyed = false;
     let loadFailed = false;
     let panelReady = false;
@@ -170,7 +171,7 @@ function createMacMenuBar(dependencies) {
 
     function showPanel() {
       if (
-        destroyed ||
+        teardownRequested ||
         loadFailed ||
         !panelReady ||
         panel.isDestroyed() ||
@@ -191,13 +192,13 @@ function createMacMenuBar(dependencies) {
 
     function hide() {
       pendingShow = false;
-      if (!destroyed && !panel.isDestroyed()) {
+      if (!teardownRequested && !panel.isDestroyed()) {
         panel.hide();
       }
     }
 
     function refresh() {
-      if (destroyed || loadFailed || panel.isDestroyed()) {
+      if (teardownRequested || loadFailed || panel.isDestroyed()) {
         return;
       }
 
@@ -210,7 +211,7 @@ function createMacMenuBar(dependencies) {
     }
 
     function handleClick() {
-      if (destroyed || loadFailed || panel.isDestroyed()) {
+      if (teardownRequested || loadFailed || panel.isDestroyed()) {
         return;
       }
 
@@ -228,7 +229,7 @@ function createMacMenuBar(dependencies) {
     }
 
     function handleRightClick() {
-      if (destroyed || tray.isDestroyed()) {
+      if (teardownRequested || tray.isDestroyed()) {
         return;
       }
 
@@ -244,14 +245,14 @@ function createMacMenuBar(dependencies) {
 
     function setTemperature(value) {
       const title = formatTemperatureTitle(value);
-      if (!destroyed && !tray.isDestroyed()) {
+      if (!teardownRequested && !tray.isDestroyed()) {
         tray.setTitle(title);
       }
       return title;
     }
 
     function ownsSender(sender) {
-      return !destroyed && !panel.isDestroyed() && sender === panel.webContents;
+      return !teardownRequested && !panel.isDestroyed() && sender === panel.webContents;
     }
 
     function destroy() {
@@ -259,22 +260,36 @@ function createMacMenuBar(dependencies) {
         return;
       }
 
-      destroyed = true;
+      teardownRequested = true;
       pendingRefresh = false;
       pendingShow = false;
-      panel.removeListener("blur", hide);
-      const trayWasLive = !tray.isDestroyed();
-      if (trayWasLive) {
-        tray.removeListener("click", handleClick);
-        tray.removeListener("right-click", handleRightClick);
+      let firstError;
+      function attempt(operation) {
+        try {
+          operation();
+        } catch (error) {
+          firstError ??= error;
+        }
       }
 
       if (!panel.isDestroyed()) {
-        panel.destroy();
+        attempt(() => panel.removeListener("blur", hide));
+      }
+      if (!tray.isDestroyed()) {
+        attempt(() => tray.removeListener("click", handleClick));
+        attempt(() => tray.removeListener("right-click", handleRightClick));
       }
 
-      if (trayWasLive) {
-        tray.destroy();
+      if (!panel.isDestroyed()) {
+        attempt(() => panel.destroy());
+      }
+      if (!tray.isDestroyed()) {
+        attempt(() => tray.destroy());
+      }
+
+      destroyed = panel.isDestroyed() && tray.isDestroyed();
+      if (firstError) {
+        throw firstError;
       }
     }
 
@@ -283,7 +298,7 @@ function createMacMenuBar(dependencies) {
     tray.on("right-click", handleRightClick);
 
     function handleLoadSuccess() {
-      if (destroyed || panel.isDestroyed()) {
+      if (teardownRequested || panel.isDestroyed()) {
         return;
       }
 
