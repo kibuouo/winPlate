@@ -47,6 +47,247 @@ function loadPreloadBridge() {
   return { api: exposed, calls, listeners, ipcRenderer };
 }
 
+function loadMainPreloadBridge(platform) {
+  const preload = fs.readFileSync(
+    path.join(__dirname, "..", "preload", "preload.js"),
+    "utf8"
+  );
+  const calls = { invoked: [], sent: [] };
+  let exposed;
+  const ipcRenderer = {
+    invoke(channel, ...args) {
+      calls.invoked.push([channel, ...args]);
+      return Promise.resolve({});
+    },
+    on() {},
+    send(channel, ...args) {
+      calls.sent.push([channel, ...args]);
+    }
+  };
+
+  vm.runInNewContext(preload, {
+    process: { platform },
+    require(moduleName) {
+      assert.equal(moduleName, "electron");
+      return {
+        contextBridge: {
+          exposeInMainWorld(name, api) {
+            assert.equal(name, "winplate");
+            exposed = api;
+          }
+        },
+        ipcRenderer
+      };
+    }
+  }, { filename: "preload.js" });
+
+  return { api: exposed, calls, ipcRenderer };
+}
+
+test("main preload bounds platform and exposes only exact application settings IPC", async () => {
+  const darwin = loadMainPreloadBridge("darwin");
+  const windows = loadMainPreloadBridge("win32");
+  const unsupported = loadMainPreloadBridge("linux");
+
+  assert.equal(darwin.api.platform, "darwin");
+  assert.equal(windows.api.platform, "win32");
+  assert.equal(unsupported.api.platform, "unsupported");
+  assert.equal(typeof darwin.api.getAppSettings, "function");
+  assert.equal(typeof darwin.api.saveAppSettings, "function");
+  assert.equal(darwin.api.ipcRenderer, undefined);
+  assert.equal(darwin.api.require, undefined);
+  assert.equal(darwin.api.send, undefined);
+  assert.equal(darwin.api.invoke, undefined);
+  assert.equal(darwin.api.getPath, undefined);
+  assert.equal(darwin.api.showMenuBarPanel, undefined);
+  assert.equal(darwin.api.setFloatingPinned, undefined);
+  assert.equal(darwin.api.showTooltip, undefined);
+  assert.equal(typeof windows.api.setFloatingPinned, "function");
+  assert.equal(typeof windows.api.showTooltip, "function");
+  assert.notEqual(darwin.api, darwin.ipcRenderer);
+
+  await darwin.api.getAppSettings();
+  await darwin.api.saveAppSettings({ menuBarEnabled: false, launchAtLogin: true });
+  assert.deepEqual(darwin.calls.invoked, [
+    ["app:get-settings"],
+    ["app:save-settings", { menuBarEnabled: false, launchAtLogin: true }]
+  ]);
+});
+
+test("main renderer gates native application preferences to macOS", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(renderer, /const isMac = window\.winplate\.platform === "darwin"/);
+  assert.match(renderer, /let applicationSettings = \{\s*menuBarEnabled: true,\s*launchAtLogin: false\s*\}/);
+  assert.match(renderer, /const APP_SETTING_KEYS = \["menuBarEnabled", "launchAtLogin"\]/);
+  assert.match(renderer, /async function hydrateAppSettings\(\)[\s\S]*?if \(view !== "main" \|\| !isMac\) return/);
+  assert.match(renderer, /getAppSettings\(\)/);
+  assert.match(renderer, /saveAppSettings\(\{\s*menuBarEnabled: applicationSettings\.menuBarEnabled,\s*launchAtLogin: applicationSettings\.launchAtLogin\s*\}\)/);
+  assert.match(renderer, /APP_SETTING_KEYS\.includes\(key\)/);
+  assert.match(renderer, /input\.disabled = true[\s\S]*?catch \(error\)[\s\S]*?input\.checked = previousChecked[\s\S]*?error\?\.message[\s\S]*?finally[\s\S]*?input\.disabled = false/);
+  assert.doesNotMatch(renderer, /console\.error\([^\n]*Failed to (?:load|save) application settings[^\n]*,\s*error\s*\)/);
+  assert.match(renderer, /Promise\.all\(\[hydrateAppearanceSettings\(\), hydrateQWeatherUsage\(\), hydrateAppSettings\(\)\]\)\.then\(refreshStatus\)/);
+});
+
+test("main renderer provides exactly two semantic macOS application toggles", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const settingsStart = renderer.indexOf("function macApplicationSettingsSection(");
+  const settingsEnd = renderer.indexOf("\n}", settingsStart);
+
+  assert.notEqual(settingsStart, -1);
+  const macSettings = renderer.slice(settingsStart, settingsEnd + 2);
+  assert.equal((macSettings.match(/<label\b/g) || []).length, 2);
+  assert.equal((macSettings.match(/type="checkbox"/g) || []).length, 2);
+  assert.match(macSettings, /<strong>Menu bar status<\/strong><small>Show WinPlate in the macOS menu bar\.<\/small>/);
+  assert.match(macSettings, /<strong>Launch at login<\/strong><small>Start WinPlate when you sign in\.<\/small>/);
+  assert.match(macSettings, /data-app-setting="menuBarEnabled"/);
+  assert.match(macSettings, /data-app-setting="launchAtLogin"/);
+  assert.doesNotMatch(macSettings, /desktop capsule|pin|compact title|menuBarDisplay|quota warning|floating/i);
+
+  assert.match(renderer, /\$\{isMac \? macApplicationSettingsSection\(\) : ""\}/);
+  assert.match(renderer, /\$\{isMac \? "" : windowsGeneralSettingsSection\(\)\}/);
+  assert.doesNotMatch(renderer, /Windows user environment/);
+});
+
+test("main renderer omits the custom titlebar only on macOS and tolerates absent controls", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const renderStart = renderer.indexOf("function renderMain()");
+  const renderEnd = renderer.indexOf("\nfunction updateMainStatusDom", renderStart);
+  const renderMain = renderer.slice(renderStart, renderEnd);
+
+  assert.match(renderMain, /document\.body\.className = `main-body platform-\$\{isMac \? "darwin" : "win32"\}`/);
+  assert.match(renderMain, /\$\{isMac \? "" : `[\s\S]*?<header class="app-titlebar">[\s\S]*?<\/header>`\}/);
+  assert.match(renderMain, /querySelector\("#window-minimize"\)\?\.addEventListener/);
+  assert.match(renderMain, /querySelector\("#window-maximize"\)\?\.addEventListener/);
+  assert.match(renderMain, /querySelector\("#window-close"\)\?\.addEventListener/);
+  assert.match(renderer, /button\.querySelector\("span"\)\?\.classList\.toggle/);
+  assert.match(renderMain, /aria-label="\$\{mainWindowMaximized \? "还原" : "最大化"\}"/);
+  assert.match(renderMain, /restore-icon/);
+});
+
+test("macOS main-window CSS is scoped to a native material layout", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(css, /\.main-body\.platform-darwin \.main-window-shell\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\)[\s\S]*?background:\s*transparent/);
+  assert.match(css, /\.main-body\.platform-darwin \.workspace\s*\{[\s\S]*?padding-top:\s*52px[\s\S]*?background:\s*transparent/);
+  assert.match(css, /\.main-body\.platform-darwin \.sidebar\s*\{[\s\S]*?(?:backdrop-filter|-webkit-backdrop-filter):\s*blur\(/);
+  assert.match(css, /\.main-body\.platform-darwin\s*\{[\s\S]*?background:\s*transparent/);
+  assert.doesNotMatch(css, /\.platform-darwin[^\n{]*(?:floating|capsule)|(?:floating|capsule)[^\n{]*\.platform-darwin/i);
+});
+
+function extractNamedFunction(source, name) {
+  const signature = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`);
+  const match = signature.exec(source);
+  assert.ok(match, `missing function ${name}`);
+  const start = match.index;
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
+function createAppSettingsHarness({ isMac = true, get, save } = {}) {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const inputs = ["menuBarEnabled", "launchAtLogin"].map((key) => {
+    const listeners = [];
+    return {
+      checked: key === "menuBarEnabled",
+      dataset: { appSetting: key },
+      disabled: false,
+      listeners,
+      addEventListener(type, listener) {
+        if (type === "change") listeners.push(listener);
+      }
+    };
+  });
+  const calls = { get: 0, save: [] };
+  const errors = [];
+  const context = {
+    console: { error: (...args) => errors.push(args) },
+    document: { querySelectorAll: () => inputs },
+    window: {
+      winplate: {
+        async getAppSettings() {
+          calls.get += 1;
+          return get ? get() : { menuBarEnabled: false, launchAtLogin: true };
+        },
+        async saveAppSettings(settings) {
+          calls.save.push(JSON.parse(JSON.stringify(settings)));
+          return save ? save(settings) : settings;
+        }
+      }
+    }
+  };
+  const source = `
+    const view = "main";
+    const isMac = ${JSON.stringify(isMac)};
+    const APP_SETTING_KEYS = ["menuBarEnabled", "launchAtLogin"];
+    let applicationSettings = { menuBarEnabled: true, launchAtLogin: false };
+    const boundApplicationSettingsControls = new WeakSet();
+    ${extractNamedFunction(renderer, "mergeApplicationSettings")}
+    ${extractNamedFunction(renderer, "syncApplicationSettingsControls")}
+    ${extractNamedFunction(renderer, "hydrateAppSettings")}
+    ${extractNamedFunction(renderer, "bindApplicationSettingsControls")}
+    this.settingsHarness = {
+      hydrateAppSettings,
+      bindApplicationSettingsControls,
+      settings: () => ({ ...applicationSettings })
+    };
+  `;
+  vm.runInNewContext(source, context, { filename: "app-settings-harness.js" });
+  return { ...context.settingsHarness, calls, errors, inputs };
+}
+
+test("application settings hydration is mac-only and keeps defaults after rejection", async () => {
+  const mac = createAppSettingsHarness();
+  await mac.hydrateAppSettings();
+  assert.equal(mac.calls.get, 1);
+  assert.deepEqual({ ...mac.settings() }, { menuBarEnabled: false, launchAtLogin: true });
+
+  const windows = createAppSettingsHarness({ isMac: false });
+  await windows.hydrateAppSettings();
+  assert.equal(windows.calls.get, 0);
+
+  const failed = createAppSettingsHarness({ get: () => Promise.reject(new Error("read failed")) });
+  await assert.doesNotReject(failed.hydrateAppSettings());
+  assert.deepEqual({ ...failed.settings() }, { menuBarEnabled: true, launchAtLogin: false });
+  assert.deepEqual(failed.errors, [["Failed to load application settings:", "read failed"]]);
+});
+
+test("application settings save adopts normalization, rolls back failures, and rejects mutated keys", async () => {
+  const normalized = createAppSettingsHarness({
+    save: () => ({ menuBarEnabled: false, launchAtLogin: true })
+  });
+  normalized.bindApplicationSettingsControls();
+  normalized.bindApplicationSettingsControls();
+  assert.deepEqual(normalized.inputs.map((input) => input.listeners.length), [1, 1]);
+  normalized.inputs[0].checked = false;
+  await normalized.inputs[0].listeners[0]();
+  assert.deepEqual(normalized.calls.save, [{ menuBarEnabled: false, launchAtLogin: false }]);
+  assert.deepEqual({ ...normalized.settings() }, { menuBarEnabled: false, launchAtLogin: true });
+  assert.deepEqual(normalized.inputs.map((input) => input.checked), [false, true]);
+
+  const failed = createAppSettingsHarness({ save: () => Promise.reject(new Error("save failed")) });
+  failed.bindApplicationSettingsControls();
+  failed.inputs[0].checked = false;
+  const saving = failed.inputs[0].listeners[0]();
+  assert.equal(failed.inputs[0].disabled, true);
+  await saving;
+  assert.equal(failed.inputs[0].checked, true);
+  assert.equal(failed.inputs[0].disabled, false);
+  assert.deepEqual({ ...failed.settings() }, { menuBarEnabled: true, launchAtLogin: false });
+  assert.deepEqual(failed.errors, [["Failed to save application settings:", "save failed"]]);
+
+  failed.inputs[0].dataset.appSetting = "unexpectedProperty";
+  failed.inputs[0].checked = false;
+  await failed.inputs[0].listeners[0]();
+  assert.equal(failed.calls.save.length, 1);
+});
+
 test("preload exposes narrow menu bar APIs without raw Electron capabilities", () => {
   const { api, calls, ipcRenderer } = loadPreloadBridge();
 

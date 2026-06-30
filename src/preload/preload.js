@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const platform = ["darwin", "win32"].includes(process.platform)
+  ? process.platform
+  : "unsupported";
+
 contextBridge.exposeInMainWorld("winplate", {
+  platform,
   showMainWindow: (section = "Dashboard") => ipcRenderer.send("window:show-main", section),
   onNavigate: (callback) => ipcRenderer.on("main:navigate", (_event, section) => callback(section)),
   openGithubProfile: (url) => ipcRenderer.send("github:open-profile", url),
@@ -13,6 +18,8 @@ contextBridge.exposeInMainWorld("winplate", {
   refreshQWeatherOfficialStats: () => ipcRenderer.invoke("weather:refresh-official-usage"),
   getAppearanceSettings: () => ipcRenderer.invoke("appearance:get-settings"),
   saveAppearanceSettings: (settings) => ipcRenderer.invoke("appearance:save-settings", settings),
+  getAppSettings: () => ipcRenderer.invoke("app:get-settings"),
+  saveAppSettings: (settings) => ipcRenderer.invoke("app:save-settings", settings),
   getCodexUsage: (options = {}) => ipcRenderer.invoke("codex:usage", options),
   getDeepSeekSettings: () => ipcRenderer.invoke("deepseek:get-settings"),
   saveDeepSeekSettings: (settings) => ipcRenderer.invoke("deepseek:save-settings", settings),
@@ -23,9 +30,11 @@ contextBridge.exposeInMainWorld("winplate", {
   closeWindow: () => ipcRenderer.send("window:close"),
   onMaximizedChange: (callback) => ipcRenderer.on("window:maximized", (_event, value) => callback(value)),
 
-  setFloatingPinned: (value) => ipcRenderer.invoke("floating:set-pinned", value),
-  setFloatingPinInteractive: (value) => ipcRenderer.send("floating:pin-interactive", value),
-  showTooltip: (payload) => ipcRenderer.send("tooltip:show", payload),
-  hideTooltip: () => ipcRenderer.send("tooltip:hide"),
-  onTooltipUpdate: (callback) => ipcRenderer.on("tooltip:update", (_event, data) => callback(data))
+  ...(platform === "win32" ? {
+    setFloatingPinned: (value) => ipcRenderer.invoke("floating:set-pinned", value),
+    setFloatingPinInteractive: (value) => ipcRenderer.send("floating:pin-interactive", value),
+    showTooltip: (payload) => ipcRenderer.send("tooltip:show", payload),
+    hideTooltip: () => ipcRenderer.send("tooltip:hide"),
+    onTooltipUpdate: (callback) => ipcRenderer.on("tooltip:update", (_event, data) => callback(data))
+  } : {})
 });

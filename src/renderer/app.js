@@ -36,6 +36,13 @@ const offlineStatus = {
 };
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
+const isMac = window.winplate.platform === "darwin";
+const APP_SETTING_KEYS = ["menuBarEnabled", "launchAtLogin"];
+let applicationSettings = {
+  menuBarEnabled: true,
+  launchAtLogin: false
+};
+const boundApplicationSettingsControls = new WeakSet();
 let currentSection = "Dashboard";
 let floatingPinned = false;
 let systemClockTimer = null;
@@ -52,6 +59,61 @@ let qweatherOfficialStatus = null;
 const THEME_STORAGE_KEY = "winplate-theme";
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
+
+function mergeApplicationSettings(settings) {
+  const nextSettings = { ...applicationSettings };
+  for (const key of APP_SETTING_KEYS) {
+    if (typeof settings?.[key] === "boolean") nextSettings[key] = settings[key];
+  }
+  return nextSettings;
+}
+
+function syncApplicationSettingsControls() {
+  document.querySelectorAll("[data-app-setting]").forEach((input) => {
+    const key = input.dataset.appSetting;
+    if (APP_SETTING_KEYS.includes(key)) input.checked = applicationSettings[key];
+  });
+}
+
+async function hydrateAppSettings() {
+  if (view !== "main" || !isMac) return;
+  try {
+    applicationSettings = mergeApplicationSettings(await window.winplate.getAppSettings());
+    syncApplicationSettingsControls();
+  } catch (error) {
+    console.error("Failed to load application settings:", error?.message || String(error));
+  }
+}
+
+function bindApplicationSettingsControls() {
+  if (!isMac || view !== "main") return;
+  syncApplicationSettingsControls();
+  document.querySelectorAll("[data-app-setting]").forEach((input) => {
+    if (boundApplicationSettingsControls.has(input)) return;
+    boundApplicationSettingsControls.add(input);
+    input.addEventListener("change", async () => {
+      const key = input.dataset.appSetting;
+      if (!APP_SETTING_KEYS.includes(key)) return;
+      const previousChecked = applicationSettings[key];
+      applicationSettings = { ...applicationSettings, [key]: input.checked };
+      input.disabled = true;
+      try {
+        const normalized = await window.winplate.saveAppSettings({
+          menuBarEnabled: applicationSettings.menuBarEnabled,
+          launchAtLogin: applicationSettings.launchAtLogin
+        });
+        applicationSettings = mergeApplicationSettings(normalized);
+        syncApplicationSettingsControls();
+      } catch (error) {
+        applicationSettings = { ...applicationSettings, [key]: previousChecked };
+        input.checked = previousChecked;
+        console.error("Failed to save application settings:", error?.message || String(error));
+      } finally {
+        input.disabled = false;
+      }
+    });
+  });
+}
 
 function resolvedTheme() {
   return themePreference === "system"
@@ -940,6 +1002,33 @@ function qweatherServiceCard(official, failures) {
     </article>`;
 }
 
+function macApplicationSettingsSection() {
+  return `<section class="settings-section application-settings-section">
+    <h2>Application</h2>
+    <div class="settings-panel application-settings-panel">
+      <label>
+        <span><strong>Menu bar status</strong><small>Show WinPlate in the macOS menu bar.</small></span>
+        <input type="checkbox" data-app-setting="menuBarEnabled" ${applicationSettings.menuBarEnabled ? "checked" : ""}>
+      </label>
+      <label>
+        <span><strong>Launch at login</strong><small>Start WinPlate when you sign in.</small></span>
+        <input type="checkbox" data-app-setting="launchAtLogin" ${applicationSettings.launchAtLogin ? "checked" : ""}>
+      </label>
+    </div>
+  </section>`;
+}
+
+function windowsGeneralSettingsSection() {
+  return `<section class="settings-section">
+    <h2>通用</h2>
+    <div class="settings-panel">
+      <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
+      <div><span><strong>Always on top</strong><small>Keep WinPlate above other windows.</small></span><b class="enabled">Enabled</b></div>
+      <div><span><strong>Codex source</strong><small>Hidden local CLI session using /status.</small></span><b>${statusData.codex.source || "Unavailable"}</b></div>
+    </div>
+  </section>`;
+}
+
 function dashboardContent(section) {
   const failures = qweatherOfficialStats?.errors ?? 0;
   const official = qweatherOfficialStats
@@ -975,6 +1064,7 @@ function dashboardContent(section) {
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${cards.split("</article>")[2]}</article>`,
     QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
     Settings: `<div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
+      ${isMac ? macApplicationSettingsSection() : ""}
       <section class="settings-section">
         <h2>外观</h2>
         <div class="settings-panel appearance-panel">${themeSelector()}</div>
@@ -985,7 +1075,7 @@ function dashboardContent(section) {
           <fieldset>
             <legend><strong>天气服务</strong><small>必填，用于实时天气与天气预报</small></legend>
             <label>
-              <span><strong>API Key</strong><small>来自 QWeather 控制台，仅保存在 Windows 用户环境变量中</small></span>
+              <span><strong>API Key</strong><small>来自 QWeather 控制台，仅保存在本地设备中</small></span>
               <input id="qweather-api-key" type="password" autocomplete="off">
             </label>
             <label>
@@ -1004,7 +1094,7 @@ function dashboardContent(section) {
               <input id="qweather-credential-id" type="text" autocomplete="off">
             </label>
             <label>
-              <span><strong>Ed25519 私钥</strong><small>仅保存在 Windows 用户环境变量中，留空保持原值</small></span>
+              <span><strong>Ed25519 私钥</strong><small>仅保存在本地设备中，留空保持原值</small></span>
               <textarea id="qweather-private-key" rows="4" autocomplete="off" spellcheck="false"></textarea>
             </label>
           </fieldset>
@@ -1023,7 +1113,7 @@ function dashboardContent(section) {
           <fieldset>
             <legend><strong>DeepSeek API</strong><small>用于在 Codex 模块中读取账户余额</small></legend>
             <label>
-              <span><strong>API Key</strong><small>仅保存在 Windows 用户环境变量中，留空保持原值</small></span>
+              <span><strong>API Key</strong><small>仅保存在本地设备中，留空保持原值</small></span>
               <input id="deepseek-api-key" type="password" autocomplete="off">
             </label>
             <label>
@@ -1037,13 +1127,7 @@ function dashboardContent(section) {
           </div>
         </form>
       </section>
-      <section class="settings-section">
-        <h2>通用</h2>
-      <div class="settings-panel">
-        <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
-        <div><span><strong>Always on top</strong><small>Keep WinPlate above other windows.</small></span><b class="enabled">Enabled</b></div>
-        <div><span><strong>Codex source</strong><small>Hidden local CLI session using /status.</small></span><b>${statusData.codex.source || "Unavailable"}</b></div>
-      </div></section>`
+      ${isMac ? "" : windowsGeneralSettingsSection()}`
   };
   return content[section];
 }
@@ -1148,19 +1232,19 @@ function renderMain() {
   const previousScrollPosition = previousMainContent
     ? { top: previousMainContent.scrollTop, left: previousMainContent.scrollLeft }
     : null;
-  document.body.className = "main-body";
+  document.body.className = `main-body platform-${isMac ? "darwin" : "win32"}`;
   applyMainTheme();
   const sections = ["Dashboard", "GitHub", "Codex", "Heart", "QWeather", "Settings"];
   appRoot.innerHTML = `
     <div class="main-window-shell">
-      <header class="app-titlebar">
+      ${isMac ? "" : `<header class="app-titlebar">
         <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""><span>WinPlate</span></div>
         <div class="window-controls">
           <button id="window-minimize" aria-label="最小化"><span></span></button>
           <button id="window-maximize" aria-label="${mainWindowMaximized ? "还原" : "最大化"}"><span class="${mainWindowMaximized ? "restore-icon" : ""}"></span></button>
           <button id="window-close" class="close" aria-label="关闭"><span></span></button>
         </div>
-      </header>
+      </header>`}
       <div class="workspace">
       <aside class="sidebar">
         <div class="brand"><img src="../../assets/icon.png" alt=""><strong>WinPlate</strong></div>
@@ -1192,6 +1276,7 @@ function renderMain() {
       document.querySelector("#page-content").innerHTML = dashboardContent(button.dataset.section);
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
+      bindApplicationSettingsControls();
       bindWeatherSettings();
       bindDeepSeekSettings();
       bindGithubControls();
@@ -1199,16 +1284,17 @@ function renderMain() {
     });
   });
   bindThemeControls();
+  bindApplicationSettingsControls();
   bindWeatherSettings();
   bindDeepSeekSettings();
   bindGithubControls();
   bindQWeatherUsageControls();
-  document.querySelector("#window-minimize").addEventListener("click", () => window.winplate.minimizeWindow());
-  document.querySelector("#window-maximize").addEventListener("click", async () => {
+  document.querySelector("#window-minimize")?.addEventListener("click", () => window.winplate.minimizeWindow());
+  document.querySelector("#window-maximize")?.addEventListener("click", async () => {
     mainWindowMaximized = await window.winplate.toggleMaximizeWindow();
     updateMaximizeButton();
   });
-  document.querySelector("#window-close").addEventListener("click", () => window.winplate.closeWindow());
+  document.querySelector("#window-close")?.addEventListener("click", () => window.winplate.closeWindow());
   startSystemClock();
 }
 
@@ -1371,7 +1457,7 @@ function updateMaximizeButton() {
   const button = document.querySelector("#window-maximize");
   if (!button) return;
   button.setAttribute("aria-label", mainWindowMaximized ? "还原" : "最大化");
-  button.querySelector("span").classList.toggle("restore-icon", mainWindowMaximized);
+  button.querySelector("span")?.classList.toggle("restore-icon", mainWindowMaximized);
 }
 
 async function refreshStatus() {
@@ -1435,7 +1521,7 @@ async function refreshStatus() {
 
 if (view === "main") {
   renderMain();
-  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage()]).then(refreshStatus);
+  Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateAppSettings()]).then(refreshStatus);
 } else {
   refreshStatus();
 }
