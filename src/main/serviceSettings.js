@@ -53,6 +53,16 @@ function serviceSettingsPath(userDataPath) {
   return path.join(userDataPath, "service-settings.json");
 }
 
+async function serviceSettingsFileExists(userDataPath) {
+  try {
+    await fs.access(serviceSettingsPath(userDataPath));
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 function decodeBase64(value) {
   if (
     typeof value !== "string" ||
@@ -253,6 +263,7 @@ function toServiceEnvironment(value) {
 module.exports = {
   DEFAULT_SERVICE_SETTINGS,
   normalizeServiceSettings,
+  serviceSettingsFileExists,
   readServiceSettings,
   writeServiceSettings,
   resolveServiceSettings,

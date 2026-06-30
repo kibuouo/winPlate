@@ -54,21 +54,20 @@ const { readInitialAppSettings } = require("./appSettingsStartup");
 const { createAppPreferencesController } = require("./appPreferencesController");
 const {
   DEFAULT_SERVICE_SETTINGS,
+  serviceSettingsFileExists,
   readServiceSettings,
   writeServiceSettings,
   resolveServiceSettings,
   publicServiceSettings,
   toServiceEnvironment
 } = require("./serviceSettings");
+const { createServiceSettingsMigration } = require("./serviceSettingsMigration");
 const {
   createServiceSettingsLifecycle,
   safeObject
 } = require("./serviceSettingsLifecycle");
 const { registerSettingsIpc } = require("./settingsIpc");
-const {
-  loadExternalServiceEnvironment,
-  readWindowsServiceEnvironment
-} = require("./windowsEnvironment");
+const { readWindowsServiceEnvironment } = require("./windowsEnvironment");
 
 let tray;
 let appPreferences = null;
@@ -138,19 +137,23 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     const userDataPath = app.getPath("userData");
-    const externalServiceEnvironment = Object.freeze(
-      await loadExternalServiceEnvironment({
-        platform: process.platform,
-        processEnvironment: processServiceEnvironment,
-        readLegacyEnvironment: () => readWindowsServiceEnvironment(execFileAsync)
-      })
-    );
+    const serviceSettingsMigration = await createServiceSettingsMigration({
+      platform: process.platform,
+      hasPersistedSettings: () => serviceSettingsFileExists(userDataPath),
+      readStoredSettings: () => readServiceSettings(userDataPath, safeStorage),
+      writeStoredSettings: (settings) => (
+        writeServiceSettings(userDataPath, settings, safeStorage)
+      ),
+      readLegacyEnvironment: () => readWindowsServiceEnvironment(execFileAsync),
+      resolveSettings: resolveServiceSettings,
+      reportError: (message) => console.error(message)
+    });
     const serviceSettingsLifecycle = createServiceSettingsLifecycle({
       defaults: DEFAULT_SERVICE_SETTINGS,
-      externalEnvironment: externalServiceEnvironment,
+      externalEnvironment: processServiceEnvironment,
       targetEnvironment: process.env,
-      read: () => readServiceSettings(userDataPath, safeStorage),
-      write: (settings) => writeServiceSettings(userDataPath, settings, safeStorage),
+      read: serviceSettingsMigration.read,
+      write: serviceSettingsMigration.write,
       resolve: resolveServiceSettings,
       publicProjection: publicServiceSettings,
       toEnvironment: toServiceEnvironment,

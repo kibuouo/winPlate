@@ -9,23 +9,25 @@ function readMain() {
   return fs.readFileSync(mainPath, "utf8");
 }
 
-test("captures inherited and legacy service settings before lifecycle injection and Python", () => {
+test("captures process overrides and builds the migration store before lifecycle injection", () => {
   const main = readMain();
   const capture = main.indexOf("processServiceEnvironment");
-  const legacy = main.indexOf("await loadExternalServiceEnvironment({");
+  const migration = main.indexOf("await createServiceSettingsMigration({");
   const lifecycle = main.indexOf("createServiceSettingsLifecycle({");
   const load = main.indexOf("await serviceSettingsLifecycle.loadForStartup()");
   const python = main.indexOf("await startPythonService()");
 
   assert.notEqual(capture, -1);
-  assert.notEqual(legacy, -1);
+  assert.notEqual(migration, -1);
   assert.notEqual(lifecycle, -1);
   assert.notEqual(load, -1);
   assert.notEqual(python, -1);
-  assert.equal(capture < legacy && legacy < lifecycle && lifecycle < load && load < python, true);
+  assert.equal(capture < migration && migration < lifecycle && lifecycle < load && load < python, true);
   assert.match(main, /safeStorage/);
   assert.match(main, /targetEnvironment: process\.env/);
+  assert.match(main, /externalEnvironment: processServiceEnvironment/);
   assert.match(main, /platform: process\.platform/);
+  assert.match(main, /serviceSettingsFileExists/);
   assert.match(main, /readWindowsServiceEnvironment/);
   assert.doesNotMatch(main, /readUserEnvironment|writeUserEnvironment|reg\.exe/);
 });

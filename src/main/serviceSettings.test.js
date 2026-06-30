@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const {
   DEFAULT_SERVICE_SETTINGS,
   normalizeServiceSettings,
+  serviceSettingsFileExists,
   readServiceSettings,
   writeServiceSettings,
   resolveServiceSettings,
@@ -148,6 +149,14 @@ test("missing files and corrupt JSON return fresh defaults", async (t) => {
   assert.deepEqual(await readServiceSettings(directory, createSafeStorage()), DEFAULT_SERVICE_SETTINGS);
 });
 
+test("reports whether the persisted service settings file exists", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  assert.equal(await serviceSettingsFileExists(directory), false);
+
+  await writeServiceSettings(directory, {}, createSafeStorage());
+  assert.equal(await serviceSettingsFileExists(directory), true);
+});
+
 test("one malformed ciphertext clears only that secret", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const requested = completeSettings();
@@ -207,12 +216,17 @@ test("public-only writes preserve recoverable ciphertext after an isolated decry
   }, transientFailureStorage);
 
   const after = JSON.parse(await fs.readFile(target, "utf8"));
-  assert.equal(after.encrypted.qweatherApiKey, before.encrypted.qweatherApiKey);
-  assert.equal(typeof after.encrypted.qweatherPrivateKey, "string");
-  assert.equal(typeof after.encrypted.deepseekApiKey, "string");
+  assert.deepEqual(after.encrypted, before.encrypted);
+
+  await writeServiceSettings(directory, {
+    ...partiallyRead,
+    qweatherApiHost: "updated-again.weather.example"
+  }, transientFailureStorage);
+  const afterSecondSave = JSON.parse(await fs.readFile(target, "utf8"));
+  assert.deepEqual(afterSecondSave.encrypted, before.encrypted);
   assert.deepEqual(await readServiceSettings(directory, availableStorage), {
     ...requested,
-    qweatherApiHost: "updated.weather.example"
+    qweatherApiHost: "updated-again.weather.example"
   });
 });
 

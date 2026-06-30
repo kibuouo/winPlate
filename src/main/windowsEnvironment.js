@@ -8,10 +8,6 @@ const SERVICE_ENVIRONMENT_NAMES = Object.freeze([
   "DEEPSEEK_BASE_URL"
 ]);
 
-function stringValue(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function parseRegistryValue(stdout, expectedName) {
   if (typeof stdout !== "string") return "";
   for (const line of stdout.split(/\r?\n/)) {
@@ -35,34 +31,8 @@ async function readWindowsServiceEnvironment(execFileAsync) {
   return Object.fromEntries(entries);
 }
 
-function composeServiceEnvironment(processEnvironment, registryEnvironment) {
-  const primary = processEnvironment && typeof processEnvironment === "object"
-    ? processEnvironment
-    : {};
-  const fallback = registryEnvironment && typeof registryEnvironment === "object"
-    ? registryEnvironment
-    : {};
-  return Object.fromEntries(SERVICE_ENVIRONMENT_NAMES.map((name) => [
-    name,
-    stringValue(primary[name]) || stringValue(fallback[name])
-  ]));
-}
-
-async function loadExternalServiceEnvironment({
-  platform,
-  processEnvironment,
-  readLegacyEnvironment
-}) {
-  const registryEnvironment = platform === "win32"
-    ? await readLegacyEnvironment()
-    : {};
-  return composeServiceEnvironment(processEnvironment, registryEnvironment);
-}
-
 module.exports = {
   SERVICE_ENVIRONMENT_NAMES,
-  composeServiceEnvironment,
-  loadExternalServiceEnvironment,
   parseRegistryValue,
   readWindowsServiceEnvironment
 };
