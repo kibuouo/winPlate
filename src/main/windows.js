@@ -236,6 +236,7 @@ function ownsMainWindowSender(sender) {
   return Boolean(
     mainWindow
     && !mainWindow.isDestroyed()
+    && !mainWindow.webContents.isDestroyed()
     && sender === mainWindow.webContents
   );
 }
