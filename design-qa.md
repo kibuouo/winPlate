@@ -9,21 +9,23 @@ pass.
 - Host: macOS 26.5.1 (25F80), Apple silicon
 - Tested implementation: `910a053287e04d4cecff7c4e1a51609538a46e1f`
 - Panel: `docs/qa/2026-07-01-macos-menu-panel-open.png`
-- Main window renderer: `docs/qa/2026-07-01-macos-native-main-window.png`
 - Settings: `docs/qa/2026-07-01-macos-settings.png`
 - Detailed evidence and limitations: `docs/verification/dual-platform-smoke.md`
 
-The current dark-theme captures show legible neutral quota/status treatment,
-Codex → DeepSeek → Weather → Actions panel order, a macOS main renderer with the
-shared Sidebar and no Windows custom title-bar markup, and exactly the two
-macOS Application settings (Menu bar status and Launch at login). Core Graphics
-reported the main window at the 1040 × 720 policy bounds and no desktop capsule
-window.
+The two safe current dark-theme captures show legible neutral quota/status
+treatment, Codex → DeepSeek → Weather → Actions panel order, and the Settings
+renderer with the shared Sidebar, no Windows custom title-bar markup, and
+exactly the two macOS Application settings (Menu bar status and Launch at
+login). Core Graphics reported the main window at the 1040 × 720 policy bounds
+and no desktop capsule window. This is structural evidence only: native frame,
+traffic-light, status-icon, and anchored-placement pixels were not captured.
 
 Computer Use could not establish an active Electron attachment, and native
-screen capture was unavailable. Therefore the closed menu-bar screenshot,
-right-click menu, native traffic lights, close/reopen, direct light-theme view,
-menu enable/disable, and launch-at-login runtime application remain incomplete.
+screen capture was unavailable. Therefore the closed menu-bar screenshot and
+icon, anchored placement, right-click menu, native frame/traffic lights,
+close/reopen, direct light-theme view, refresh-in-place, keyboard focus,
+menu enable/disable, service-settings restart persistence, and launch-at-login
+runtime application remain incomplete.
 Launch at login was not toggled because doing so requires action-time
 confirmation for a local system-setting change. No secrets were read or entered.
 

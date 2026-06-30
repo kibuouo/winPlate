@@ -3,7 +3,7 @@
 - Date: 2026-07-01
 - Branch: `codex/macos-menu-bar`
 - Implementation SHA tested: `910a053287e04d4cecff7c4e1a51609538a46e1f`
-Host: macOS 26.5.1 (25F80), Apple silicon (`arm64`)
+- Host: macOS 26.5.1 (25F80), Apple silicon (`arm64`)
 
 This report distinguishes direct runtime observations from executable tests. A
 platform-policy test is not treated as real-device evidence.
@@ -17,6 +17,7 @@ platform-policy test is not treated as real-device evidence.
 | `git diff --check` | pass |
 | `npm audit --omit=dev` | pass — 0 vulnerabilities |
 | prohibited runtime identifier search | pass — no audited legacy identifiers in production `src`, `README.md`, or this verification directory; negative test fixtures are excluded |
+| final process cleanup | pass — development WinPlate and its backend were stopped; port 8765 had no listener |
 
 The initial worktree was clean. During the first launch, an orphaned backend
 from this same worktree was found listening on port 8765. It was stopped before
@@ -38,24 +39,30 @@ were used as bounded fallbacks. Full-screen capture was black and window-only
 
 | Runtime item | Result | Direct evidence |
 | --- | --- | --- |
-| One menu item with icon/temperature fallback; no desktop capsule | pass | Accessibility exposed one app status item titled `--°`. Core Graphics listed only `WinPlate 状态` (320 × 420) and `WinPlate` (1040 × 720 policy bounds), with no capsule window. Closed-state native screenshot is incomplete because screen capture was unavailable. |
-| Left click opens a panel beneath the item | pass | Accessibility `AXPress` opened `WinPlate 状态`; Core Graphics reported it on-screen at 320 × 420. Panel content: [2026-07-01-macos-menu-panel-open.png](../qa/2026-07-01-macos-menu-panel-open.png). Native placement pixels were not capturable. |
+| One menu item with icon/temperature fallback; no desktop capsule | incomplete | Accessibility proves one app status item titled `--°`, and Core Graphics listed only `WinPlate 状态` (320 × 420) and `WinPlate` (1040 × 720 policy bounds), with no capsule window. Icon pixels and the closed state were unavailable. |
+| Left click opens a panel beneath the item | incomplete | Accessibility `AXPress` proves the status item's default action opened `WinPlate 状态`, and Core Graphics reported a 320 × 420 on-screen panel. Item/panel coordinates and native pixels were unavailable, so anchoring beneath the item is unverified. Panel content: [2026-07-01-macos-menu-panel-open.png](../qa/2026-07-01-macos-menu-panel-open.png). |
 | Right-click menu contains Open WinPlate, Settings, Refresh, Quit | incomplete | Computer Use could not establish an active Electron session, so right-click was not exercised. The exact menu remains covered by the executable `macMenuBar` test. |
 | Escape/blur hides the panel | incomplete | Not directly exercised in this run; covered by renderer/controller tests. |
 | Panel order Codex, DeepSeek, Weather, Actions; neutral bars/status; actions reachable | pass | Direct panel capture shows the fixed order, gray status points, neutral bars, and Open WinPlate/Refresh/Settings actions. The panel bridge directly opened the main Codex and Settings destinations. |
-| Native main window, Sidebar, no Windows custom title bar | pass with limitation | Core Graphics reported `WinPlate` at the 1040 × 720 policy bounds and on-screen after an app action. [2026-07-01-macos-native-main-window.png](../qa/2026-07-01-macos-native-main-window.png) shows the shared Sidebar and no Windows title-bar markup. Traffic lights/native frame pixels were not available through renderer capture. |
+| Explicit refresh updates in place | incomplete | The Refresh control is present in the direct panel capture, but no before/after runtime observation proves in-place update behavior. Executable renderer/controller tests are indirect evidence only. |
+| Native main window, Sidebar, no Windows custom title bar | incomplete | Core Graphics reported `WinPlate` at the 1040 × 720 policy bounds and on-screen after an app action. The safe Settings renderer capture proves the shared Sidebar and absence of Windows title-bar markup, but the native frame and traffic lights were not verified. |
 | Close hides; Dock/menu action reopens | incomplete | Main-window opening from the menu panel was directly observed. The locked/unavailable GUI session prevented a trustworthy native close/reopen observation. |
 | Settings contains exactly Menu bar status and Launch at login, no capsule option | pass | [2026-07-01-macos-settings.png](../qa/2026-07-01-macos-settings.png) shows exactly those two macOS Application toggles and no capsule setting. |
 | Menu-bar enable/disable recreates once | incomplete | Not toggled because the unavailable native UI made same-session restoration unreliable. Focused lifecycle tests pass. |
 | Launch at login applies/persists | incomplete | Deliberately not toggled: it changes a local system setting and no action-time confirmation was obtained. Focused normalization/application tests pass but are not runtime evidence. |
-| Light/dark legibility | incomplete | Current dark appearance is legible in all three captures. Theme switching was not performed because the GUI automation session could not reliably restore it. |
-| Service configuration is redacted | pass | Settings capture shows the Application/Appearance area only; no keys or private values were read, entered, or captured. Renderer/main boundary tests cover configured flags and secret redaction. |
+| Light/dark legibility | incomplete | Current dark appearance is legible in both safe captures. Theme switching was not performed because the GUI automation session could not reliably restore it. |
+| Keyboard focus visibility | incomplete | No direct keyboard traversal or focus-ring observation was completed; executable accessibility styling tests are indirect evidence only. |
+| Service configuration and redaction | incomplete | No service fields, configured flags, save behavior, or returned values were directly observed. Renderer/main boundary tests cover configured flags and secret redaction, but do not substitute for runtime evidence. |
+| Service-settings restart persistence | incomplete | No service setting was changed and no restart-persistence cycle was performed. Focused persistence tests are indirect evidence only. |
 | Partial/offline recovery | incomplete | The panel directly displayed stable unavailable fallbacks while retaining all actions. A deliberate total outage was not induced because it could disturb user configuration; executable reducer/controller tests cover source isolation and recovery. |
 
 There is no new closed-state screenshot: the menu item was confirmed through
-Accessibility, but native screen capture returned black. The three committed
-images are direct renderer captures from the running worktree and contain no API
-keys, private keys, medical readings, or account identifiers.
+Accessibility, but native screen capture returned black. The two remaining safe
+captures are the unavailable-state panel and the Settings renderer. No sensitive
+contents were observed in either retained image.
+
+After capture, the development WinPlate process and child backend were stopped.
+An independent final check found no listener on port 8765.
 
 ## Windows checklist
 
@@ -83,7 +90,7 @@ are **incomplete**. Local policy tests do not substitute for those jobs.
 | Completion criterion | Evidence | Result |
 | --- | --- | --- |
 | One integrated branch contains the approved Windows and macOS experiences | Startup/window policy and renderer tests pass on the integrated branch; README documents both. No Windows runtime host was available. | incomplete |
-| macOS native main window, persisted menu/login preferences, durable service configuration, and no capsule path/setting | Direct main/Settings captures; direct window list has no capsule; focused app/service settings tests pass. Menu preference recreation and launch-at-login were not directly observed. | incomplete |
+| macOS native main window, persisted menu/login preferences, durable service configuration, and no capsule path/setting | Core Graphics observed policy-sized main/panel windows and no capsule; the safe Settings renderer shows the shared Sidebar and two macOS toggles. Native chrome, menu preference recreation, launch-at-login, and service restart persistence were not directly observed. | incomplete |
 | Windows retains main window, Tray, capsule, pin, tooltip, startup behavior | Focused Windows policy/static tests pass. | incomplete — Windows runtime unavailable |
 | Both platforms share FastAPI/SQLite and recover from partial/complete failure | macOS FastAPI health 200 and direct stable panel fallbacks; focused backend/reducer tests pass. Windows and deliberate complete-outage runtime evidence are absent. | incomplete |
 | Security, accessibility, lifecycle, persistence requirements have focused tests | `npm run check` passed 196 focused tests including sender ownership, CSP, semantic controls, settings encryption/redaction, lifecycle, and persistence. | pass |
