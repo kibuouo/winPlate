@@ -72,28 +72,75 @@ function decryptSecret(encrypted, field, safeStorage) {
   }
 }
 
-async function readServiceSettings(userDataPath, safeStorage) {
-  try {
-    const contents = await fs.readFile(serviceSettingsPath(userDataPath), "utf8");
-    const persisted = JSON.parse(contents);
-    const candidate = persisted && typeof persisted === "object" ? persisted : {};
-    const encrypted =
-      candidate.encrypted && typeof candidate.encrypted === "object"
-        ? candidate.encrypted
-        : {};
+function requireSafeStorageMethod(safeStorage, method) {
+  if (!safeStorage || typeof safeStorage[method] !== "function") {
+    throw new TypeError(`safeStorage.${method} must be a function`);
+  }
+}
 
-    return normalizeServiceSettings({
-      ...candidate,
-      qweatherApiKey: decryptSecret(encrypted, "qweatherApiKey", safeStorage),
-      qweatherPrivateKey: decryptSecret(encrypted, "qweatherPrivateKey", safeStorage),
-      deepseekApiKey: decryptSecret(encrypted, "deepseekApiKey", safeStorage)
-    });
+function requireStorageAvailability(safeStorage) {
+  requireSafeStorageMethod(safeStorage, "isEncryptionAvailable");
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("Secure credential storage is unavailable");
+  }
+}
+
+function requireDecryptionStorage(safeStorage) {
+  requireStorageAvailability(safeStorage);
+  requireSafeStorageMethod(safeStorage, "decryptString");
+}
+
+function requireEncryptionStorage(safeStorage) {
+  requireStorageAvailability(safeStorage);
+  requireSafeStorageMethod(safeStorage, "encryptString");
+}
+
+async function readServiceSettings(userDataPath, safeStorage) {
+  let contents;
+  try {
+    contents = await fs.readFile(serviceSettingsPath(userDataPath), "utf8");
   } catch (error) {
-    if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) {
+    if (error.code !== "ENOENT") {
       throw error;
     }
     return { ...DEFAULT_SERVICE_SETTINGS };
   }
+
+  let persisted;
+  try {
+    persisted = JSON.parse(contents);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
+    return { ...DEFAULT_SERVICE_SETTINGS };
+  }
+
+  const candidate = persisted && typeof persisted === "object" ? persisted : {};
+  if (
+    Object.prototype.hasOwnProperty.call(candidate, "version") &&
+    candidate.version !== 1
+  ) {
+    throw new Error(`Unsupported service settings version: ${candidate.version}`);
+  }
+
+  const encrypted =
+    candidate.encrypted && typeof candidate.encrypted === "object"
+      ? candidate.encrypted
+      : {};
+  const hasEncryptedSecrets = SECRET_FIELDS.some(
+    (field) => typeof encrypted[field] === "string" && encrypted[field].length > 0
+  );
+  if (hasEncryptedSecrets) {
+    requireDecryptionStorage(safeStorage);
+  }
+
+  return normalizeServiceSettings({
+    ...candidate,
+    qweatherApiKey: decryptSecret(encrypted, "qweatherApiKey", safeStorage),
+    qweatherPrivateKey: decryptSecret(encrypted, "qweatherPrivateKey", safeStorage),
+    deepseekApiKey: decryptSecret(encrypted, "deepseekApiKey", safeStorage)
+  });
 }
 
 function encryptedSecrets(settings, safeStorage) {
@@ -109,8 +156,8 @@ function encryptedSecrets(settings, safeStorage) {
 async function writeServiceSettings(userDataPath, value, safeStorage) {
   const settings = normalizeServiceSettings(value);
   const hasSecrets = SECRET_FIELDS.some((field) => settings[field]);
-  if (hasSecrets && !safeStorage.isEncryptionAvailable()) {
-    throw new Error("Secure credential storage is unavailable");
+  if (hasSecrets) {
+    requireEncryptionStorage(safeStorage);
   }
 
   const persisted = {

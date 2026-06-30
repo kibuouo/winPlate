@@ -180,6 +180,87 @@ test("decrypt errors and missing ciphertext affect only their own secrets", asyn
   });
 });
 
+test("encrypted settings reject when secure storage is unavailable without changing the file", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  await writeServiceSettings(directory, completeSettings(), createSafeStorage());
+  const target = path.join(directory, SETTINGS_FILE);
+  const original = await fs.readFile(target);
+
+  await assert.rejects(readServiceSettings(directory, createSafeStorage(false)), {
+    message: "Secure credential storage is unavailable"
+  });
+
+  assert.deepEqual(await fs.readFile(target), original);
+});
+
+test("public-only settings load when secure storage is unavailable", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const requested = {
+    qweatherApiHost: "public.weather.example",
+    qweatherProjectId: "public-project",
+    qweatherCredentialId: "public-credential",
+    deepseekBaseUrl: "https://public.deepseek.example"
+  };
+  await writeServiceSettings(directory, requested, createSafeStorage(false));
+
+  assert.deepEqual(
+    await readServiceSettings(directory, createSafeStorage(false)),
+    normalizeServiceSettings(requested)
+  );
+});
+
+test("encrypted settings require a complete safeStorage decryption dependency", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  await writeServiceSettings(directory, completeSettings(), createSafeStorage());
+
+  await assert.rejects(readServiceSettings(directory, {}), {
+    name: "TypeError",
+    message: "safeStorage.isEncryptionAvailable must be a function"
+  });
+  await assert.rejects(
+    readServiceSettings(directory, { isEncryptionAvailable: () => true }),
+    {
+      name: "TypeError",
+      message: "safeStorage.decryptString must be a function"
+    }
+  );
+});
+
+test("missing persisted version is accepted as legacy version 1", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const requested = completeSettings();
+  await writeServiceSettings(directory, requested, createSafeStorage());
+  const target = path.join(directory, SETTINGS_FILE);
+  const persisted = JSON.parse(await fs.readFile(target, "utf8"));
+  delete persisted.version;
+  await fs.writeFile(target, JSON.stringify(persisted), "utf8");
+
+  assert.deepEqual(await readServiceSettings(directory, createSafeStorage()), requested);
+});
+
+test("unsupported persisted versions reject before decryption without changing the file", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  await writeServiceSettings(directory, completeSettings(), createSafeStorage());
+  const target = path.join(directory, SETTINGS_FILE);
+  const persisted = JSON.parse(await fs.readFile(target, "utf8"));
+  persisted.version = 2;
+  const original = Buffer.from(JSON.stringify(persisted), "utf8");
+  await fs.writeFile(target, original);
+  let decryptions = 0;
+  const safeStorage = createSafeStorage();
+  safeStorage.decryptString = () => {
+    decryptions += 1;
+    throw new Error("must not decrypt");
+  };
+
+  await assert.rejects(readServiceSettings(directory, safeStorage), {
+    message: "Unsupported service settings version: 2"
+  });
+
+  assert.equal(decryptions, 0);
+  assert.deepEqual(await fs.readFile(target), original);
+});
+
 test("non-missing-file read errors propagate", async (t) => {
   const filePath = path.join(await createTemporaryDirectory(t), "not-a-directory");
   await fs.writeFile(filePath, "file", "utf8");
@@ -192,6 +273,27 @@ test("unavailable encryption rejects before creating files when a secret is pres
   await assert.rejects(
     writeServiceSettings(directory, { qweatherApiKey: "secret" }, createSafeStorage(false)),
     { message: "Secure credential storage is unavailable" }
+  );
+  await assert.rejects(fs.access(directory), { code: "ENOENT" });
+});
+
+test("encrypted writes require a complete safeStorage encryption dependency", async (t) => {
+  const directory = path.join(await createTemporaryDirectory(t), "not-created");
+
+  await assert.rejects(writeServiceSettings(directory, { qweatherApiKey: "secret" }, {}), {
+    name: "TypeError",
+    message: "safeStorage.isEncryptionAvailable must be a function"
+  });
+  await assert.rejects(
+    writeServiceSettings(
+      directory,
+      { qweatherApiKey: "secret" },
+      { isEncryptionAvailable: () => true }
+    ),
+    {
+      name: "TypeError",
+      message: "safeStorage.encryptString must be a function"
+    }
   );
   await assert.rejects(fs.access(directory), { code: "ENOENT" });
 });
