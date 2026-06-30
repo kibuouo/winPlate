@@ -75,6 +75,26 @@ test("darwin applies only normalized boolean login preferences", () => {
   assert.equal(loginValues.every((value) => typeof value === "boolean"), true);
 });
 
+test("login failures are reported without blocking menu creation or disable", () => {
+  const createFailure = new Error("login create failure");
+  const disableFailure = new Error("login disable failure");
+  let loginAttempts = 0;
+  const { controller, errors, menuBars } = createHarness({
+    applyLoginItem() {
+      loginAttempts += 1;
+      throw loginAttempts === 1 ? createFailure : disableFailure;
+    }
+  });
+
+  controller.apply({ menuBarEnabled: true, launchAtLogin: true });
+  assert.equal(menuBars.length, 1);
+
+  controller.apply({ menuBarEnabled: false, launchAtLogin: false });
+
+  assert.equal(menuBars[0].destroyed, 1);
+  assert.deepEqual(errors, [createFailure, disableFailure]);
+});
+
 test("disabling destroys once and re-enabling creates a new menu controller", () => {
   const { controller, menuBars } = createHarness();
 
@@ -90,6 +110,34 @@ test("disabling destroys once and re-enabling creates a new menu controller", ()
 
   assert.equal(menuBars.length, 2);
   assert.notStrictEqual(menuBars[1], first);
+});
+
+test("failed disable teardown is retained without duplication and retried", () => {
+  const failure = new Error("disable teardown failure");
+  let destroyAttempts = 0;
+  const { controller, errors, menuBars } = createHarness();
+  controller.apply({ menuBarEnabled: true, launchAtLogin: false });
+  const first = menuBars[0];
+  first.destroy = () => {
+    destroyAttempts += 1;
+    if (destroyAttempts === 1) {
+      throw failure;
+    }
+  };
+
+  controller.apply({ menuBarEnabled: false, launchAtLogin: false });
+  assert.deepEqual(errors, [failure]);
+
+  controller.apply({ menuBarEnabled: true, launchAtLogin: false });
+  assert.equal(menuBars.length, 1);
+
+  controller.apply({ menuBarEnabled: false, launchAtLogin: false });
+  assert.equal(destroyAttempts, 2);
+
+  controller.apply({ menuBarEnabled: true, launchAtLogin: false });
+  assert.equal(menuBars.length, 2);
+  assert.notStrictEqual(menuBars[1], first);
+  assert.deepEqual(errors, [failure]);
 });
 
 test("delegates sender checks and menu actions only while live", () => {
@@ -131,6 +179,39 @@ test("destroy is idempotent and later apply cannot recreate native state", () =>
   assert.deepEqual(loginValues, [false]);
   assert.deepEqual(result, { menuBarEnabled: true, launchAtLogin: false });
   assert.deepEqual(controller.getSettings(), result);
+});
+
+test("failed final teardown retries while the outer controller remains blocked", () => {
+  const failure = new Error("final teardown failure");
+  let destroyAttempts = 0;
+  const { controller, errors, loginValues, menuBars } = createHarness();
+  controller.apply({ menuBarEnabled: true, launchAtLogin: false });
+  const menuBar = menuBars[0];
+  menuBar.destroy = () => {
+    destroyAttempts += 1;
+    if (destroyAttempts === 1) {
+      throw failure;
+    }
+  };
+
+  controller.destroy();
+
+  assert.deepEqual(errors, [failure]);
+  assert.equal(controller.ownsSender(menuBar.sender), false);
+  assert.equal(controller.setTemperature(25), undefined);
+  assert.equal(controller.hide(), undefined);
+  assert.equal(controller.refresh(), undefined);
+  assert.deepEqual(
+    controller.apply({ menuBarEnabled: false, launchAtLogin: true }),
+    { menuBarEnabled: true, launchAtLogin: false }
+  );
+  assert.deepEqual(loginValues, [false]);
+
+  controller.destroy();
+  controller.destroy();
+
+  assert.equal(destroyAttempts, 2);
+  assert.deepEqual(errors, [failure]);
 });
 
 test("menu creation failure is reported, reveals Dashboard, and permits retry", () => {

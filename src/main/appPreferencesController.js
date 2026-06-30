@@ -20,9 +20,12 @@ function createAppPreferencesController({
     if (!menuBar) {
       return;
     }
-    const currentMenuBar = menuBar;
-    menuBar = null;
-    currentMenuBar.destroy();
+    try {
+      menuBar.destroy();
+      menuBar = null;
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   return {
@@ -36,7 +39,11 @@ function createAppPreferencesController({
         return copySettings();
       }
 
-      applyLoginItem(settings.launchAtLogin);
+      try {
+        applyLoginItem(settings.launchAtLogin);
+      } catch (error) {
+        reportError(error);
+      }
       if (!settings.menuBarEnabled) {
         destroyMenuBar();
         return copySettings();
@@ -74,9 +81,6 @@ function createAppPreferencesController({
     },
 
     destroy() {
-      if (destroyed) {
-        return;
-      }
       destroyed = true;
       destroyMenuBar();
     }
