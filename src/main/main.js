@@ -6,13 +6,12 @@ const {
   Menu,
   nativeImage,
   nativeTheme,
+  safeStorage,
   screen,
   session,
   shell,
   Tray
 } = require("electron");
-const { execFile } = require("child_process");
-const { promisify } = require("util");
 const {
   createFloatingWindow,
   createMainWindow,
@@ -27,7 +26,8 @@ const {
   setMainWindowTheme,
   minimizeMainWindow,
   toggleMaximizeMainWindow,
-  closeMainWindow
+  closeMainWindow,
+  ownsMainWindowSender
 } = require("./windows");
 const { createAppTray } = require("./tray");
 const { createMacMenuBar } = require("./macMenuBar");
@@ -35,7 +35,6 @@ const { startupPolicy } = require("./startupPolicy");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
 const {
-  DEFAULT_BASE_URL: DEEPSEEK_DEFAULT_BASE_URL,
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
   readDeepSeekUsage
 } = require("./deepseekUsage");
@@ -43,15 +42,41 @@ const {
   readAppearanceSettings,
   writeAppearanceSettings
 } = require("./appearanceSettings");
+const {
+  readAppSettings,
+  writeAppSettings,
+  applyLoginItemSetting
+} = require("./appSettings");
+const { createAppPreferencesController } = require("./appPreferencesController");
+const {
+  DEFAULT_SERVICE_SETTINGS,
+  readServiceSettings,
+  writeServiceSettings,
+  resolveServiceSettings,
+  publicServiceSettings,
+  toServiceEnvironment
+} = require("./serviceSettings");
+const {
+  createServiceSettingsLifecycle,
+  safeObject
+} = require("./serviceSettingsLifecycle");
 
 let tray;
-let macMenuBar;
-const execFileAsync = promisify(execFile);
+let appPreferences = null;
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 const appIconPath = path.join(__dirname, "..", "..", "assets", "icon.png");
+const externalServiceEnvironment = Object.freeze({
+  QWEATHER_API_KEY: process.env.QWEATHER_API_KEY,
+  QWEATHER_API_HOST: process.env.QWEATHER_API_HOST,
+  QWEATHER_PROJECT_ID: process.env.QWEATHER_PROJECT_ID,
+  QWEATHER_CREDENTIAL_ID: process.env.QWEATHER_CREDENTIAL_ID,
+  QWEATHER_PRIVATE_KEY: process.env.QWEATHER_PRIVATE_KEY,
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL
+});
 
 function quitApplication() {
   setQuitting(true);
@@ -95,29 +120,29 @@ async function fetchJsonCached(key, url, ttlMs) {
   return promise;
 }
 
-async function readUserEnvironment(name) {
-  if (process.platform !== "win32") {
-    return process.env[name] || "";
-  }
-  try {
-    const { stdout } = await execFileAsync("reg.exe", [
-      "query", "HKCU\\Environment", "/v", name
-    ], { windowsHide: true });
-    const line = stdout.split(/\r?\n/).find((entry) => entry.includes(name));
-    return line?.trim().split(/\s{2,}/).at(-1) || "";
-  } catch {
-    return "";
+function requireMainWindowSender(event) {
+  if (!ownsMainWindowSender(event.sender)) {
+    throw new Error("Unauthorized settings sender");
   }
 }
 
-async function writeUserEnvironment(name, value) {
-  if (process.platform !== "win32") {
-    process.env[name] = value;
-    return;
-  }
-  await execFileAsync("reg.exe", [
-    "add", "HKCU\\Environment", "/v", name, "/t", "REG_SZ", "/d", value, "/f"
-  ], { windowsHide: true });
+function weatherSettingsResponse(settings) {
+  const publicSettings = publicServiceSettings(settings);
+  return {
+    hasApiKey: publicSettings.hasQWeatherApiKey,
+    apiHost: publicSettings.qweatherApiHost,
+    projectId: publicSettings.qweatherProjectId,
+    credentialId: publicSettings.qweatherCredentialId,
+    hasPrivateKey: publicSettings.hasQWeatherPrivateKey
+  };
+}
+
+function deepSeekSettingsResponse(settings) {
+  const publicSettings = publicServiceSettings(settings);
+  return {
+    hasApiKey: publicSettings.hasDeepSeekApiKey,
+    baseUrl: publicSettings.deepseekBaseUrl
+  };
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -127,6 +152,19 @@ if (!gotLock) {
   app.on("second-instance", showMainWindow);
 
   app.whenReady().then(async () => {
+    const userDataPath = app.getPath("userData");
+    const serviceSettingsLifecycle = createServiceSettingsLifecycle({
+      defaults: DEFAULT_SERVICE_SETTINGS,
+      externalEnvironment: externalServiceEnvironment,
+      targetEnvironment: process.env,
+      read: () => readServiceSettings(userDataPath, safeStorage),
+      write: (settings) => writeServiceSettings(userDataPath, settings, safeStorage),
+      resolve: resolveServiceSettings,
+      publicProjection: publicServiceSettings,
+      toEnvironment: toServiceEnvironment,
+      reportError: (message) => console.error(message)
+    });
+
     if (process.platform === "darwin") {
       app.dock.setIcon(nativeImage.createFromPath(appIconPath));
     }
@@ -134,24 +172,59 @@ if (!gotLock) {
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === "geolocation");
     });
+    await serviceSettingsLifecycle.loadForStartup();
     try {
       await startPythonService();
     } catch (error) {
       console.error(error.message);
     }
-    const appearanceSettings = await readAppearanceSettings(app.getPath("userData"));
+    const appearanceSettings = await readAppearanceSettings(userDataPath);
     const initialTheme = appearanceSettings.theme === "system"
       ? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
       : appearanceSettings.theme;
     ipcMain.handle("appearance:get-settings", () => (
-      readAppearanceSettings(app.getPath("userData"))
+      readAppearanceSettings(userDataPath)
     ));
     ipcMain.handle("appearance:save-settings", (_event, settings) => (
-      writeAppearanceSettings(app.getPath("userData"), settings)
+      writeAppearanceSettings(userDataPath, settings)
     ));
     createMainWindow(initialTheme);
     const policy = startupPolicy();
     app.on("activate", showMainWindow);
+
+    appPreferences = createAppPreferencesController({
+      platform: policy.createMacMenuBar ? "darwin" : process.platform,
+      initialSettings: await readAppSettings(userDataPath),
+      createMenuBar: () => createMacMenuBar({
+        BrowserWindow,
+        Menu,
+        Tray,
+        nativeImage,
+        screen,
+        preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
+        rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
+        iconPath: path.join(__dirname, "..", "..", "assets", "icon-transparent.png"),
+        actions: {
+          showMainWindow,
+          quit: quitApplication
+        }
+      }),
+      applyLoginItem: (enabled) => applyLoginItemSetting(app, enabled),
+      showMainWindow,
+      reportError: (error) => console.error(error.message)
+    });
+    appPreferences.apply(appPreferences.getSettings());
+
+    ipcMain.handle("app:get-settings", (event) => {
+      requireMainWindowSender(event);
+      return appPreferences.getSettings();
+    });
+    ipcMain.handle("app:save-settings", async (event, payload) => {
+      requireMainWindowSender(event);
+      const merged = { ...appPreferences.getSettings(), ...safeObject(payload) };
+      const written = await writeAppSettings(userDataPath, merged);
+      return appPreferences.apply(written);
+    });
 
     if (policy.createFloatingWindow) {
       createFloatingWindow();
@@ -172,38 +245,15 @@ if (!gotLock) {
       });
     }
 
-    if (policy.createMacMenuBar) {
-      try {
-        macMenuBar = createMacMenuBar({
-          BrowserWindow,
-          Menu,
-          Tray,
-          nativeImage,
-          screen,
-          preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
-          rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
-          iconPath: path.join(__dirname, "..", "..", "assets", "icon-transparent.png"),
-          actions: {
-            showMainWindow,
-            quit: quitApplication
-          }
-        });
-      } catch (error) {
-        console.error("Failed to create macOS menu bar:", error.message);
-        macMenuBar = null;
-        showMainWindow("Dashboard");
-      }
-    }
-
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
     ipcMain.on("menubar:update-temperature", (event, payload) => {
-      if (macMenuBar?.ownsSender(event.sender)) {
-        macMenuBar.setTemperature(payload);
+      if (appPreferences?.ownsSender(event.sender)) {
+        appPreferences.setTemperature(payload);
       }
     });
     ipcMain.on("menubar:hide", (event) => {
-      if (macMenuBar?.ownsSender(event.sender)) {
-        macMenuBar.hide();
+      if (appPreferences?.ownsSender(event.sender)) {
+        appPreferences.hide();
       }
     });
     ipcMain.on("github:open-profile", (_event, url) => {
@@ -239,50 +289,30 @@ if (!gotLock) {
       }
       return response.json();
     });
-    ipcMain.handle("weather:get-settings", async () => {
-      const [apiKey, apiHost, projectId, credentialId, privateKey] = await Promise.all([
-        readUserEnvironment("QWEATHER_API_KEY"),
-        readUserEnvironment("QWEATHER_API_HOST"),
-        readUserEnvironment("QWEATHER_PROJECT_ID"),
-        readUserEnvironment("QWEATHER_CREDENTIAL_ID"),
-        readUserEnvironment("QWEATHER_PRIVATE_KEY")
-      ]);
-      return {
-        hasApiKey: Boolean(apiKey),
-        apiHost: apiHost || "devapi.qweather.com",
-        projectId,
-        credentialId,
-        hasPrivateKey: Boolean(privateKey)
-      };
+    ipcMain.handle("weather:get-settings", (event) => {
+      requireMainWindowSender(event);
+      return weatherSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
     });
-    ipcMain.handle("weather:save-settings", async (_event, settings) => {
-      const apiKey = typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
-      const apiHost = typeof settings?.apiHost === "string" ? settings.apiHost.trim() : "";
-      const projectId = typeof settings?.projectId === "string" ? settings.projectId.trim() : "";
-      const credentialId = typeof settings?.credentialId === "string" ? settings.credentialId.trim() : "";
-      const privateKey = typeof settings?.privateKey === "string" ? settings.privateKey.trim() : "";
+    ipcMain.handle("weather:save-settings", async (event, settings) => {
+      requireMainWindowSender(event);
+      const input = safeObject(settings);
+      const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+      const apiHost = typeof input.apiHost === "string" ? input.apiHost.trim() : "";
+      const projectId = typeof input.projectId === "string" ? input.projectId.trim() : "";
+      const credentialId = typeof input.credentialId === "string" ? input.credentialId.trim() : "";
+      const privateKey = typeof input.privateKey === "string" ? input.privateKey.trim() : "";
       if (!apiHost || !/^[a-z0-9.-]+$/i.test(apiHost)) {
         throw new Error("API Host 格式无效");
       }
-      const writes = [
-        writeUserEnvironment("QWEATHER_API_HOST", apiHost),
-        writeUserEnvironment("QWEATHER_PROJECT_ID", projectId),
-        writeUserEnvironment("QWEATHER_CREDENTIAL_ID", credentialId)
-      ];
-      if (apiKey) {
-        writes.push(writeUserEnvironment("QWEATHER_API_KEY", apiKey));
-      }
-      if (privateKey) {
-        writes.push(writeUserEnvironment("QWEATHER_PRIVATE_KEY", privateKey));
-      }
-      await Promise.all(writes);
-      return {
-        hasApiKey: Boolean(apiKey || await readUserEnvironment("QWEATHER_API_KEY")),
-        apiHost,
-        projectId,
-        credentialId,
-        hasPrivateKey: Boolean(privateKey || await readUserEnvironment("QWEATHER_PRIVATE_KEY"))
+      const patch = {
+        qweatherApiHost: apiHost,
+        qweatherProjectId: projectId,
+        qweatherCredentialId: credentialId
       };
+      if (apiKey) patch.qweatherApiKey = apiKey;
+      if (privateKey) patch.qweatherPrivateKey = privateKey;
+      await serviceSettingsLifecycle.persist(patch);
+      return weatherSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
     });
     ipcMain.handle("weather:get-usage", () => (
       fetchJsonCached(
@@ -300,19 +330,18 @@ if (!gotLock) {
       return response.json();
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
-    ipcMain.handle("deepseek:get-settings", async () => {
-      const [apiKey, baseUrl] = await Promise.all([
-        readUserEnvironment("DEEPSEEK_API_KEY"),
-        readUserEnvironment("DEEPSEEK_BASE_URL")
-      ]);
-      return {
-        hasApiKey: Boolean(apiKey),
-        baseUrl: normalizeDeepSeekBaseUrl(baseUrl || DEEPSEEK_DEFAULT_BASE_URL)
-      };
+    ipcMain.handle("deepseek:get-settings", (event) => {
+      requireMainWindowSender(event);
+      return deepSeekSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
     });
-    ipcMain.handle("deepseek:save-settings", async (_event, settings) => {
-      const apiKey = typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
-      const baseUrl = normalizeDeepSeekBaseUrl(settings?.baseUrl || DEEPSEEK_DEFAULT_BASE_URL);
+    ipcMain.handle("deepseek:save-settings", async (event, settings) => {
+      requireMainWindowSender(event);
+      const input = safeObject(settings);
+      const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+      const requestedBaseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
+      const baseUrl = normalizeDeepSeekBaseUrl(
+        requestedBaseUrl || DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl
+      );
       let parsed;
       try {
         parsed = new URL(baseUrl);
@@ -322,23 +351,23 @@ if (!gotLock) {
       if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
         throw new Error("DeepSeek Base URL 必须是 HTTPS 地址");
       }
-      const writes = [writeUserEnvironment("DEEPSEEK_BASE_URL", baseUrl)];
-      if (apiKey) writes.push(writeUserEnvironment("DEEPSEEK_API_KEY", apiKey));
-      await Promise.all(writes);
-      return {
-        hasApiKey: Boolean(apiKey || await readUserEnvironment("DEEPSEEK_API_KEY")),
-        baseUrl
-      };
+      const patch = { deepseekBaseUrl: baseUrl };
+      if (apiKey) patch.deepseekApiKey = apiKey;
+      await serviceSettingsLifecycle.persist(patch);
+      return deepSeekSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
     });
-    ipcMain.handle("deepseek:usage", async (_event, options) => {
-      const [apiKey, baseUrl] = await Promise.all([
-        readUserEnvironment("DEEPSEEK_API_KEY"),
-        readUserEnvironment("DEEPSEEK_BASE_URL")
-      ]);
+    ipcMain.handle("deepseek:usage", (event, options) => {
+      if (
+        !ownsMainWindowSender(event.sender)
+        && !appPreferences?.ownsSender(event.sender)
+      ) {
+        throw new Error("Unauthorized usage sender");
+      }
+      const settings = serviceSettingsLifecycle.effectiveSettings();
       return readDeepSeekUsage({
-        ...options,
-        apiKey,
-        baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL
+        ...safeObject(options),
+        apiKey: settings.deepseekApiKey,
+        baseUrl: settings.deepseekBaseUrl
       });
     });
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));
@@ -349,8 +378,8 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     setQuitting(true);
-    macMenuBar?.destroy();
-    macMenuBar = null;
+    appPreferences?.destroy();
+    appPreferences = null;
     stopPythonService();
   });
   app.on("window-all-closed", (event) => event.preventDefault());

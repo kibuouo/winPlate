@@ -127,8 +127,9 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
   );
   assert.match(
     main,
-    /if \(policy\.createMacMenuBar\)\s*\{[\s\S]*?macMenuBar = createMacMenuBar\(/
+    /platform: policy\.createMacMenuBar \? "darwin" : process\.platform/
   );
+  assert.match(main, /createMenuBar: \(\) => createMacMenuBar\(/);
 
   const afterPolicySelection = main.slice(main.indexOf("const policy = startupPolicy();"));
   const floatingCalls = [...afterPolicySelection.matchAll(/createFloatingWindow\(\)/g)];
@@ -167,11 +168,11 @@ test("main accepts menu bar IPC only from the controller panel sender", () => {
 
   assert.match(
     main,
-    /ipcMain\.on\("menubar:update-temperature", \(event, payload\) => \{\s*if \(macMenuBar\?\.ownsSender\(event\.sender\)\) \{\s*macMenuBar\.setTemperature\(payload\);\s*\}\s*\}\);/
+    /ipcMain\.on\("menubar:update-temperature", \(event, payload\) => \{\s*if \(appPreferences\?\.ownsSender\(event\.sender\)\) \{\s*appPreferences\.setTemperature\(payload\);\s*\}\s*\}\);/
   );
   assert.match(
     main,
-    /ipcMain\.on\("menubar:hide", \(event\) => \{\s*if \(macMenuBar\?\.ownsSender\(event\.sender\)\) \{\s*macMenuBar\.hide\(\);\s*\}\s*\}\);/
+    /ipcMain\.on\("menubar:hide", \(event\) => \{\s*if \(appPreferences\?\.ownsSender\(event\.sender\)\) \{\s*appPreferences\.hide\(\);\s*\}\s*\}\);/
   );
   assert.equal((main.match(/menubar:update-temperature/g) || []).length, 1);
   assert.equal((main.match(/menubar:hide/g) || []).length, 1);
@@ -187,15 +188,12 @@ test("main keeps activation reachable and falls back if menu bar construction fa
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
   const activation = 'app.on("activate", showMainWindow);';
   const activationIndex = main.indexOf(activation);
-  const controllerIndex = main.indexOf("macMenuBar = createMacMenuBar(");
+  const controllerIndex = main.indexOf("appPreferences = createAppPreferencesController(");
 
   assert.equal((main.match(/app\.on\("activate", showMainWindow\)/g) || []).length, 1);
   assert.notEqual(activationIndex, -1);
   assert.equal(activationIndex < controllerIndex, true);
-  assert.match(
-    main,
-    /if \(policy\.createMacMenuBar\) \{\s*try \{\s*macMenuBar = createMacMenuBar\([\s\S]*?\);\s*\} catch \(error\) \{\s*console\.error\([^;]+error\.message\);\s*macMenuBar = null;\s*showMainWindow\("Dashboard"\);\s*\}\s*\}/
-  );
+  assert.match(main, /showMainWindow,\s*reportError: \(error\) => console\.error\(error\.message\)/);
 });
 
 test("content security policy permits GitHub avatar images", () => {

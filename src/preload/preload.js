@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("winplate", {
   refreshQWeatherOfficialStats: () => ipcRenderer.invoke("weather:refresh-official-usage"),
   getAppearanceSettings: () => ipcRenderer.invoke("appearance:get-settings"),
   saveAppearanceSettings: (settings) => ipcRenderer.invoke("appearance:save-settings", settings),
+  getAppSettings: () => ipcRenderer.invoke("app:get-settings"),
+  saveAppSettings: (settings) => ipcRenderer.invoke("app:save-settings", settings),
   getCodexUsage: (options = {}) => ipcRenderer.invoke("codex:usage", options),
   getDeepSeekSettings: () => ipcRenderer.invoke("deepseek:get-settings"),
   saveDeepSeekSettings: (settings) => ipcRenderer.invoke("deepseek:save-settings", settings),
