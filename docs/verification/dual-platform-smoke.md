@@ -16,8 +16,12 @@ platform-policy test is not treated as real-device evidence.
 | `npm run backend:test` | pass — 20 tests, `OK` |
 | `git diff --check` | pass |
 | `npm audit --omit=dev` | pass — 0 vulnerabilities |
-| prohibited runtime identifier search | pass — no audited legacy identifiers in production `src`, `README.md`, or this verification directory; negative test fixtures are excluded |
+| prohibited runtime identifier search (exact command below) | pass — no matches; historical specs/plans and this command-bearing report are excluded |
 | final process cleanup | pass — development WinPlate and its backend were stopped; port 8765 had no listener |
+
+```sh
+if rg -n '(desktopCapsule|menuBarDisplay|renderMacFloating|mac-floating)' src README.md docs/verification --glob '!*.test.js' --glob '!dual-platform-smoke.md'; then exit 1; fi
+```
 
 The initial worktree was clean. During the first launch, an orphaned backend
 from this same worktree was found listening on port 8765. It was stopped before
@@ -109,6 +113,15 @@ are **incomplete**. Local policy tests do not substitute for those jobs.
 - With explicit action-time confirmation, observe launch-at-login application and
   persistence; it was intentionally not changed here.
 - Re-run menu-bar enable/disable with reliable same-session restoration.
+- Directly observe explicit Refresh updating values in place without closing or
+  rebuilding the panel.
+- Traverse the panel and main renderer by keyboard and verify visible focus for
+  every actionable control.
+- Using safe non-production test credentials/data and without committing any
+  secret, observe service configured-flag/redaction behavior and verify settings
+  persistence across a restart.
+- Deliberately stop all data sources in a safe test configuration, verify total
+  outage fallbacks and retained actions, then restore sources and verify recovery.
 
 Overall status: **DONE_WITH_CONCERNS** — coherent local macOS process, backend,
 renderer, and partial visual evidence are present; external Windows, remote CI,
