@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
@@ -112,8 +113,8 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
   assert.match(main, /"preload",\s*"menuBarPreload\.js"/);
   assert.match(
     main,
-    /"assets",\s*"menu-bar-icon\.png"/,
-    "the native menu bar should use a crisp monochrome 16px source icon"
+    /"assets",\s*"icon-transparent\.png"/,
+    "the native menu bar should use the supplied transparent status artwork"
   );
 
   assert.match(
@@ -132,6 +133,33 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
   const afterPolicySelection = main.slice(main.indexOf("const policy = startupPolicy();"));
   const floatingCalls = [...afterPolicySelection.matchAll(/createFloatingWindow\(\)/g)];
   assert.equal(floatingCalls.length, 1);
+});
+
+test("macOS uses the supplied status and application artwork while Windows stays platform native", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const tray = fs.readFileSync(path.join(__dirname, "..", "main", "tray.js"), "utf8");
+  const windows = fs.readFileSync(path.join(__dirname, "..", "main", "windows.js"), "utf8");
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const transparentIcon = fs.readFileSync(
+    path.join(__dirname, "..", "..", "assets", "icon-transparent.png")
+  );
+  const appIcon = fs.readFileSync(
+    path.join(__dirname, "..", "..", "assets", "icon.png")
+  );
+
+  assert.match(main, /"assets",\s*"icon-transparent\.png"/);
+  assert.match(main, /app\.dock\.setIcon\(nativeImage\.createFromPath\(appIconPath\)\)/);
+  assert.match(tray, /"assets",\s*"icon\.png"/);
+  assert.match(windows, /"assets",\s*"icon\.ico"/);
+  assert.equal((renderer.match(/\.\.\/\.\.\/assets\/icon\.png/g) || []).length, 2);
+  assert.equal(
+    crypto.createHash("sha256").update(transparentIcon).digest("hex"),
+    "05428f9ccfd8fd5453a9bd02c9050ecba79a5a1d40847ddaee9905884b3ab150"
+  );
+  assert.equal(
+    crypto.createHash("sha256").update(appIcon).digest("hex"),
+    "04a9d9f9c7aef545fbfee4d26f56a2ab49b9540d1af8a7964bb44232064eb524"
+  );
 });
 
 test("main accepts menu bar IPC only from the controller panel sender", () => {

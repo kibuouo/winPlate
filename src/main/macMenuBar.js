@@ -128,12 +128,6 @@ function createMacMenuBar(dependencies) {
     "nativeImage.createFromPath result.resize"
   );
   const icon = sourceIcon.resize({ width: 16, height: 16 });
-  validateMethod(
-    icon,
-    "setTemplateImage",
-    "nativeImage.resize result.setTemplateImage"
-  );
-  icon.setTemplateImage(true);
 
   let tray;
   let panel;

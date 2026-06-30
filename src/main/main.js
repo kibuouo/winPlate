@@ -51,6 +51,7 @@ const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
+const appIconPath = path.join(__dirname, "..", "..", "assets", "icon.png");
 
 function quitApplication() {
   setQuitting(true);
@@ -126,6 +127,9 @@ if (!gotLock) {
   app.on("second-instance", showMainWindow);
 
   app.whenReady().then(async () => {
+    if (process.platform === "darwin") {
+      app.dock.setIcon(nativeImage.createFromPath(appIconPath));
+    }
     session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === "geolocation");
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === "geolocation");
@@ -178,7 +182,7 @@ if (!gotLock) {
           screen,
           preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
           rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
-          iconPath: path.join(__dirname, "..", "..", "assets", "menu-bar-icon.png"),
+          iconPath: path.join(__dirname, "..", "..", "assets", "icon-transparent.png"),
           actions: {
             showMainWindow,
             quit: quitApplication

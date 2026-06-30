@@ -392,10 +392,6 @@ test("validates returned native image methods before Tray allocation", () => {
     [
       {},
       "nativeImage.createFromPath result.resize must be a function"
-    ],
-    [
-      { resize() { return {}; } },
-      "nativeImage.resize result.setTemplateImage must be a function"
     ]
   ];
 
@@ -456,15 +452,15 @@ test("rolls back the panel and Tray when webContents validation fails", () => {
   assert.equal(FakeBrowserWindow.instances[0].destroyCalls, 1);
 });
 
-test("creates one template tray icon and one secure hidden panel", () => {
+test("creates one detailed transparent tray icon and one secure hidden panel", () => {
   const { calls, panel, tray } = createFixture();
 
   assert.equal(FakeTray.instances.length, 1);
   assert.equal(FakeBrowserWindow.instances.length, 1);
   assert.deepEqual(calls.createFromPath, ["/app/menu-bar.png"]);
   assert.deepEqual(calls.resize, [{ width: 16, height: 16 }]);
-  assert.deepEqual(calls.setTemplateImage, [true]);
-  assert.equal(calls.resizedImages[0].template, true);
+  assert.deepEqual(calls.setTemplateImage, []);
+  assert.equal(calls.resizedImages[0].template, false);
   assert.equal(tray.image, calls.resizedImages[0]);
   assert.equal(tray.tooltip, "WinPlate");
   assert.equal(tray.title, "--°");
