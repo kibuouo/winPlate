@@ -158,7 +158,7 @@ test("macOS uses the supplied status artwork and rounded application icon while 
   );
   assert.equal(
     crypto.createHash("sha256").update(appIcon).digest("hex"),
-    "66a7114b303e0c9b15d925c80de535ff95298b6cc3886400df9b0e0cd1e137db"
+    "0e23755d77628c8a3ea06bca96065a9faf2bf369f4510ce0e344c19bc0f20ec2"
   );
 });
 
