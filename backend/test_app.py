@@ -2,12 +2,14 @@ import tempfile
 import unittest
 import gzip
 import json
+import sys
 from contextlib import closing
 from datetime import datetime
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
 import main
@@ -23,6 +25,55 @@ class DatabaseTests(unittest.TestCase):
     def test_environment_setting_prefers_process_environment(self):
         with patch.dict(main.os.environ, {"QWEATHER_API_KEY": "process-key"}):
             self.assertEqual(main.environment_setting("QWEATHER_API_KEY"), "process-key")
+
+    def test_environment_setting_treats_present_empty_process_value_as_authoritative(self):
+        winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(),
+            QueryValueEx=MagicMock(),
+        )
+        with (
+            patch.dict(main.os.environ, {"QWEATHER_API_KEY": ""}),
+            patch.object(main.os, "name", "nt"),
+            patch.dict(sys.modules, {"winreg": winreg}),
+        ):
+            self.assertEqual(
+                main.environment_setting("QWEATHER_API_KEY", "default-key"),
+                "",
+            )
+        winreg.OpenKey.assert_not_called()
+
+    def test_environment_setting_reads_legacy_windows_value_only_when_absent(self):
+        key = MagicMock()
+        winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(return_value=key),
+            QueryValueEx=MagicMock(return_value=("legacy-key", 1)),
+        )
+        with (
+            patch.dict(main.os.environ, {}, clear=True),
+            patch.object(main.os, "name", "nt"),
+            patch.dict(sys.modules, {"winreg": winreg}),
+        ):
+            self.assertEqual(main.environment_setting("QWEATHER_API_KEY"), "legacy-key")
+        winreg.OpenKey.assert_called_once_with(winreg.HKEY_CURRENT_USER, "Environment")
+        winreg.QueryValueEx.assert_called_once_with(key.__enter__.return_value, "QWEATHER_API_KEY")
+
+    def test_environment_setting_uses_default_when_legacy_windows_read_fails(self):
+        winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(side_effect=FileNotFoundError),
+            QueryValueEx=MagicMock(),
+        )
+        with (
+            patch.dict(main.os.environ, {}, clear=True),
+            patch.object(main.os, "name", "nt"),
+            patch.dict(sys.modules, {"winreg": winreg}),
+        ):
+            self.assertEqual(
+                main.environment_setting("QWEATHER_API_KEY", "default-key"),
+                "default-key",
+            )
 
     def test_github_token_prefers_process_environment(self):
         with patch.dict(main.os.environ, {"GITHUB_TOKEN": "process-token"}):

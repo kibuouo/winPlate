@@ -89,9 +89,10 @@ class WeatherLocation(BaseModel):
 
 
 def environment_setting(name: str, default: str | None = None) -> str | None:
-    value = os.getenv(name)
-    if value or os.name != "nt":
-        return value or default
+    if name in os.environ:
+        return os.environ[name]
+    if os.name != "nt":
+        return default
     try:
         import winreg
 
