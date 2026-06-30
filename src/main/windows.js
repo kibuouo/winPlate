@@ -1,5 +1,6 @@
 const path = require("path");
 const { BrowserWindow, screen } = require("electron");
+const { getMainWindowOptions } = require("./windowPolicy");
 
 let floatingWindow;
 let mainWindow;
@@ -193,19 +194,11 @@ function hideTooltipWindow() {
 
 function createMainWindow(initialTheme = "dark") {
   const dark = initialTheme !== "light";
-  mainWindow = new BrowserWindow({
-    width: 1080,
-    height: 720,
-    minWidth: 860,
-    minHeight: 560,
-    show: false,
-    backgroundColor: dark ? "#181818" : "#f7f7f8",
-    title: "WinPlate",
+  mainWindow = new BrowserWindow(getMainWindowOptions(process.platform, {
     icon: iconPath,
-    autoHideMenuBar: true,
-    frame: false,
+    dark,
     webPreferences: secureWebPreferences()
-  });
+  }));
 
   mainWindow.loadFile(rendererPath, { query: { view: "main" } });
   mainWindow.once("ready-to-show", () => {
@@ -234,8 +227,17 @@ function createMainWindow(initialTheme = "dark") {
 
 function setMainWindowTheme(theme) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.platform !== "win32") return;
   const dark = theme !== "light";
   mainWindow.setBackgroundColor(dark ? "#181818" : "#f7f7f8");
+}
+
+function ownsMainWindowSender(sender) {
+  return Boolean(
+    mainWindow
+    && !mainWindow.isDestroyed()
+    && sender === mainWindow.webContents
+  );
 }
 
 function minimizeMainWindow() {
@@ -294,6 +296,7 @@ module.exports = {
   hideTooltipWindow,
   setQuitting,
   setMainWindowTheme,
+  ownsMainWindowSender,
   minimizeMainWindow,
   toggleMaximizeMainWindow,
   closeMainWindow,
