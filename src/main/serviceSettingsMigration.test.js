@@ -16,6 +16,8 @@ async function createHarness({
   stored = DEFAULT_SERVICE_SETTINGS,
   legacyEnvironment = {},
   legacyError = null,
+  existenceError = null,
+  readError = null,
   writeFailures = 0
 } = {}) {
   assert.equal(
@@ -31,8 +33,14 @@ async function createHarness({
 
   const store = await createServiceSettingsMigration({
     platform,
-    hasPersistedSettings: async () => hasFile,
-    readStoredSettings: async () => ({ ...currentStored }),
+    hasPersistedSettings: async () => {
+      if (existenceError) throw existenceError;
+      return hasFile;
+    },
+    readStoredSettings: async () => {
+      if (readError) throw readError;
+      return { ...currentStored };
+    },
     writeStoredSettings: async (settings) => {
       writes.push({ ...settings });
       if (remainingWriteFailures > 0) {
@@ -60,7 +68,7 @@ async function createHarness({
   };
 }
 
-function createLifecycle(store, externalEnvironment = {}) {
+function createLifecycle(store, externalEnvironment = {}, reportError = () => {}) {
   return createServiceSettingsLifecycle({
     defaults: DEFAULT_SERVICE_SETTINGS,
     externalEnvironment,
@@ -70,7 +78,7 @@ function createLifecycle(store, externalEnvironment = {}) {
     resolve: resolveServiceSettings,
     publicProjection: (settings) => ({ ...settings }),
     toEnvironment: toServiceEnvironment,
-    reportError: () => {}
+    reportError
   });
 }
 
@@ -161,4 +169,28 @@ test("darwin never queries legacy Windows settings", async () => {
   assert.deepEqual(await harness.store.read(), DEFAULT_SERVICE_SETTINGS);
   assert.equal(harness.getLegacyReads(), 0);
   assert.deepEqual(harness.errors, []);
+});
+
+test("an existence probe failure reports only its message and skips migration", async () => {
+  const error = new Error("Permission denied reading settings path");
+  error.secret = "must-not-be-reported";
+  const harness = await createHarness({
+    existenceError: error,
+    readError: new Error("Permission denied reading settings file"),
+    legacyError: new Error("must not query registry")
+  });
+  const lifecycleErrors = [];
+  const lifecycle = createLifecycle(
+    harness.store,
+    {},
+    (message) => lifecycleErrors.push(message)
+  );
+
+  assert.equal(typeof harness.store.read, "function");
+  assert.equal(typeof harness.store.write, "function");
+  assert.deepEqual(await lifecycle.loadForStartup(), DEFAULT_SERVICE_SETTINGS);
+  assert.equal(harness.getLegacyReads(), 0);
+  assert.deepEqual(harness.errors, ["Permission denied reading settings path"]);
+  assert.deepEqual(lifecycleErrors, ["Permission denied reading settings file"]);
+  assert.doesNotMatch(harness.errors.join(" "), /must-not-be-reported/);
 });

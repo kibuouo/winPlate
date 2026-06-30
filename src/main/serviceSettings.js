@@ -182,11 +182,26 @@ async function encryptedSecretsToPreserve(userDataPath) {
   )));
 }
 
+function existingCiphertextMatches(ciphertext, plaintext, safeStorage) {
+  if (!ciphertext || typeof safeStorage?.decryptString !== "function") return false;
+  try {
+    return safeStorage.decryptString(decodeBase64(ciphertext)) === plaintext;
+  } catch {
+    return false;
+  }
+}
+
 function encryptedSecrets(settings, safeStorage, preservedEncrypted) {
   const encrypted = {};
   for (const field of SECRET_FIELDS) {
     if (settings[field]) {
-      encrypted[field] = Buffer.from(safeStorage.encryptString(settings[field])).toString("base64");
+      encrypted[field] = existingCiphertextMatches(
+        preservedEncrypted[field],
+        settings[field],
+        safeStorage
+      )
+        ? preservedEncrypted[field]
+        : Buffer.from(safeStorage.encryptString(settings[field])).toString("base64");
     } else if (preservedEncrypted[field]) {
       encrypted[field] = preservedEncrypted[field];
     }

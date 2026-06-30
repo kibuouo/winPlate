@@ -7,7 +7,12 @@ async function createServiceSettingsMigration({
   resolveSettings,
   reportError
 }) {
-  const storeExists = await hasPersistedSettings();
+  let storeExists = true;
+  try {
+    storeExists = await hasPersistedSettings();
+  } catch (error) {
+    reportError(error instanceof Error ? error.message : "Failed to inspect service settings");
+  }
   let migrationPending = platform === "win32" && !storeExists;
   let legacyEnvironment = {};
 

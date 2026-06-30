@@ -31,6 +31,23 @@ function createSafeStorage(available = true) {
   };
 }
 
+function createRotatingSafeStorage() {
+  let encryptions = 0;
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => {
+      encryptions += 1;
+      return Buffer.from(`sealed:${encryptions}:${value}`, "utf8");
+    },
+    decryptString: (value) => {
+      const match = value.toString("utf8").match(/^sealed:\d+:(.*)$/s);
+      if (!match) throw new Error("invalid ciphertext");
+      return match[1];
+    },
+    encryptionCount: () => encryptions
+  };
+}
+
 async function createTemporaryDirectory(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "winplate-service-settings-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -192,17 +209,18 @@ test("decrypt errors and missing ciphertext affect only their own secrets", asyn
 test("public-only writes preserve recoverable ciphertext after an isolated decrypt failure", async (t) => {
   const directory = await createTemporaryDirectory(t);
   const requested = completeSettings();
-  const availableStorage = createSafeStorage();
+  const availableStorage = createRotatingSafeStorage();
   await writeServiceSettings(directory, requested, availableStorage);
   const target = path.join(directory, SETTINGS_FILE);
   const before = JSON.parse(await fs.readFile(target, "utf8"));
-  const transientFailureStorage = createSafeStorage();
+  const transientFailureStorage = availableStorage;
+  const decryptString = transientFailureStorage.decryptString;
   transientFailureStorage.decryptString = (value) => {
-    const contents = value.toString("utf8");
-    if (contents === `sealed:${requested.qweatherApiKey}`) {
+    const plaintext = decryptString(value);
+    if (plaintext === requested.qweatherApiKey) {
       throw new Error("transient decrypt failure");
     }
-    return contents.slice("sealed:".length);
+    return plaintext;
   };
 
   const partiallyRead = await readServiceSettings(directory, transientFailureStorage);
@@ -224,10 +242,34 @@ test("public-only writes preserve recoverable ciphertext after an isolated decry
   }, transientFailureStorage);
   const afterSecondSave = JSON.parse(await fs.readFile(target, "utf8"));
   assert.deepEqual(afterSecondSave.encrypted, before.encrypted);
-  assert.deepEqual(await readServiceSettings(directory, availableStorage), {
+  assert.equal(availableStorage.encryptionCount(), 3);
+  transientFailureStorage.decryptString = decryptString;
+  assert.deepEqual(await readServiceSettings(directory, transientFailureStorage), {
     ...requested,
     qweatherApiHost: "updated-again.weather.example"
   });
+});
+
+test("changing one secret rotates only that ciphertext", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const storage = createRotatingSafeStorage();
+  const requested = completeSettings();
+  await writeServiceSettings(directory, requested, storage);
+  const target = path.join(directory, SETTINGS_FILE);
+  const before = JSON.parse(await fs.readFile(target, "utf8"));
+  const loaded = await readServiceSettings(directory, storage);
+
+  await writeServiceSettings(directory, {
+    ...loaded,
+    deepseekApiKey: "changed-deepseek-secret"
+  }, storage);
+
+  const after = JSON.parse(await fs.readFile(target, "utf8"));
+  assert.equal(after.encrypted.qweatherApiKey, before.encrypted.qweatherApiKey);
+  assert.equal(after.encrypted.qweatherPrivateKey, before.encrypted.qweatherPrivateKey);
+  assert.notEqual(after.encrypted.deepseekApiKey, before.encrypted.deepseekApiKey);
+  assert.equal(storage.encryptionCount(), 4);
+  assert.equal((await readServiceSettings(directory, storage)).deepseekApiKey, "changed-deepseek-secret");
 });
 
 test("writes reject corrupt or unsupported existing documents without replacing them", async (t) => {
