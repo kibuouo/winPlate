@@ -2,7 +2,7 @@
 
 - Source visual truth: `/tmp/codex-remote-attachments/019f11b8-c332-7bb3-99a0-60beda859ce2/81A40378-ACED-42CF-950A-A8C32EFA8E9C/1-照片-1.jpg`
 - Final status icon source: `assets/icon-transparent.png` (tight transparent crop of the supplied title-bar PNG, SHA-256 `05428f9ccfd8fd5453a9bd02c9050ecba79a5a1d40847ddaee9905884b3ab150`)
-- Final application icon source: `assets/icon.png` (exact supplied portrait PNG, SHA-256 `04a9d9f9c7aef545fbfee4d26f56a2ab49b9540d1af8a7964bb44232064eb524`)
+- Final application icon source: `assets/icon.png` (portrait on a white rounded-rectangle app tile, SHA-256 `66a7114b303e0c9b15d925c80de535ff95298b6cc3886400df9b0e0cd1e137db`)
 - Implementation target: WinPlate native macOS menu bar item and anchored status panel
 - Viewport: macOS 1440 × 900 points (2880 × 1800 capture)
 - State: dark system appearance with Codex, DeepSeek, and weather unavailable fallbacks
@@ -39,7 +39,7 @@
 ## Patches made during QA
 
 - Replaced the previous portrait status artwork with a tight transparent crop of the supplied title-bar star, preserving the source pixel geometry while removing near-transparent outlier pixels and excess canvas.
-- Replaced `assets/icon.png` with the exact supplied transparent portrait application artwork.
+- Kept the supplied portrait inside a white rounded-rectangle app tile matching the visual structure of the Codex Dock icon.
 - Disabled Template Image tinting so the supplied star's black, white, and gray detail remains visible.
 - Kept application branding platform-native: `icon.png` for macOS/Dock and in-app branding, `icon.ico` for Windows native windows.
 - Added a dedicated seven-method menu bar preload bridge; the main-window preload no longer exposes menu-only channels.

@@ -135,7 +135,7 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
   assert.equal(floatingCalls.length, 1);
 });
 
-test("macOS uses the supplied status and application artwork while Windows stays platform native", () => {
+test("macOS uses the supplied status artwork and rounded application icon while Windows stays platform native", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
   const tray = fs.readFileSync(path.join(__dirname, "..", "main", "tray.js"), "utf8");
   const windows = fs.readFileSync(path.join(__dirname, "..", "main", "windows.js"), "utf8");
@@ -158,7 +158,7 @@ test("macOS uses the supplied status and application artwork while Windows stays
   );
   assert.equal(
     crypto.createHash("sha256").update(appIcon).digest("hex"),
-    "04a9d9f9c7aef545fbfee4d26f56a2ab49b9540d1af8a7964bb44232064eb524"
+    "66a7114b303e0c9b15d925c80de535ff95298b6cc3886400df9b0e0cd1e137db"
   );
 });
 
