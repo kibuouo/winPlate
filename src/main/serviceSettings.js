@@ -1,0 +1,182 @@
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { randomUUID } = require("node:crypto");
+
+const DEFAULT_SERVICE_SETTINGS = Object.freeze({
+  qweatherApiKey: "",
+  qweatherApiHost: "devapi.qweather.com",
+  qweatherProjectId: "",
+  qweatherCredentialId: "",
+  qweatherPrivateKey: "",
+  deepseekApiKey: "",
+  deepseekBaseUrl: "https://api.deepseek.com"
+});
+
+const SECRET_FIELDS = ["qweatherApiKey", "qweatherPrivateKey", "deepseekApiKey"];
+const ENVIRONMENT_FIELDS = {
+  QWEATHER_API_KEY: "qweatherApiKey",
+  QWEATHER_API_HOST: "qweatherApiHost",
+  QWEATHER_PROJECT_ID: "qweatherProjectId",
+  QWEATHER_CREDENTIAL_ID: "qweatherCredentialId",
+  QWEATHER_PRIVATE_KEY: "qweatherPrivateKey",
+  DEEPSEEK_API_KEY: "deepseekApiKey",
+  DEEPSEEK_BASE_URL: "deepseekBaseUrl"
+};
+
+function normalizedString(value, fallback = "") {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  return value.trim() || fallback;
+}
+
+function normalizeServiceSettings(value = {}) {
+  const candidate = value && typeof value === "object" ? value : {};
+  return {
+    qweatherApiKey: normalizedString(candidate.qweatherApiKey),
+    qweatherApiHost: normalizedString(
+      candidate.qweatherApiHost,
+      DEFAULT_SERVICE_SETTINGS.qweatherApiHost
+    ),
+    qweatherProjectId: normalizedString(candidate.qweatherProjectId),
+    qweatherCredentialId: normalizedString(candidate.qweatherCredentialId),
+    qweatherPrivateKey: normalizedString(candidate.qweatherPrivateKey),
+    deepseekApiKey: normalizedString(candidate.deepseekApiKey),
+    deepseekBaseUrl: normalizedString(
+      candidate.deepseekBaseUrl,
+      DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl
+    )
+  };
+}
+
+function serviceSettingsPath(userDataPath) {
+  return path.join(userDataPath, "service-settings.json");
+}
+
+function decodeBase64(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
+  ) {
+    throw new Error("Invalid encrypted service setting");
+  }
+  return Buffer.from(value, "base64");
+}
+
+function decryptSecret(encrypted, field, safeStorage) {
+  try {
+    return safeStorage.decryptString(decodeBase64(encrypted?.[field]));
+  } catch {
+    return "";
+  }
+}
+
+async function readServiceSettings(userDataPath, safeStorage) {
+  try {
+    const contents = await fs.readFile(serviceSettingsPath(userDataPath), "utf8");
+    const persisted = JSON.parse(contents);
+    const candidate = persisted && typeof persisted === "object" ? persisted : {};
+    const encrypted =
+      candidate.encrypted && typeof candidate.encrypted === "object"
+        ? candidate.encrypted
+        : {};
+
+    return normalizeServiceSettings({
+      ...candidate,
+      qweatherApiKey: decryptSecret(encrypted, "qweatherApiKey", safeStorage),
+      qweatherPrivateKey: decryptSecret(encrypted, "qweatherPrivateKey", safeStorage),
+      deepseekApiKey: decryptSecret(encrypted, "deepseekApiKey", safeStorage)
+    });
+  } catch (error) {
+    if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) {
+      throw error;
+    }
+    return { ...DEFAULT_SERVICE_SETTINGS };
+  }
+}
+
+function encryptedSecrets(settings, safeStorage) {
+  const encrypted = {};
+  for (const field of SECRET_FIELDS) {
+    if (settings[field]) {
+      encrypted[field] = Buffer.from(safeStorage.encryptString(settings[field])).toString("base64");
+    }
+  }
+  return encrypted;
+}
+
+async function writeServiceSettings(userDataPath, value, safeStorage) {
+  const settings = normalizeServiceSettings(value);
+  const hasSecrets = SECRET_FIELDS.some((field) => settings[field]);
+  if (hasSecrets && !safeStorage.isEncryptionAvailable()) {
+    throw new Error("Secure credential storage is unavailable");
+  }
+
+  const persisted = {
+    version: 1,
+    qweatherApiHost: settings.qweatherApiHost,
+    qweatherProjectId: settings.qweatherProjectId,
+    qweatherCredentialId: settings.qweatherCredentialId,
+    deepseekBaseUrl: settings.deepseekBaseUrl,
+    encrypted: encryptedSecrets(settings, safeStorage)
+  };
+  const target = serviceSettingsPath(userDataPath);
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+
+  await fs.mkdir(userDataPath, { recursive: true });
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+    await fs.rename(temporary, target);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
+  return settings;
+}
+
+function resolveServiceSettings(stored, environment = process.env) {
+  const resolved = normalizeServiceSettings(stored);
+  const source = environment && typeof environment === "object" ? environment : {};
+  for (const [environmentField, settingsField] of Object.entries(ENVIRONMENT_FIELDS)) {
+    if (typeof source[environmentField] === "string" && source[environmentField].trim()) {
+      resolved[settingsField] = source[environmentField].trim();
+    }
+  }
+  return resolved;
+}
+
+function publicServiceSettings(value) {
+  const settings = normalizeServiceSettings(value);
+  return {
+    hasQWeatherApiKey: Boolean(settings.qweatherApiKey),
+    qweatherApiHost: settings.qweatherApiHost,
+    qweatherProjectId: settings.qweatherProjectId,
+    qweatherCredentialId: settings.qweatherCredentialId,
+    hasQWeatherPrivateKey: Boolean(settings.qweatherPrivateKey),
+    hasDeepSeekApiKey: Boolean(settings.deepseekApiKey),
+    deepseekBaseUrl: settings.deepseekBaseUrl
+  };
+}
+
+function toServiceEnvironment(value) {
+  const settings = normalizeServiceSettings(value);
+  return {
+    QWEATHER_API_KEY: settings.qweatherApiKey,
+    QWEATHER_API_HOST: settings.qweatherApiHost,
+    QWEATHER_PROJECT_ID: settings.qweatherProjectId,
+    QWEATHER_CREDENTIAL_ID: settings.qweatherCredentialId,
+    QWEATHER_PRIVATE_KEY: settings.qweatherPrivateKey,
+    DEEPSEEK_API_KEY: settings.deepseekApiKey,
+    DEEPSEEK_BASE_URL: settings.deepseekBaseUrl
+  };
+}
+
+module.exports = {
+  DEFAULT_SERVICE_SETTINGS,
+  normalizeServiceSettings,
+  readServiceSettings,
+  writeServiceSettings,
+  resolveServiceSettings,
+  publicServiceSettings,
+  toServiceEnvironment
+};
