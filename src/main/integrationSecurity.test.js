@@ -84,7 +84,7 @@ test("selects startup policy once while retaining platform-specific window gates
   assert.match(main, /if \(policy\.createFloatingWindow\)/);
   assert.match(main, /if \(policy\.createWindowsTray\)/);
   assert.match(main, /platform: policy\.createMacMenuBar \? "darwin" : process\.platform/);
-  assert.match(main, /app\.on\("activate", showMainWindow\)/);
+  assert.match(main, /app\.on\("activate", activationCoordinator\.onActivate\)/);
   assert.match(main, /showMainWindow,/);
   assert.match(main, /createMenuBar: \(\) => createMacMenuBar\(/);
 });

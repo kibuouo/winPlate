@@ -1,6 +1,7 @@
 const path = require("path");
 const { BrowserWindow, screen } = require("electron");
 const { getMainWindowOptions } = require("./windowPolicy");
+const { normalizeMainSection } = require("./activationCoordinator");
 
 let floatingWindow;
 let mainWindow;
@@ -16,6 +17,15 @@ const CODEX_TOOLTIP_SIZE = { width: 232, height: 128 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 let floatingPinned = false;
+function isLiveNativeSurface(surface) {
+  if (!surface) return false;
+  try {
+    return typeof surface.isDestroyed !== "function" || !surface.isDestroyed();
+  } catch {
+    return false;
+  }
+}
+
 function setFloatingPinned(value) {
   floatingPinned = Boolean(value);
 
@@ -58,6 +68,8 @@ function positionFloatingWindow() {
 }
 
 function createFloatingWindow() {
+  if (isLiveNativeSurface(floatingWindow)) return floatingWindow;
+
   floatingWindow = new BrowserWindow({
     width: FLOATING_WINDOW_WIDTH,
     height: 104,
@@ -72,12 +84,17 @@ function createFloatingWindow() {
     icon: iconPath,
     webPreferences: secureWebPreferences()
   });
+  const createdWindow = floatingWindow;
 
   floatingWindow.loadFile(rendererPath, { query: { view: "floating" } });
-  floatingWindow.once("ready-to-show", () => floatingWindow.show());
+  floatingWindow.once("ready-to-show", () => {
+    if (isLiveNativeSurface(createdWindow)) createdWindow.show();
+  });
   floatingWindow.on("closed", () => {
-    hideTooltipWindow();
-    floatingWindow = null;
+    if (floatingWindow === createdWindow) {
+      hideTooltipWindow();
+      floatingWindow = null;
+    }
   });
   positionFloatingWindow();
 
@@ -85,6 +102,8 @@ function createFloatingWindow() {
 }
 
 function createTooltipWindow() {
+  if (isLiveNativeSurface(tooltipWindow)) return tooltipWindow;
+
   tooltipWindow = new BrowserWindow({
     width: CODEX_TOOLTIP_SIZE.width,
     height: CODEX_TOOLTIP_SIZE.height,
@@ -103,8 +122,9 @@ function createTooltipWindow() {
   tooltipWindow.setAlwaysOnTop(true, "screen-saver");
   tooltipWindow.setIgnoreMouseEvents(true);
   tooltipWindow.loadFile(rendererPath, { query: { view: "tooltip" } });
+  const createdWindow = tooltipWindow;
   tooltipWindow.on("closed", () => {
-    tooltipWindow = null;
+    if (tooltipWindow === createdWindow) tooltipWindow = null;
   });
   return tooltipWindow;
 }
@@ -115,7 +135,7 @@ function showTooltipWindow({ anchor, data }) {
   }
 
   tooltipVisible = true;
-  const window = tooltipWindow || createTooltipWindow();
+  const window = createTooltipWindow();
   const floatingBounds = floatingWindow && !floatingWindow.isDestroyed()
     ? floatingWindow.getBounds()
     : null;
@@ -194,33 +214,41 @@ function hideTooltipWindow() {
 
 function createMainWindow(initialTheme = "dark") {
   const dark = initialTheme !== "light";
+  if (isLiveNativeSurface(mainWindow)) {
+    if (process.platform === "win32") {
+      mainWindow.setBackgroundColor(dark ? "#181818" : "#f7f7f8");
+    }
+    return mainWindow;
+  }
+
   mainWindow = new BrowserWindow(getMainWindowOptions(process.platform, {
     icon: iconPath,
     dark,
     webPreferences: secureWebPreferences()
   }));
+  const createdWindow = mainWindow;
 
   mainWindow.loadFile(rendererPath, { query: { view: "main" } });
   mainWindow.once("ready-to-show", () => {
-    if (mainWindow.__showWhenReady) {
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.webContents.send("main:navigate", mainWindow.__pendingSection || "Dashboard");
-      mainWindow.__showWhenReady = false;
-      mainWindow.__pendingSection = null;
+    if (createdWindow.__showWhenReady && isLiveNativeSurface(createdWindow)) {
+      createdWindow.show();
+      createdWindow.focus();
+      createdWindow.webContents.send("main:navigate", createdWindow.__pendingSection || "Dashboard");
+      createdWindow.__showWhenReady = false;
+      createdWindow.__pendingSection = null;
     }
   });
   mainWindow.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
-      mainWindow.hide();
+      if (isLiveNativeSurface(createdWindow)) createdWindow.hide();
     }
   });
   mainWindow.on("closed", () => {
-    mainWindow = null;
+    if (mainWindow === createdWindow) mainWindow = null;
   });
-  mainWindow.on("maximize", () => mainWindow?.webContents.send("window:maximized", true));
-  mainWindow.on("unmaximize", () => mainWindow?.webContents.send("window:maximized", false));
+  mainWindow.on("maximize", () => createdWindow.webContents.send("window:maximized", true));
+  mainWindow.on("unmaximize", () => createdWindow.webContents.send("window:maximized", false));
 
   return mainWindow;
 }
@@ -256,23 +284,24 @@ function closeMainWindow() {
 }
 
 function showMainWindow(section = "Dashboard") {
-  if (!mainWindow) {
+  const normalizedSection = normalizeMainSection(section);
+  if (!isLiveNativeSurface(mainWindow)) {
     createMainWindow();
   }
 
   if (mainWindow.webContents.isLoading()) {
     mainWindow.__showWhenReady = true;
-    mainWindow.__pendingSection = section;
+    mainWindow.__pendingSection = normalizedSection;
     return;
   }
 
   mainWindow.show();
   mainWindow.focus();
-  mainWindow.webContents.send("main:navigate", section);
+  mainWindow.webContents.send("main:navigate", normalizedSection);
 }
 
 function showFloatingWindow() {
-  if (!floatingWindow) {
+  if (!isLiveNativeSurface(floatingWindow)) {
     createFloatingWindow();
   } else {
     floatingWindow.show();
@@ -289,6 +318,7 @@ function setQuitting(value) {
 
 module.exports = {
   createFloatingWindow,
+  createTooltipWindow,
   createMainWindow,
   showMainWindow,
   showFloatingWindow,

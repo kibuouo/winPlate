@@ -521,11 +521,11 @@ test("main accepts menu bar IPC only from the controller panel sender", () => {
 
 test("main keeps activation reachable and falls back if menu bar construction fails", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
-  const activation = 'app.on("activate", showMainWindow);';
+  const activation = 'app.on("activate", activationCoordinator.onActivate);';
   const activationIndex = main.indexOf(activation);
   const controllerIndex = main.indexOf("appPreferences = createAppPreferencesController(");
 
-  assert.equal((main.match(/app\.on\("activate", showMainWindow\)/g) || []).length, 1);
+  assert.equal((main.match(/app\.on\("activate", activationCoordinator\.onActivate\)/g) || []).length, 1);
   assert.notEqual(activationIndex, -1);
   assert.equal(activationIndex < controllerIndex, true);
   assert.match(main, /showMainWindow,\s*reportError: \(error\) => console\.error\(error\.message\)/);

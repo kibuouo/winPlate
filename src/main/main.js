@@ -32,6 +32,8 @@ const {
   ownsMainWindowSender
 } = require("./windows");
 const { createAppTray } = require("./tray");
+const { createActivationCoordinator } = require("./activationCoordinator");
+const { normalizeWeatherCoordinates } = require("./weatherCoordinates");
 const { createMacMenuBar } = require("./macMenuBar");
 const { startupPolicy } = require("./startupPolicy");
 const { startPythonService, stopPythonService } = require("./pythonService");
@@ -71,6 +73,7 @@ const { readWindowsServiceEnvironment } = require("./windowsEnvironment");
 
 let tray;
 let appPreferences = null;
+const activationCoordinator = createActivationCoordinator(showMainWindow);
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
@@ -133,7 +136,8 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", showMainWindow);
+  app.on("second-instance", activationCoordinator.onSecondInstance);
+  app.on("activate", activationCoordinator.onActivate);
 
   app.whenReady().then(async () => {
     const userDataPath = app.getPath("userData");
@@ -184,8 +188,8 @@ if (!gotLock) {
       writeAppearanceSettings(userDataPath, settings)
     ));
     createMainWindow(initialTheme);
+    activationCoordinator.markReady();
     const policy = startupPolicy();
-    app.on("activate", showMainWindow);
     const initialAppSettings = await readInitialAppSettings({
       read: () => readAppSettings(userDataPath),
       defaults: DEFAULT_APP_SETTINGS,
@@ -275,11 +279,7 @@ if (!gotLock) {
       fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
     ));
     ipcMain.handle("weather:set-location", async (_event, location) => {
-      const latitude = Number(location?.latitude);
-      const longitude = Number(location?.longitude);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        throw new Error("Invalid weather coordinates");
-      }
+      const { latitude, longitude } = normalizeWeatherCoordinates(location);
       const response = await fetch("http://127.0.0.1:8765/api/weather/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
