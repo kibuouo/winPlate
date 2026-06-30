@@ -1,5 +1,42 @@
 # Design QA
 
+## Dual-platform completion QA — 2026-07-01
+
+This section is the current completion audit. The 2026-06-30 menu-bar work below
+is retained as historical GitHub/task QA and is not evidence of a Windows visual
+pass.
+
+- Host: macOS 26.5.1 (25F80), Apple silicon
+- Tested implementation: `910a053287e04d4cecff7c4e1a51609538a46e1f`
+- Panel: `docs/qa/2026-07-01-macos-menu-panel-open.png`
+- Main window renderer: `docs/qa/2026-07-01-macos-native-main-window.png`
+- Settings: `docs/qa/2026-07-01-macos-settings.png`
+- Detailed evidence and limitations: `docs/verification/dual-platform-smoke.md`
+
+The current dark-theme captures show legible neutral quota/status treatment,
+Codex → DeepSeek → Weather → Actions panel order, a macOS main renderer with the
+shared Sidebar and no Windows custom title-bar markup, and exactly the two
+macOS Application settings (Menu bar status and Launch at login). Core Graphics
+reported the main window at the 1040 × 720 policy bounds and no desktop capsule
+window.
+
+Computer Use could not establish an active Electron attachment, and native
+screen capture was unavailable. Therefore the closed menu-bar screenshot,
+right-click menu, native traffic lights, close/reopen, direct light-theme view,
+menu enable/disable, and launch-at-login runtime application remain incomplete.
+Launch at login was not toggled because doing so requires action-time
+confirmation for a local system-setting change. No secrets were read or entered.
+
+No Windows host was available. Windows visual/runtime QA remains incomplete;
+passing Windows policy tests and the presence of the CI matrix are not presented
+as a Windows visual pass. The workflow has no recorded remote run URL yet.
+
+Current verification: Node 196/196 pass, backend 20/20 pass, `git diff --check`
+pass, and `npm audit --omit=dev` reports 0 vulnerabilities. Overall result:
+**DONE_WITH_CONCERNS**.
+
+## Historical macOS menu-bar QA — 2026-06-30
+
 - Source visual truth: `/tmp/codex-remote-attachments/019f11b8-c332-7bb3-99a0-60beda859ce2/81A40378-ACED-42CF-950A-A8C32EFA8E9C/1-照片-1.jpg`
 - Final status icon source: `assets/icon-transparent.png` (tight transparent crop of the supplied title-bar PNG, SHA-256 `05428f9ccfd8fd5453a9bd02c9050ecba79a5a1d40847ddaee9905884b3ab150`)
 - Final application icon source: `assets/icon.png` (inset portrait on a white rounded-rectangle app tile, SHA-256 `0e23755d77628c8a3ea06bca96065a9faf2bf369f4510ce0e344c19bc0f20ec2`)
