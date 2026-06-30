@@ -73,8 +73,11 @@ and native main window remain reachable even when the menu bar item is disabled.
 QWeather and DeepSeek are configured in the main window's Settings page on both
 platforms. Public fields are stored under Electron's `userData` directory.
 QWeather API keys/private keys and the DeepSeek API key are encrypted with
-Electron `safeStorage`. The renderer receives only public values and configured
-flags, never secret values.
+Electron `safeStorage`. User-entered secrets exist in the renderer form and
+cross the narrow preload IPC boundary when saved. Persisted secret values are
+never returned to the renderer; settings reads expose only public values and
+configured flags. API requests use secrets only in privileged processes: the
+Electron main process or the local Python backend.
 
 Process environment variables are advanced overrides and take precedence over
 stored values on both platforms. The exact supported overrides are
@@ -83,7 +86,7 @@ stored values on both platforms. The exact supported overrides are
 `DEEPSEEK_BASE_URL`.
 
 For compatibility on Windows, legacy values from `HKCU\Environment` are read
-once only when no encrypted settings file exists. The first successful encrypted
+once only when no encrypted settings file exists. The first successful settings
 save takes over and stops that migration read. WinPlate does not write new
 registry values.
 
@@ -113,16 +116,19 @@ WinPlate requests system location permission and sends only the resulting
 coordinates to the local backend. `QWEATHER_LOCATION` is an optional process
 environment fallback when system location is unavailable; it accepts a city
 name or location ID. There is no default fallback location. The QWeather API key
-is injected into the local Python backend at startup and is never sent to the
-renderer.
+crosses the preload IPC boundary when the form is saved, but persisted settings
+reads return only its configured flag. Electron injects the effective key into
+the local Python backend at startup, where QWeather API requests are made.
 
 ## DeepSeek
 
 Open the main window's Settings page and enter the DeepSeek API Key and Base URL
-(the default is `https://api.deepseek.com`). The key is used only by Electron's
-main process; it is never sent to the renderer or Python backend. Advanced users
-can override the saved values for a launch with `DEEPSEEK_API_KEY` and
-`DEEPSEEK_BASE_URL` in the process environment.
+(the default is `https://api.deepseek.com`). The key crosses the preload IPC
+boundary when the form is saved, but persisted settings reads return only its
+configured flag. DeepSeek API requests are made by the privileged Electron main
+process, never by renderer code. Advanced users can override the saved values for
+a launch with `DEEPSEEK_API_KEY` and `DEEPSEEK_BASE_URL` in the process
+environment.
 
 ## Verification
 
