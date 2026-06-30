@@ -60,6 +60,7 @@ const {
   createServiceSettingsLifecycle,
   safeObject
 } = require("./serviceSettingsLifecycle");
+const { registerSettingsIpc } = require("./settingsIpc");
 
 let tray;
 let appPreferences = null;
@@ -118,31 +119,6 @@ async function fetchJsonCached(key, url, ttlMs) {
     promise
   });
   return promise;
-}
-
-function requireMainWindowSender(event) {
-  if (!ownsMainWindowSender(event.sender)) {
-    throw new Error("Unauthorized settings sender");
-  }
-}
-
-function weatherSettingsResponse(settings) {
-  const publicSettings = publicServiceSettings(settings);
-  return {
-    hasApiKey: publicSettings.hasQWeatherApiKey,
-    apiHost: publicSettings.qweatherApiHost,
-    projectId: publicSettings.qweatherProjectId,
-    credentialId: publicSettings.qweatherCredentialId,
-    hasPrivateKey: publicSettings.hasQWeatherPrivateKey
-  };
-}
-
-function deepSeekSettingsResponse(settings) {
-  const publicSettings = publicServiceSettings(settings);
-  return {
-    hasApiKey: publicSettings.hasDeepSeekApiKey,
-    baseUrl: publicSettings.deepseekBaseUrl
-  };
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -215,15 +191,18 @@ if (!gotLock) {
     });
     appPreferences.apply(appPreferences.getSettings());
 
-    ipcMain.handle("app:get-settings", (event) => {
-      requireMainWindowSender(event);
-      return appPreferences.getSettings();
-    });
-    ipcMain.handle("app:save-settings", async (event, payload) => {
-      requireMainWindowSender(event);
-      const merged = { ...appPreferences.getSettings(), ...safeObject(payload) };
-      const written = await writeAppSettings(userDataPath, merged);
-      return appPreferences.apply(written);
+    registerSettingsIpc({
+      ipcMain,
+      ownsMainWindowSender,
+      getAppPreferences: () => appPreferences,
+      userDataPath,
+      writeAppSettings,
+      serviceSettingsLifecycle,
+      normalizeDeepSeekBaseUrl,
+      defaultDeepSeekBaseUrl: DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl,
+      readDeepSeekUsage,
+      publicServiceSettings,
+      safeObject
     });
 
     if (policy.createFloatingWindow) {
@@ -289,31 +268,6 @@ if (!gotLock) {
       }
       return response.json();
     });
-    ipcMain.handle("weather:get-settings", (event) => {
-      requireMainWindowSender(event);
-      return weatherSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
-    });
-    ipcMain.handle("weather:save-settings", async (event, settings) => {
-      requireMainWindowSender(event);
-      const input = safeObject(settings);
-      const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
-      const apiHost = typeof input.apiHost === "string" ? input.apiHost.trim() : "";
-      const projectId = typeof input.projectId === "string" ? input.projectId.trim() : "";
-      const credentialId = typeof input.credentialId === "string" ? input.credentialId.trim() : "";
-      const privateKey = typeof input.privateKey === "string" ? input.privateKey.trim() : "";
-      if (!apiHost || !/^[a-z0-9.-]+$/i.test(apiHost)) {
-        throw new Error("API Host 格式无效");
-      }
-      const patch = {
-        qweatherApiHost: apiHost,
-        qweatherProjectId: projectId,
-        qweatherCredentialId: credentialId
-      };
-      if (apiKey) patch.qweatherApiKey = apiKey;
-      if (privateKey) patch.qweatherPrivateKey = privateKey;
-      await serviceSettingsLifecycle.persist(patch);
-      return weatherSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
-    });
     ipcMain.handle("weather:get-usage", () => (
       fetchJsonCached(
         "QWeather usage",
@@ -330,46 +284,6 @@ if (!gotLock) {
       return response.json();
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
-    ipcMain.handle("deepseek:get-settings", (event) => {
-      requireMainWindowSender(event);
-      return deepSeekSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
-    });
-    ipcMain.handle("deepseek:save-settings", async (event, settings) => {
-      requireMainWindowSender(event);
-      const input = safeObject(settings);
-      const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
-      const requestedBaseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
-      const baseUrl = normalizeDeepSeekBaseUrl(
-        requestedBaseUrl || DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl
-      );
-      let parsed;
-      try {
-        parsed = new URL(baseUrl);
-      } catch {
-        throw new Error("DeepSeek Base URL 格式无效");
-      }
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-        throw new Error("DeepSeek Base URL 必须是 HTTPS 地址");
-      }
-      const patch = { deepseekBaseUrl: baseUrl };
-      if (apiKey) patch.deepseekApiKey = apiKey;
-      await serviceSettingsLifecycle.persist(patch);
-      return deepSeekSettingsResponse(serviceSettingsLifecycle.effectiveSettings());
-    });
-    ipcMain.handle("deepseek:usage", (event, options) => {
-      if (
-        !ownsMainWindowSender(event.sender)
-        && !appPreferences?.ownsSender(event.sender)
-      ) {
-        throw new Error("Unauthorized usage sender");
-      }
-      const settings = serviceSettingsLifecycle.effectiveSettings();
-      return readDeepSeekUsage({
-        ...safeObject(options),
-        apiKey: settings.deepseekApiKey,
-        baseUrl: settings.deepseekBaseUrl
-      });
-    });
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));
     ipcMain.on("window:minimize", minimizeMainWindow);
     ipcMain.handle("window:toggle-maximize", toggleMaximizeMainWindow);

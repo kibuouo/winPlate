@@ -9,16 +9,6 @@ function readMain() {
   return fs.readFileSync(mainPath, "utf8");
 }
 
-test("main preload exposes the narrow app preferences boundary", () => {
-  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
-
-  assert.match(preload, /getAppSettings: \(\) => ipcRenderer\.invoke\("app:get-settings"\)/);
-  assert.match(
-    preload,
-    /saveAppSettings: \(settings\) => ipcRenderer\.invoke\("app:save-settings", settings\)/
-  );
-});
-
 test("loads encrypted service settings and injects the effective environment before Python", () => {
   const main = readMain();
   const capture = main.indexOf("externalServiceEnvironment");
@@ -36,75 +26,35 @@ test("loads encrypted service settings and injects the effective environment bef
   assert.doesNotMatch(main, /readUserEnvironment|writeUserEnvironment|reg\.exe/);
 });
 
-test("app settings IPC validates the exact main renderer and merges write then apply", () => {
-  const main = readMain();
-
-  assert.match(
-    main,
-    /ipcMain\.handle\("app:get-settings", \(event\) => \{\s*requireMainWindowSender\(event\);\s*return appPreferences\.getSettings\(\);\s*\}\);/
-  );
-  assert.match(
-    main,
-    /ipcMain\.handle\("app:save-settings", async \(event, payload\) => \{\s*requireMainWindowSender\(event\);\s*const merged = \{ \.\.\.appPreferences\.getSettings\(\), \.\.\.safeObject\(payload\) \};\s*const written = await writeAppSettings\(userDataPath, merged\);\s*return appPreferences\.apply\(written\);\s*\}\);/
-  );
-  assert.match(main, /throw new Error\("Unauthorized settings sender"\)/);
-  assert.match(main, /ownsMainWindowSender\(event\.sender\)/);
-});
-
 test("menu IPC delegates exclusively through app preferences and teardown destroys it", () => {
   const main = readMain();
+  const menuHandlers = main.slice(
+    main.indexOf('ipcMain.on("menubar:update-temperature"'),
+    main.indexOf('ipcMain.on("github:open-profile"')
+  );
+  const beforeQuit = main.slice(main.indexOf('app.on("before-quit"'));
 
   assert.doesNotMatch(main, /let macMenuBar/);
-  assert.match(
-    main,
-    /if \(appPreferences\?\.ownsSender\(event\.sender\)\) \{\s*appPreferences\.setTemperature\(payload\);/
-  );
-  assert.match(
-    main,
-    /if \(appPreferences\?\.ownsSender\(event\.sender\)\) \{\s*appPreferences\.hide\(\);/
-  );
-  assert.match(
-    main,
-    /app\.on\("before-quit", \(\) => \{\s*setQuitting\(true\);\s*appPreferences\?\.destroy\(\);\s*appPreferences = null;\s*stopPythonService\(\);/
-  );
+  assert.match(menuHandlers, /ownsSender\(event\.sender\)/);
+  assert.match(menuHandlers, /setTemperature\(payload\)/);
+  assert.match(menuHandlers, /\.hide\(\)/);
+  assert.doesNotMatch(menuHandlers, /createMacMenuBar|macMenuBar/);
+  assert.equal(beforeQuit.indexOf(".destroy()") < beforeQuit.indexOf("stopPythonService()"), true);
+  assert.match(beforeQuit, /appPreferences = null/);
 });
 
-test("service settings IPC exposes only public shapes and preserves blank secrets", () => {
+test("registers the tested settings IPC boundary once after preferences exist", () => {
   const main = readMain();
+  const preferences = main.indexOf("createAppPreferencesController({");
+  const registration = main.indexOf("registerSettingsIpc({");
 
-  assert.match(main, /function weatherSettingsResponse\(settings\)/);
-  assert.match(main, /hasApiKey: publicSettings\.hasQWeatherApiKey/);
-  assert.match(main, /hasPrivateKey: publicSettings\.hasQWeatherPrivateKey/);
-  assert.match(main, /function deepSeekSettingsResponse\(settings\)/);
-  assert.match(main, /hasApiKey: publicSettings\.hasDeepSeekApiKey/);
-  assert.match(main, /if \(apiKey\) patch\.qweatherApiKey = apiKey/);
-  assert.match(main, /if \(privateKey\) patch\.qweatherPrivateKey = privateKey/);
-  assert.match(main, /if \(apiKey\) patch\.deepseekApiKey = apiKey/);
-  assert.doesNotMatch(main, /return\s+storedServiceSettings/);
-  assert.doesNotMatch(main, /console\.(?:log|error)\([^\n]*(?:apiKey|privateKey|settings)/i);
-});
-
-test("weather and DeepSeek settings validate sender and public input boundaries", () => {
-  const main = readMain();
-
-  for (const channel of [
-    "weather:get-settings",
-    "weather:save-settings",
-    "deepseek:get-settings",
-    "deepseek:save-settings"
-  ]) {
-    const start = main.indexOf(`ipcMain.handle("${channel}"`);
-    const end = main.indexOf("ipcMain.handle(", start + 20);
-    const handler = main.slice(start, end === -1 ? undefined : end);
-    assert.notEqual(start, -1, `${channel} exists`);
-    assert.match(handler, /requireMainWindowSender\(event\)/, `${channel} checks sender`);
-  }
-
-  assert.match(main, /!apiHost \|\| !\/\^\[a-z0-9\.\-\]\+\$\/i\.test\(apiHost\)/);
-  assert.match(main, /new URL\(baseUrl\)/);
-  assert.match(main, /parsed\.protocol !== "https:" \|\| parsed\.username \|\| parsed\.password/);
-  assert.match(main, /externalEnvironment: externalServiceEnvironment/);
-  assert.match(main, /serviceSettingsLifecycle\.effectiveSettings\(\)/);
+  assert.notEqual(preferences, -1);
+  assert.notEqual(registration, -1);
+  assert.equal(preferences < registration, true);
+  assert.equal((main.match(/registerSettingsIpc\(\{/g) || []).length, 1);
+  assert.match(main, /getAppPreferences: \(\) => appPreferences/);
+  assert.match(main, /ownsMainWindowSender/);
+  assert.match(main, /serviceSettingsLifecycle/);
 });
 
 test("selects startup policy once while retaining platform-specific window gates", () => {
