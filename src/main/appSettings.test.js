@@ -93,6 +93,37 @@ test("settings write and read back through the exact persisted schema", async (t
   });
 });
 
+test("concurrent settings writes each complete without mixing payloads", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const requested = [
+    { menuBarEnabled: false, launchAtLogin: false },
+    { menuBarEnabled: true, launchAtLogin: true }
+  ];
+  const writes = Array.from({ length: 32 }, (_, index) =>
+    writeAppSettings(directory, requested[index % requested.length])
+  );
+
+  await Promise.all(writes);
+
+  const persisted = JSON.parse(
+    await fs.readFile(path.join(directory, "app-settings.json"), "utf8")
+  );
+  const completePayloads = new Set(requested.map((value) => JSON.stringify(value)));
+  assert.equal(completePayloads.has(JSON.stringify(persisted)), true);
+  assert.deepEqual(await fs.readdir(directory), ["app-settings.json"]);
+});
+
+test("failed settings writes remove their temporary files", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  await fs.mkdir(path.join(directory, "app-settings.json"));
+
+  await assert.rejects(
+    writeAppSettings(directory, { menuBarEnabled: false, launchAtLogin: true })
+  );
+
+  assert.deepEqual(await fs.readdir(directory), ["app-settings.json"]);
+});
+
 test("corrupt JSON returns a fresh default object", async (t) => {
   const directory = await createTemporaryDirectory(t);
   await fs.writeFile(path.join(directory, "app-settings.json"), "{not-json", "utf8");
