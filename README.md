@@ -85,10 +85,11 @@ stored values on both platforms. The exact supported overrides are
 `QWEATHER_CREDENTIAL_ID`, `QWEATHER_PRIVATE_KEY`, `DEEPSEEK_API_KEY`, and
 `DEEPSEEK_BASE_URL`.
 
-For compatibility on Windows, legacy values from `HKCU\Environment` are read
-once only when no encrypted settings file exists. The first successful settings
-save takes over and stops that migration read. WinPlate does not write new
-registry values.
+For compatibility on Windows, the first startup with no encrypted settings file
+imports legacy values from `HKCU\Environment` into encrypted storage
+automatically. After a successful import, the registry is no longer read. If the
+encrypted import fails, the legacy values remain the current-session fallback
+and the import is retried later. WinPlate does not write new registry values.
 
 Restart WinPlate after changing QWeather credentials because the Python backend
 receives its environment at startup. A saved DeepSeek change may be used

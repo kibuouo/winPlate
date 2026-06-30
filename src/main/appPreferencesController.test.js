@@ -95,6 +95,29 @@ test("login failures are reported without blocking menu creation or disable", ()
   assert.deepEqual(errors, [createFailure, disableFailure]);
 });
 
+test("strict login failure preserves the original error and controller state", () => {
+  const failure = new Error("login save rejected");
+  const { controller, menuBars } = createHarness({
+    applyLoginItem() {
+      throw failure;
+    }
+  });
+
+  assert.throws(
+    () => controller.apply(
+      { menuBarEnabled: false, launchAtLogin: true },
+      { strictLoginItem: true }
+    ),
+    (error) => error === failure
+  );
+
+  assert.deepEqual(controller.getSettings(), {
+    menuBarEnabled: true,
+    launchAtLogin: false
+  });
+  assert.equal(menuBars.length, 0);
+});
+
 test("disabling destroys once and re-enabling creates a new menu controller", () => {
   const { controller, menuBars } = createHarness();
 

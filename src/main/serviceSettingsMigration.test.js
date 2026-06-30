@@ -82,7 +82,7 @@ function createLifecycle(store, externalEnvironment = {}, reportError = () => {}
   });
 }
 
-test("a missing file uses legacy values only as initial stored fallback", async () => {
+test("a missing file imports legacy values into encrypted storage on first read", async () => {
   const harness = await createHarness({
     legacyEnvironment: {
       QWEATHER_API_KEY: "legacy-weather",
@@ -100,21 +100,27 @@ test("a missing file uses legacy values only as initial stored fallback", async 
   assert.equal(effective.qweatherApiHost, "legacy.weather.example");
   assert.equal(effective.deepseekApiKey, "legacy-deepseek");
   assert.equal(harness.getLegacyReads(), 1);
+  assert.equal(harness.writes.length, 1);
+  assert.equal(harness.getStored().qweatherApiKey, "legacy-weather");
+  assert.equal(harness.getStored().deepseekApiKey, "legacy-deepseek");
 });
 
-test("the first successful encrypted save supersedes legacy values immediately", async () => {
-  const harness = await createHarness({
+test("a simulated restart uses the imported store without querying changed registry values", async () => {
+  const first = await createHarness({
     legacyEnvironment: { QWEATHER_API_KEY: "legacy-weather" }
   });
-  const lifecycle = createLifecycle(harness.store);
+  const lifecycle = createLifecycle(first.store);
   assert.equal((await lifecycle.loadForStartup()).qweatherApiKey, "legacy-weather");
 
-  const saved = await lifecycle.persist({ qweatherApiKey: "encrypted-weather" });
+  const restarted = await createHarness({
+    hasFile: true,
+    stored: first.getStored(),
+    legacyEnvironment: { QWEATHER_API_KEY: "changed-registry-weather" }
+  });
 
-  assert.equal(saved.qweatherApiKey, "encrypted-weather");
-  assert.equal((await harness.store.read()).qweatherApiKey, "encrypted-weather");
-  assert.equal(harness.getStored().qweatherApiKey, "encrypted-weather");
-  assert.equal(harness.getLegacyReads(), 1);
+  assert.equal((await restarted.store.read()).qweatherApiKey, "legacy-weather");
+  assert.equal(restarted.getLegacyReads(), 0);
+  assert.equal(restarted.writes.length, 0);
 });
 
 test("a restart with an existing settings file ignores the registry entirely", async () => {
@@ -132,23 +138,55 @@ test("a restart with an existing settings file ignores the registry entirely", a
   assert.deepEqual(harness.errors, []);
 });
 
-test("a failed first write keeps migration fallback active for the next save", async () => {
+test("a failed automatic import reports safely and retries on the next write", async () => {
   const harness = await createHarness({
     legacyEnvironment: { QWEATHER_API_KEY: "legacy-weather" },
     writeFailures: 1
   });
   const lifecycle = createLifecycle(harness.store);
-  await lifecycle.loadForStartup();
-
-  await assert.rejects(
-    lifecycle.persist({ qweatherApiKey: "failed-weather" }),
-    { message: "encrypted write failed" }
-  );
-  assert.equal((await harness.store.read()).qweatherApiKey, "legacy-weather");
+  assert.equal((await lifecycle.loadForStartup()).qweatherApiKey, "legacy-weather");
+  assert.deepEqual(harness.errors, ["encrypted write failed"]);
+  assert.equal(harness.getStored().qweatherApiKey, "");
 
   const saved = await lifecycle.persist({ qweatherApiKey: "encrypted-weather" });
   assert.equal(saved.qweatherApiKey, "encrypted-weather");
   assert.equal((await harness.store.read()).qweatherApiKey, "encrypted-weather");
+});
+
+test("concurrent first reads share one automatic migration write", async () => {
+  const harness = await createHarness({
+    legacyEnvironment: { QWEATHER_API_KEY: "legacy-weather" }
+  });
+
+  const [first, second] = await Promise.all([harness.store.read(), harness.store.read()]);
+
+  assert.equal(first.qweatherApiKey, "legacy-weather");
+  assert.deepEqual(second, first);
+  assert.equal(harness.writes.length, 1);
+});
+
+test("concurrent first reads also share one failed migration attempt", async () => {
+  const harness = await createHarness({
+    legacyEnvironment: { QWEATHER_API_KEY: "legacy-weather" },
+    writeFailures: 2
+  });
+
+  const [first, second] = await Promise.all([harness.store.read(), harness.store.read()]);
+
+  assert.equal(first.qweatherApiKey, "legacy-weather");
+  assert.deepEqual(second, first);
+  assert.equal(harness.writes.length, 1);
+  assert.deepEqual(harness.errors, ["encrypted write failed"]);
+});
+
+test("a stored read failure propagates without writing migration defaults", async () => {
+  const harness = await createHarness({
+    legacyEnvironment: { QWEATHER_API_KEY: "legacy-weather" },
+    readError: new Error("encrypted read failed")
+  });
+
+  await assert.rejects(harness.store.read(), { message: "encrypted read failed" });
+  assert.equal(harness.writes.length, 0);
 });
 
 test("Windows legacy query failures safely fall back to stored defaults", async () => {
@@ -168,6 +206,7 @@ test("darwin never queries legacy Windows settings", async () => {
 
   assert.deepEqual(await harness.store.read(), DEFAULT_SERVICE_SETTINGS);
   assert.equal(harness.getLegacyReads(), 0);
+  assert.equal(harness.writes.length, 0);
   assert.deepEqual(harness.errors, []);
 });
 

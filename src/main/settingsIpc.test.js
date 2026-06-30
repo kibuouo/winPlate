@@ -20,7 +20,12 @@ function completeServiceSettings() {
   };
 }
 
-function createHarness() {
+function createHarness({
+  applyError = null,
+  applyResult = null,
+  firstWriteGate = null,
+  writeErrors = []
+} = {}) {
   assert.equal(typeof registerSettingsIpc, "function", "settings IPC registration must exist");
 
   const handlers = new Map();
@@ -39,11 +44,12 @@ function createHarness() {
     getSettings() {
       return { ...appSettings };
     },
-    apply(settings) {
-      order.push("apply");
+    apply(settings, options) {
+      order.push(options?.strictLoginItem ? "apply-strict" : "apply");
+      if (options?.strictLoginItem && applyError) throw applyError;
       appSettings = { ...settings };
-      applied.push({ ...settings });
-      return { ...appSettings };
+      applied.push({ settings: { ...settings }, options: { ...options } });
+      return applyResult ? { ...applyResult } : { ...appSettings };
     },
     ownsSender(sender) {
       return sender === menuSender;
@@ -74,6 +80,9 @@ function createHarness() {
     writeAppSettings: async (userDataPath, settings) => {
       order.push("write");
       writes.push({ userDataPath, settings: { ...settings } });
+      if (writes.length === 1 && firstWriteGate) await firstWriteGate;
+      const writeError = writeErrors.shift();
+      if (writeError) throw writeError;
       return { ...settings };
     },
     serviceSettingsLifecycle,
@@ -156,18 +165,112 @@ test("app save merges safe object payloads and writes before applying", async ()
     { launchAtLogin: true }
   );
 
-  assert.deepEqual(harness.order, ["write", "apply"]);
+  assert.deepEqual(harness.order, ["write", "apply-strict"]);
   assert.deepEqual(harness.writes[0], {
     userDataPath: "/user/data",
     settings: { menuBarEnabled: true, launchAtLogin: true }
   });
-  assert.deepEqual(harness.applied[0], saved);
+  assert.deepEqual(harness.applied[0], {
+    settings: saved,
+    options: { strictLoginItem: true }
+  });
 
   await harness.invoke("app:save-settings", harness.mainSender, null);
   await harness.invoke("app:save-settings", harness.mainSender, ["injected"]);
   assert.deepEqual(harness.writes[1].settings, saved);
   assert.deepEqual(harness.writes[2].settings, saved);
   assert.equal(Object.hasOwn(harness.writes[2].settings, "0"), false);
+});
+
+test("app save normalizes the complete requested snapshot before writing", async () => {
+  const harness = createHarness();
+
+  await harness.invoke("app:save-settings", harness.mainSender, {
+    menuBarEnabled: "disabled",
+    launchAtLogin: true
+  });
+
+  assert.deepEqual(harness.writes[0].settings, {
+    menuBarEnabled: true,
+    launchAtLogin: true
+  });
+});
+
+test("app save returns the controller's verified applied settings", async () => {
+  const harness = createHarness({
+    applyResult: { menuBarEnabled: true, launchAtLogin: false }
+  });
+
+  const saved = await harness.invoke(
+    "app:save-settings",
+    harness.mainSender,
+    { launchAtLogin: true }
+  );
+
+  assert.deepEqual(saved, { menuBarEnabled: true, launchAtLogin: true });
+});
+
+test("app save rolls persisted settings back and rejects with the native apply error", async () => {
+  const failure = new Error("login item denied");
+  const harness = createHarness({ applyError: failure });
+
+  await assert.rejects(
+    harness.invoke("app:save-settings", harness.mainSender, { launchAtLogin: true }),
+    (error) => error === failure
+  );
+
+  assert.deepEqual(harness.order, ["write", "apply-strict", "write", "apply"]);
+  assert.deepEqual(harness.writes.map(({ settings }) => settings), [
+    { menuBarEnabled: true, launchAtLogin: true },
+    { menuBarEnabled: true, launchAtLogin: false }
+  ]);
+});
+
+test("app save surfaces rollback write failures without exposing settings", async () => {
+  const applyError = new Error("login item denied");
+  const rollbackError = new Error("rollback write failed");
+  const harness = createHarness({ applyError, writeErrors: [null, rollbackError] });
+
+  await assert.rejects(
+    harness.invoke("app:save-settings", harness.mainSender, { launchAtLogin: true }),
+    (error) => {
+      assert.equal(error instanceof AggregateError, true);
+      assert.deepEqual(error.errors, [applyError, rollbackError]);
+      assert.equal(error.message, "Failed to apply app settings and restore persisted settings");
+      assert.doesNotMatch(error.message, /launchAtLogin|menuBarEnabled/);
+      return true;
+    }
+  );
+  assert.deepEqual(harness.order, ["write", "apply-strict", "write", "apply"]);
+});
+
+test("concurrent app saves serialize complete transactions", async () => {
+  let releaseFirstWrite;
+  const firstWriteGate = new Promise((resolve) => {
+    releaseFirstWrite = resolve;
+  });
+  const harness = createHarness({ firstWriteGate });
+
+  const first = harness.invoke(
+    "app:save-settings",
+    harness.mainSender,
+    { launchAtLogin: true }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = harness.invoke(
+    "app:save-settings",
+    harness.mainSender,
+    { menuBarEnabled: false }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(harness.writes.length, 1);
+  releaseFirstWrite();
+  await first;
+  assert.deepEqual(await second, {
+    menuBarEnabled: false,
+    launchAtLogin: true
+  });
 });
 
 test("weather get and save return the exact public shape while preserving blank secrets", async () => {

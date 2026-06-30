@@ -33,21 +33,27 @@ function createAppPreferencesController({
   }
 
   return {
-    apply(value) {
+    apply(value, { strictLoginItem = false } = {}) {
       if (destroyed) {
         return copySettings();
       }
 
-      settings = normalizeAppSettings(value);
+      const nextSettings = normalizeAppSettings(value);
       if (platform !== "darwin") {
+        settings = nextSettings;
         return copySettings();
       }
 
-      try {
-        applyLoginItem(settings.launchAtLogin);
-      } catch (error) {
-        reportError(error);
+      if (strictLoginItem) {
+        applyLoginItem(nextSettings.launchAtLogin);
+      } else {
+        try {
+          applyLoginItem(nextSettings.launchAtLogin);
+        } catch (error) {
+          reportError(error);
+        }
       }
+      settings = nextSettings;
       if (teardownPending) {
         destroyMenuBar();
         if (teardownPending) {
