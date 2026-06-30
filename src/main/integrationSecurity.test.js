@@ -9,21 +9,39 @@ function readMain() {
   return fs.readFileSync(mainPath, "utf8");
 }
 
-test("loads encrypted service settings and injects the effective environment before Python", () => {
+test("captures inherited and legacy service settings before lifecycle injection and Python", () => {
   const main = readMain();
-  const capture = main.indexOf("externalServiceEnvironment");
+  const capture = main.indexOf("processServiceEnvironment");
+  const legacy = main.indexOf("await loadExternalServiceEnvironment({");
   const lifecycle = main.indexOf("createServiceSettingsLifecycle({");
   const load = main.indexOf("await serviceSettingsLifecycle.loadForStartup()");
   const python = main.indexOf("await startPythonService()");
 
   assert.notEqual(capture, -1);
+  assert.notEqual(legacy, -1);
   assert.notEqual(lifecycle, -1);
   assert.notEqual(load, -1);
   assert.notEqual(python, -1);
-  assert.equal(capture < lifecycle && lifecycle < load && load < python, true);
+  assert.equal(capture < legacy && legacy < lifecycle && lifecycle < load && load < python, true);
   assert.match(main, /safeStorage/);
   assert.match(main, /targetEnvironment: process\.env/);
+  assert.match(main, /platform: process\.platform/);
+  assert.match(main, /readWindowsServiceEnvironment/);
   assert.doesNotMatch(main, /readUserEnvironment|writeUserEnvironment|reg\.exe/);
+});
+
+test("app settings startup fallback runs after the main window and before preferences", () => {
+  const main = readMain();
+  const window = main.indexOf("createMainWindow(initialTheme)");
+  const initialSettings = main.indexOf("await readInitialAppSettings({");
+  const preferences = main.indexOf("createAppPreferencesController({");
+
+  assert.notEqual(window, -1);
+  assert.notEqual(initialSettings, -1);
+  assert.notEqual(preferences, -1);
+  assert.equal(window < initialSettings && initialSettings < preferences, true);
+  assert.match(main, /defaults: DEFAULT_APP_SETTINGS/);
+  assert.match(main, /reportError: \(message\) => console\.error\(message\)/);
 });
 
 test("menu IPC delegates exclusively through app preferences and teardown destroys it", () => {

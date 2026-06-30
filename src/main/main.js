@@ -12,6 +12,8 @@ const {
   shell,
   Tray
 } = require("electron");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
 const {
   createFloatingWindow,
   createMainWindow,
@@ -43,10 +45,12 @@ const {
   writeAppearanceSettings
 } = require("./appearanceSettings");
 const {
+  DEFAULT_APP_SETTINGS,
   readAppSettings,
   writeAppSettings,
   applyLoginItemSetting
 } = require("./appSettings");
+const { readInitialAppSettings } = require("./appSettingsStartup");
 const { createAppPreferencesController } = require("./appPreferencesController");
 const {
   DEFAULT_SERVICE_SETTINGS,
@@ -61,15 +65,20 @@ const {
   safeObject
 } = require("./serviceSettingsLifecycle");
 const { registerSettingsIpc } = require("./settingsIpc");
+const {
+  loadExternalServiceEnvironment,
+  readWindowsServiceEnvironment
+} = require("./windowsEnvironment");
 
 let tray;
 let appPreferences = null;
+const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 const appIconPath = path.join(__dirname, "..", "..", "assets", "icon.png");
-const externalServiceEnvironment = Object.freeze({
+const processServiceEnvironment = Object.freeze({
   QWEATHER_API_KEY: process.env.QWEATHER_API_KEY,
   QWEATHER_API_HOST: process.env.QWEATHER_API_HOST,
   QWEATHER_PROJECT_ID: process.env.QWEATHER_PROJECT_ID,
@@ -129,6 +138,13 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     const userDataPath = app.getPath("userData");
+    const externalServiceEnvironment = Object.freeze(
+      await loadExternalServiceEnvironment({
+        platform: process.platform,
+        processEnvironment: processServiceEnvironment,
+        readLegacyEnvironment: () => readWindowsServiceEnvironment(execFileAsync)
+      })
+    );
     const serviceSettingsLifecycle = createServiceSettingsLifecycle({
       defaults: DEFAULT_SERVICE_SETTINGS,
       externalEnvironment: externalServiceEnvironment,
@@ -167,10 +183,15 @@ if (!gotLock) {
     createMainWindow(initialTheme);
     const policy = startupPolicy();
     app.on("activate", showMainWindow);
+    const initialAppSettings = await readInitialAppSettings({
+      read: () => readAppSettings(userDataPath),
+      defaults: DEFAULT_APP_SETTINGS,
+      reportError: (message) => console.error(message)
+    });
 
     appPreferences = createAppPreferencesController({
       platform: policy.createMacMenuBar ? "darwin" : process.platform,
-      initialSettings: await readAppSettings(userDataPath),
+      initialSettings: initialAppSettings,
       createMenuBar: () => createMacMenuBar({
         BrowserWindow,
         Menu,
