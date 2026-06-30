@@ -229,11 +229,16 @@ html[data-theme="light"] .themed-weather-icon { filter: brightness(0); }
 .main-body.platform-darwin .workspace {
   padding-top: 52px;
   background: transparent;
+  -webkit-app-region: drag;
 }
 .main-body.platform-darwin .sidebar {
   background: color-mix(in srgb, var(--sidebar-bg) 76%, transparent);
   -webkit-backdrop-filter: blur(28px) saturate(135%);
   backdrop-filter: blur(28px) saturate(135%);
+}
+.main-body.platform-darwin .sidebar,
+.main-body.platform-darwin .main-content {
+  -webkit-app-region: no-drag;
 }
 .main-body.platform-darwin .main-content {
   background: color-mix(in srgb, var(--main-bg) 82%, transparent);

@@ -42,6 +42,7 @@ let applicationSettings = {
   menuBarEnabled: true,
   launchAtLogin: false
 };
+let applicationSettingsBusy = false;
 const boundApplicationSettingsControls = new WeakSet();
 let currentSection = "Dashboard";
 let floatingPinned = false;
@@ -71,17 +72,24 @@ function mergeApplicationSettings(settings) {
 function syncApplicationSettingsControls() {
   document.querySelectorAll("[data-app-setting]").forEach((input) => {
     const key = input.dataset.appSetting;
-    if (APP_SETTING_KEYS.includes(key)) input.checked = applicationSettings[key];
+    if (APP_SETTING_KEYS.includes(key)) {
+      input.checked = applicationSettings[key];
+      input.disabled = applicationSettingsBusy;
+    }
   });
 }
 
 async function hydrateAppSettings() {
-  if (view !== "main" || !isMac) return;
+  if (view !== "main" || !isMac || applicationSettingsBusy) return;
+  applicationSettingsBusy = true;
+  syncApplicationSettingsControls();
   try {
     applicationSettings = mergeApplicationSettings(await window.winplate.getAppSettings());
-    syncApplicationSettingsControls();
   } catch (error) {
     console.error("Failed to load application settings:", error?.message || String(error));
+  } finally {
+    applicationSettingsBusy = false;
+    syncApplicationSettingsControls();
   }
 }
 
@@ -94,22 +102,29 @@ function bindApplicationSettingsControls() {
     input.addEventListener("change", async () => {
       const key = input.dataset.appSetting;
       if (!APP_SETTING_KEYS.includes(key)) return;
-      const previousChecked = applicationSettings[key];
+      if (applicationSettingsBusy) {
+        syncApplicationSettingsControls();
+        return;
+      }
+      const previousSettings = {
+        menuBarEnabled: applicationSettings.menuBarEnabled,
+        launchAtLogin: applicationSettings.launchAtLogin
+      };
+      applicationSettingsBusy = true;
       applicationSettings = { ...applicationSettings, [key]: input.checked };
-      input.disabled = true;
+      syncApplicationSettingsControls();
       try {
         const normalized = await window.winplate.saveAppSettings({
           menuBarEnabled: applicationSettings.menuBarEnabled,
           launchAtLogin: applicationSettings.launchAtLogin
         });
         applicationSettings = mergeApplicationSettings(normalized);
-        syncApplicationSettingsControls();
       } catch (error) {
-        applicationSettings = { ...applicationSettings, [key]: previousChecked };
-        input.checked = previousChecked;
+        applicationSettings = previousSettings;
         console.error("Failed to save application settings:", error?.message || String(error));
       } finally {
-        input.disabled = false;
+        applicationSettingsBusy = false;
+        syncApplicationSettingsControls();
       }
     });
   });

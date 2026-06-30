@@ -120,11 +120,13 @@ test("main renderer gates native application preferences to macOS", () => {
   assert.match(renderer, /const isMac = window\.winplate\.platform === "darwin"/);
   assert.match(renderer, /let applicationSettings = \{\s*menuBarEnabled: true,\s*launchAtLogin: false\s*\}/);
   assert.match(renderer, /const APP_SETTING_KEYS = \["menuBarEnabled", "launchAtLogin"\]/);
-  assert.match(renderer, /async function hydrateAppSettings\(\)[\s\S]*?if \(view !== "main" \|\| !isMac\) return/);
+  assert.match(renderer, /async function hydrateAppSettings\(\)[\s\S]*?if \(view !== "main" \|\| !isMac \|\| applicationSettingsBusy\) return/);
   assert.match(renderer, /getAppSettings\(\)/);
   assert.match(renderer, /saveAppSettings\(\{\s*menuBarEnabled: applicationSettings\.menuBarEnabled,\s*launchAtLogin: applicationSettings\.launchAtLogin\s*\}\)/);
   assert.match(renderer, /APP_SETTING_KEYS\.includes\(key\)/);
-  assert.match(renderer, /input\.disabled = true[\s\S]*?catch \(error\)[\s\S]*?input\.checked = previousChecked[\s\S]*?error\?\.message[\s\S]*?finally[\s\S]*?input\.disabled = false/);
+  assert.match(renderer, /input\.disabled = applicationSettingsBusy/);
+  assert.match(renderer, /if \(applicationSettingsBusy\) \{\s*syncApplicationSettingsControls\(\);\s*return/);
+  assert.match(renderer, /catch \(error\) \{\s*applicationSettings = previousSettings;[\s\S]*?error\?\.message[\s\S]*?finally \{\s*applicationSettingsBusy = false;\s*syncApplicationSettingsControls\(\)/);
   assert.doesNotMatch(renderer, /console\.error\([^\n]*Failed to (?:load|save) application settings[^\n]*,\s*error\s*\)/);
   assert.match(renderer, /Promise\.all\(\[hydrateAppearanceSettings\(\), hydrateQWeatherUsage\(\), hydrateAppSettings\(\)\]\)\.then\(refreshStatus\)/);
 });
@@ -171,6 +173,8 @@ test("macOS main-window CSS is scoped to a native material layout", () => {
   assert.match(css, /\.main-body\.platform-darwin \.main-window-shell\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\)[\s\S]*?background:\s*transparent/);
   assert.match(css, /\.main-body\.platform-darwin \.workspace\s*\{[\s\S]*?padding-top:\s*52px[\s\S]*?background:\s*transparent/);
   assert.match(css, /\.main-body\.platform-darwin \.sidebar\s*\{[\s\S]*?(?:backdrop-filter|-webkit-backdrop-filter):\s*blur\(/);
+  assert.match(css, /\.main-body\.platform-darwin \.workspace\s*\{[\s\S]*?-webkit-app-region:\s*drag/);
+  assert.match(css, /\.main-body\.platform-darwin \.sidebar,\s*\n\.main-body\.platform-darwin \.main-content\s*\{[\s\S]*?-webkit-app-region:\s*no-drag/);
   assert.match(css, /\.main-body\.platform-darwin\s*\{[\s\S]*?background:\s*transparent/);
   assert.doesNotMatch(css, /\.platform-darwin[^\n{]*(?:floating|capsule)|(?:floating|capsule)[^\n{]*\.platform-darwin/i);
 });
@@ -192,7 +196,7 @@ function extractNamedFunction(source, name) {
 
 function createAppSettingsHarness({ isMac = true, get, save } = {}) {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const inputs = ["menuBarEnabled", "launchAtLogin"].map((key) => {
+  const createInputs = () => ["menuBarEnabled", "launchAtLogin"].map((key) => {
     const listeners = [];
     return {
       checked: key === "menuBarEnabled",
@@ -204,11 +208,12 @@ function createAppSettingsHarness({ isMac = true, get, save } = {}) {
       }
     };
   });
+  let currentInputs = createInputs();
   const calls = { get: 0, save: [] };
   const errors = [];
   const context = {
     console: { error: (...args) => errors.push(args) },
-    document: { querySelectorAll: () => inputs },
+    document: { querySelectorAll: () => currentInputs },
     window: {
       winplate: {
         async getAppSettings() {
@@ -227,6 +232,7 @@ function createAppSettingsHarness({ isMac = true, get, save } = {}) {
     const isMac = ${JSON.stringify(isMac)};
     const APP_SETTING_KEYS = ["menuBarEnabled", "launchAtLogin"];
     let applicationSettings = { menuBarEnabled: true, launchAtLogin: false };
+    let applicationSettingsBusy = false;
     const boundApplicationSettingsControls = new WeakSet();
     ${extractNamedFunction(renderer, "mergeApplicationSettings")}
     ${extractNamedFunction(renderer, "syncApplicationSettingsControls")}
@@ -239,7 +245,29 @@ function createAppSettingsHarness({ isMac = true, get, save } = {}) {
     };
   `;
   vm.runInNewContext(source, context, { filename: "app-settings-harness.js" });
-  return { ...context.settingsHarness, calls, errors, inputs };
+  return {
+    ...context.settingsHarness,
+    calls,
+    errors,
+    get inputs() {
+      return currentInputs;
+    },
+    replaceInputs() {
+      currentInputs = createInputs();
+      context.settingsHarness.bindApplicationSettingsControls();
+      return currentInputs;
+    }
+  };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 test("application settings hydration is mac-only and keeps defaults after rejection", async () => {
@@ -286,6 +314,72 @@ test("application settings save adopts normalization, rolls back failures, and r
   failed.inputs[0].checked = false;
   await failed.inputs[0].listeners[0]();
   assert.equal(failed.calls.save.length, 1);
+});
+
+test("pending application settings save serializes changes and synchronizes recreated controls", async () => {
+  const pendingSave = deferred();
+  const harness = createAppSettingsHarness({ save: () => pendingSave.promise });
+  harness.bindApplicationSettingsControls();
+
+  harness.inputs[0].checked = false;
+  const firstChange = harness.inputs[0].listeners[0]();
+  assert.deepEqual(harness.inputs.map((input) => input.disabled), [true, true]);
+  assert.deepEqual(harness.calls.save, [{ menuBarEnabled: false, launchAtLogin: false }]);
+
+  harness.inputs[1].checked = true;
+  await harness.inputs[1].listeners[0]();
+  await harness.hydrateAppSettings();
+  assert.equal(harness.calls.save.length, 1);
+  assert.equal(harness.calls.get, 0);
+  assert.equal(harness.inputs[1].checked, false);
+
+  const recreated = harness.replaceInputs();
+  assert.deepEqual(recreated.map((input) => input.disabled), [true, true]);
+  pendingSave.resolve({ menuBarEnabled: false, launchAtLogin: true });
+  await firstChange;
+  assert.deepEqual(recreated.map((input) => input.checked), [false, true]);
+  assert.deepEqual(recreated.map((input) => input.disabled), [false, false]);
+});
+
+test("rejected application settings save restores the full prior snapshot", async () => {
+  const pendingSave = deferred();
+  const harness = createAppSettingsHarness({
+    get: () => ({ menuBarEnabled: false, launchAtLogin: true }),
+    save: () => pendingSave.promise
+  });
+  await harness.hydrateAppSettings();
+  harness.bindApplicationSettingsControls();
+
+  harness.inputs[0].checked = true;
+  const change = harness.inputs[0].listeners[0]();
+  const recreated = harness.replaceInputs();
+  pendingSave.reject(new Error("save failed"));
+  await change;
+
+  assert.deepEqual({ ...harness.settings() }, { menuBarEnabled: false, launchAtLogin: true });
+  assert.deepEqual(recreated.map((input) => input.checked), [false, true]);
+  assert.deepEqual(recreated.map((input) => input.disabled), [false, false]);
+  assert.deepEqual(harness.errors, [["Failed to save application settings:", "save failed"]]);
+});
+
+test("pending hydration blocks saves and settles recreated controls", async () => {
+  const pendingHydration = deferred();
+  const harness = createAppSettingsHarness({ get: () => pendingHydration.promise });
+  harness.bindApplicationSettingsControls();
+
+  const hydration = harness.hydrateAppSettings();
+  assert.deepEqual(harness.inputs.map((input) => input.disabled), [true, true]);
+  harness.inputs[0].checked = false;
+  await harness.inputs[0].listeners[0]();
+  assert.equal(harness.calls.save.length, 0);
+  assert.equal(harness.inputs[0].checked, true);
+
+  const recreated = harness.replaceInputs();
+  assert.deepEqual(recreated.map((input) => input.disabled), [true, true]);
+  pendingHydration.resolve({ menuBarEnabled: false, launchAtLogin: true });
+  await hydration;
+  assert.deepEqual(recreated.map((input) => input.checked), [false, true]);
+  assert.deepEqual(recreated.map((input) => input.disabled), [false, false]);
 });
 
 test("preload exposes narrow menu bar APIs without raw Electron capabilities", () => {
