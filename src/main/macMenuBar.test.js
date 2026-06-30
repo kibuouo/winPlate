@@ -762,6 +762,77 @@ test("listener cleanup failure does not prevent independent native cleanup", () 
   assert.doesNotThrow(() => controller.destroy());
 });
 
+test("panel probe failures preserve the first error while tray cleanup continues", async () => {
+  const firstFailure = new Error("initial panel probe failed");
+  const finalFailure = new Error("final panel probe failed");
+  const { controller, panel, tray } = createFixture();
+  await settlePromises();
+  let probeCalls = 0;
+  let recovered = false;
+  panel.isDestroyed = () => {
+    if (recovered) {
+      return panel.destroyed;
+    }
+    probeCalls += 1;
+    throw probeCalls === 1 ? firstFailure : finalFailure;
+  };
+
+  assert.throws(
+    () => controller.destroy(),
+    (error) => error === firstFailure
+  );
+
+  assert.equal(probeCalls, 2);
+  assert.equal(panel.destroyCalls, 1);
+  assert.equal(tray.destroyCalls, 1);
+  assert.equal(controller.ownsSender(panel.webContents), false);
+  controller.toggle();
+  controller.refresh();
+  controller.hide();
+  assert.equal(controller.setTemperature(24.4), "24°C");
+  assert.equal(panel.showCalls, 0);
+  assert.equal(panel.hideCalls, 0);
+  assert.deepEqual(panel.webContents.sent, []);
+  assert.equal(tray.title, "--°");
+
+  recovered = true;
+  assert.doesNotThrow(() => controller.destroy());
+  assert.doesNotThrow(() => controller.destroy());
+  assert.equal(panel.destroyCalls, 1);
+  assert.equal(tray.destroyCalls, 1);
+});
+
+test("tray probe failures preserve the first error while panel cleanup continues", () => {
+  const firstFailure = new Error("initial tray probe failed");
+  const finalFailure = new Error("final tray probe failed");
+  const { controller, panel, tray } = createFixture();
+  let probeCalls = 0;
+  let recovered = false;
+  tray.isDestroyed = () => {
+    if (recovered) {
+      return tray.destroyed;
+    }
+    probeCalls += 1;
+    throw probeCalls === 1 ? firstFailure : finalFailure;
+  };
+
+  assert.throws(
+    () => controller.destroy(),
+    (error) => error === firstFailure
+  );
+
+  assert.equal(probeCalls, 2);
+  assert.equal(panel.destroyCalls, 1);
+  assert.equal(tray.destroyCalls, 1);
+  assert.equal(controller.ownsSender(panel.webContents), false);
+
+  recovered = true;
+  assert.doesNotThrow(() => controller.destroy());
+  assert.doesNotThrow(() => controller.destroy());
+  assert.equal(panel.destroyCalls, 1);
+  assert.equal(tray.destroyCalls, 1);
+});
+
 test("controller paths tolerate an independently destroyed Tray", async () => {
   const { calls, controller, panel, tray } = createFixture();
   await settlePromises();

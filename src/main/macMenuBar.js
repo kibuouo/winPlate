@@ -264,30 +264,45 @@ function createMacMenuBar(dependencies) {
       pendingRefresh = false;
       pendingShow = false;
       let firstError;
+      function captureError(error) {
+        firstError ??= error;
+      }
       function attempt(operation) {
         try {
           operation();
         } catch (error) {
-          firstError ??= error;
+          captureError(error);
+        }
+      }
+      function probeDestroyed(resource) {
+        try {
+          return resource.isDestroyed();
+        } catch (error) {
+          captureError(error);
+          return undefined;
         }
       }
 
-      if (!panel.isDestroyed()) {
+      const panelWasDestroyed = probeDestroyed(panel);
+      const trayWasDestroyed = probeDestroyed(tray);
+      if (panelWasDestroyed !== true) {
         attempt(() => panel.removeListener("blur", hide));
       }
-      if (!tray.isDestroyed()) {
+      if (trayWasDestroyed !== true) {
         attempt(() => tray.removeListener("click", handleClick));
         attempt(() => tray.removeListener("right-click", handleRightClick));
       }
 
-      if (!panel.isDestroyed()) {
+      if (panelWasDestroyed !== true) {
         attempt(() => panel.destroy());
       }
-      if (!tray.isDestroyed()) {
+      if (trayWasDestroyed !== true) {
         attempt(() => tray.destroy());
       }
 
-      destroyed = panel.isDestroyed() && tray.isDestroyed();
+      const panelIsDestroyed = probeDestroyed(panel);
+      const trayIsDestroyed = probeDestroyed(tray);
+      destroyed = panelIsDestroyed === true && trayIsDestroyed === true;
       if (firstError) {
         throw firstError;
       }
