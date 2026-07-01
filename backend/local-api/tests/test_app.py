@@ -24,6 +24,14 @@ class DatabaseTests(unittest.TestCase):
     def tearDown(self):
         self.notification_sync_patch.stop()
 
+    def test_cross_language_contract_schemas_are_versioned_and_closed(self):
+        schemas = Path(__file__).resolve().parents[3] / "packages" / "shared-types" / "schemas"
+        for name in ("notification", "status-module", "usage"):
+            schema = json.loads((schemas / f"{name}.v1.schema.json").read_text(encoding="utf-8"))
+            self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
+            self.assertIn("schemaVersion", schema["required"])
+            self.assertFalse(schema["additionalProperties"])
+
     def test_database_path_uses_and_creates_explicit_data_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             data_directory = Path(directory) / "nested" / "winplate"

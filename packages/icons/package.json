@@ -2,6 +2,12 @@
   "name": "@winplate/icons",
   "version": "0.1.0",
   "private": true,
+  "main": "./smartNotificationIconKeys.js",
+  "exports": {
+    ".": "./smartNotificationIconKeys.js",
+    "./smartNotificationIconKeys": "./smartNotificationIconKeys.js",
+    "./electron/smartNotificationIcons": "./electron/smartNotificationIcons.js"
+  },
   "scripts": {
     "test": "node --test"
   }

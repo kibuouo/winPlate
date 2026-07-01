@@ -6,13 +6,13 @@
   if (globalScope) globalScope.WinPlateModuleRegistry = api;
 })(typeof window !== "undefined" ? window : globalThis, () => {
   const MODULES = Object.freeze([
-    { id: "github", title: "GitHub", section: "GitHub", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 10, defaultRefreshSeconds: 300, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
-    { id: "codex", title: "Codex", section: "Codex", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 20, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 600, configurable: true },
-    { id: "notifications", title: "Notifications", section: "Notifications", views: ["detail", "floating"], defaultEnabled: true, defaultOrder: 40, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 1800, configurable: true },
-    { id: "mail", title: "Mail", section: "Mail", views: ["detail"], defaultEnabled: true, defaultOrder: 30, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 1800, configurable: true },
-    { id: "weather", title: "QWeather", section: "QWeather", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 60, defaultRefreshSeconds: 600, minRefreshSeconds: 60, maxRefreshSeconds: 3600, configurable: true },
-    { id: "heart", title: "Heart", section: "Heart", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 50, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
-    { id: "network", title: "Network", section: null, views: ["floating"], defaultEnabled: true, defaultOrder: 70, defaultRefreshSeconds: 2, minRefreshSeconds: 1, maxRefreshSeconds: 60, configurable: true }
+    { schemaVersion: 1, id: "github", title: "GitHub", section: "GitHub", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 10, defaultRefreshSeconds: 300, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
+    { schemaVersion: 1, id: "codex", title: "Codex", section: "Codex", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 20, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 600, configurable: true },
+    { schemaVersion: 1, id: "notifications", title: "Notifications", section: "Notifications", views: ["detail", "floating"], defaultEnabled: true, defaultOrder: 40, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 1800, configurable: true },
+    { schemaVersion: 1, id: "mail", title: "Mail", section: "Mail", views: ["detail"], defaultEnabled: true, defaultOrder: 30, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 1800, configurable: true },
+    { schemaVersion: 1, id: "weather", title: "QWeather", section: "QWeather", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 60, defaultRefreshSeconds: 600, minRefreshSeconds: 60, maxRefreshSeconds: 3600, configurable: true },
+    { schemaVersion: 1, id: "heart", title: "Heart", section: "Heart", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 50, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
+    { schemaVersion: 1, id: "network", title: "Network", section: null, views: ["floating"], defaultEnabled: true, defaultOrder: 70, defaultRefreshSeconds: 2, minRefreshSeconds: 1, maxRefreshSeconds: 60, configurable: true }
   ]);
 
   const MODULE_BY_ID = new Map(MODULES.map((module) => [module.id, module]));

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winplate.local/schemas/usage.v1.schema.json",
+  "title": "WinPlate usage summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "source", "status", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "source": { "type": "string" },
+    "status": { "type": "string" },
+    "configured": { "type": "boolean" },
+    "available": { "type": "boolean" },
+    "remainingPct": { "type": ["number", "null"] },
+    "usedPct": { "type": ["number", "null"] },
+    "resetText": { "type": ["string", "null"] },
+    "resetClock": { "type": ["string", "null"] },
+    "updatedAt": { "type": ["number", "null"] },
+    "raw": { "type": "string" },
+    "windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fiveHour": { "$ref": "#/$defs/usageWindow" },
+        "sevenDay": { "$ref": "#/$defs/usageWindow" }
+      }
+    },
+    "tokenUsage": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "balances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["currency", "totalBalance", "grantedBalance", "toppedUpBalance"],
+        "properties": {
+          "currency": { "type": "string" },
+          "totalBalance": { "type": "string" },
+          "grantedBalance": { "type": "string" },
+          "toppedUpBalance": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "usageWindow": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["remainingPct", "usedPct"],
+      "properties": {
+        "remainingPct": { "type": ["number", "null"] },
+        "usedPct": { "type": ["number", "null"] },
+        "resetText": { "type": ["string", "null"] },
+        "resetClock": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

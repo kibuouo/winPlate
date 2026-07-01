@@ -146,6 +146,7 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   let level = normalizeLevel(item.level);
   if (lifecycle === "resolved") level = "success";
   const notification = {
+    schemaVersion: 1,
     id,
     source,
     sourceId,

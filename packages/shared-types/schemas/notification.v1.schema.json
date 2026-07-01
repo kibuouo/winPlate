@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winplate.local/schemas/notification.v1.schema.json",
+  "title": "WinPlate normalized notification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "source",
+    "sourceId",
+    "type",
+    "title",
+    "body",
+    "level",
+    "createdAt",
+    "unread",
+    "dedupeKey",
+    "meta",
+    "actions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string" },
+    "source": { "type": "string" },
+    "sourceId": { "type": "string" },
+    "type": { "type": "string" },
+    "title": { "type": "string" },
+    "body": { "type": "string" },
+    "level": { "type": "string", "enum": ["info", "success", "warning", "critical"] },
+    "createdAt": { "type": "number" },
+    "unread": { "type": "boolean" },
+    "dedupeKey": { "type": "string" },
+    "meta": { "type": "object", "additionalProperties": true },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "label", "payload"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "label": { "type": "string" },
+          "payload": { "type": "object", "additionalProperties": true }
+        }
+      }
+    }
+  }
+}

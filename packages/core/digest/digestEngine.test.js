@@ -18,8 +18,9 @@ test("normalizes supported sources into the RawNotification contract", () => {
     createdAt: 123
   });
   assert.deepEqual(Object.keys(item), [
-    "id", "source", "sourceId", "type", "title", "body", "level", "createdAt", "unread", "dedupeKey", "meta", "actions"
+    "schemaVersion", "id", "source", "sourceId", "type", "title", "body", "level", "createdAt", "unread", "dedupeKey", "meta", "actions"
   ]);
+  assert.equal(item.schemaVersion, 1);
   assert.equal(item.source, "mail");
   assert.equal(item.sourceId, "1");
   assert.equal(item.type, "mail");

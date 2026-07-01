@@ -2,6 +2,13 @@
   "name": "@winplate/shared-types",
   "version": "0.1.0",
   "private": true,
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./schemas/notification.v1.schema.json": "./schemas/notification.v1.schema.json",
+    "./schemas/status-module.v1.schema.json": "./schemas/status-module.v1.schema.json",
+    "./schemas/usage.v1.schema.json": "./schemas/usage.v1.schema.json"
+  },
   "scripts": {
     "test": "node --test"
   }

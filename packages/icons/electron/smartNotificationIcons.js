@@ -1,10 +1,11 @@
 (function exposeSmartNotificationIcons(root, factory) {
-  const api = typeof module !== "undefined" && module.exports
-    ? require("@winplate/icons/electron/smartNotificationIcons")
-    : factory(root.WinPlateSmartNotificationIconKeys);
+  const keysApi = typeof module !== "undefined" && module.exports
+    ? require("../smartNotificationIconKeys")
+    : root.WinPlateSmartNotificationIconKeys;
+  const api = factory(keysApi);
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.WinPlateSmartNotificationIcons = api;
-})(typeof window !== "undefined" ? window : null, function createBrowserSmartNotificationIcons(keysApi) {
+})(typeof window !== "undefined" ? window : null, function createSmartNotificationIcons(keysApi) {
   const { ICON_KEYS, isSmartNotificationIconKey, normalizeSmartNotificationIconKey } = keysApi;
   const ICON_BODIES = Object.freeze({
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"></path><path d="M10 18h4"></path>',
@@ -39,10 +40,12 @@
     tag: '<path d="M20 13 13 20l-10-10V3h7Z"></path><circle cx="7" cy="7" r="1"></circle>',
     sparkles: '<path d="M12 3.5 13.9 8.1 18.5 10 13.9 11.9 12 16.5 10.1 11.9 5.5 10 10.1 8.1 12 3.5Z"></path><path d="M19 3v4"></path><path d="M21 5h-4"></path><path d="M5 16v2"></path><path d="M6 17H4"></path>'
   });
+
   function renderSmartNotificationIcon(iconKey) {
     const key = normalizeSmartNotificationIconKey(iconKey);
     return `<svg class="notification-icon smart-notification-icon" data-icon-key="${key}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_BODIES[key]}</svg>`;
   }
+
   const RULES = [
     [/暴雨|强降雨|大雨/i, "cloud-rain-alert"],
     [/雷电|雷暴|闪电/i, "cloud-lightning"],
@@ -74,6 +77,7 @@
     weather: "bell", mail: "mail", development: "code", github: "github", system: "monitor",
     network: "wifi", finance: "wallet"
   });
+
   function resolveSmartNotificationIcon(notification = {}) {
     const content = [notification.title, notification.headline, notification.summary, notification.body, notification.category, notification.source]
       .filter(Boolean).join(" ");
@@ -87,6 +91,12 @@
     const categoryDefault = CATEGORY_DEFAULTS[String(notification.category || "").toLowerCase()];
     return sourceDefault || categoryDefault || "bell";
   }
+
+  const registryKeys = Object.keys(ICON_BODIES);
+  if (registryKeys.length !== ICON_KEYS.length || ICON_KEYS.some((key) => !ICON_BODIES[key])) {
+    throw new Error("Smart notification icon registry is incomplete");
+  }
+
   return {
     ICON_KEYS,
     SMART_NOTIFICATION_ICON_REGISTRY: ICON_BODIES,

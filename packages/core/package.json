@@ -12,5 +12,8 @@
   },
   "scripts": {
     "test": "node --test architecture.test.js digest/digestEngine.test.js module-registry/moduleRegistry.test.js notification/smartNotificationIconKeys.test.js"
+  },
+  "dependencies": {
+    "@winplate/icons": "0.1.0"
   }
 }

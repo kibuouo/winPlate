@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winplate.local/schemas/status-module.v1.schema.json",
+  "title": "WinPlate status module metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "section",
+    "views",
+    "defaultEnabled",
+    "defaultOrder",
+    "defaultRefreshSeconds",
+    "minRefreshSeconds",
+    "maxRefreshSeconds",
+    "configurable"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "section": { "type": ["string", "null"] },
+    "views": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["dashboard", "detail", "floating"] }
+    },
+    "defaultEnabled": { "type": "boolean" },
+    "defaultOrder": { "type": "number" },
+    "defaultRefreshSeconds": { "type": "number" },
+    "minRefreshSeconds": { "type": "number" },
+    "maxRefreshSeconds": { "type": "number" },
+    "configurable": { "type": "boolean" }
+  }
+}

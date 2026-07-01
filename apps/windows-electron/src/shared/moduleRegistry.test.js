@@ -7,6 +7,7 @@ test("registers each current module with a complete scheduling contract", () => 
     "github", "codex", "notifications", "mail", "weather", "heart", "network"
   ]);
   MODULES.forEach((module) => {
+    assert.equal(module.schemaVersion, 1);
     assert.equal(typeof module.title, "string");
     assert.ok(Array.isArray(module.views));
     assert.ok(module.defaultRefreshSeconds >= module.minRefreshSeconds);
