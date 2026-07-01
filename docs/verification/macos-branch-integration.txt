@@ -1,0 +1,57 @@
+< 9e41c9b chore: ignore local worktrees
+< fbf15d9 docs: plan multi-platform monorepo migration
+< f89e2b4 docs: design multi-platform monorepo architecture
+> 4358528 test: isolate QWeather response fixtures
+> 469b025 Merge origin/main into codex/macos-menu-bar
+> 3e86ad9 docs: record dual-platform CI acceptance
+> 4191b39 fix: make settings writes portable
+> df58894 docs: verify macOS system integrations
+> ef26dbf docs: verify isolated source recovery
+> d7b0054 docs: capture current macOS runtime evidence
+> 37a368b fix: initialize macOS menu panel scripts
+> 16f947e fix: align macOS Dock icon scale
+> e30622a docs: refresh macOS runtime evidence
+> c244dbc fix: make settings persistence transactional
+> eb85ab4 fix: harden native surface lifecycle
+> 06e91a6 docs: remove unsafe runtime evidence
+> 6c0d880 docs: correct runtime evidence audit
+> dfd927a docs: verify the dual-platform application
+> 910a053 docs: clarify secret settings boundary
+> 4509567 fix: honor empty process setting overrides
+> 90518d0 ci: verify WinPlate on Windows and macOS
+> 6563f4b fix: harden macOS renderer interactions
+> 6476840 feat: adapt the main window for macOS
+> 0c4ad8f fix: preserve settings through transient failures
+> a290fd3 fix: migrate legacy Windows settings once
+> 48574a3 fix: preserve legacy settings at startup
+> 8ecd6f5 fix: preserve encrypted settings across saves
+> af54c11 test: verify settings IPC boundaries
+> 561b462 feat: integrate dual-platform settings lifecycle
+> 584945a fix: preserve encrypted service settings
+> ab86643 feat: encrypt persistent service settings
+> 145e5f1 fix: tolerate menu teardown probe failures
+> 4ed1ecb fix: quarantine failed menu teardown
+> 62894d4 fix: retry preference controller teardown
+> 53d7e75 feat: apply macOS preferences live
+> 4679730 fix: make app settings writes concurrency-safe
+> 8712f3f feat: persist macOS application preferences
+> ca6171a fix: reject destroyed main window senders
+> 8024426 feat: add native main window policies
+> 22ab293 docs: plan dual-platform completion
+> d7bf593 docs: specify dual-platform completion
+> 0cbe6de fix: reduce application icon scale
+> 499addc fix: use rounded application icon
+> eafa4e3 fix: use supplied status and app icons
+> 491a2b8 test: verify macOS menu bar experience
+> 77e513e feat: start WinPlate from the macOS menu bar
+> 495e1d8 feat: render the macOS menu status panel
+> 9161038 feat: add native macOS menu bar controller
+> 1397f97 feat: reduce macOS menu panel data
+> cc6e33c feat: normalize macOS menu bar state
+> 5fb045d chore: support macOS development startup
+> 22853a5 docs: plan macOS menu bar implementation
+> 3c6b33f docs: remove macOS desktop capsule
+> 1095be3 docs: specify macOS menu bar status panel
+> 250ae67 chore: ignore isolated worktrees
+> 2a34ca9 docs: plan Windows and macOS implementation
+> e4aca2f docs: specify Windows and macOS product architecture

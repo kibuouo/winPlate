@@ -1,8 +1,21 @@
-const { app, BrowserWindow, clipboard, ipcMain, nativeTheme, session, shell } = require("electron");
-const { execFile } = require("child_process");
+const {
+  app,
+  BrowserWindow,
+  clipboard,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  safeStorage,
+  screen,
+  session,
+  shell,
+  Tray
+} = require("electron");
+const { execFile } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
-const { promisify } = require("util");
+const { promisify } = require("node:util");
 const {
   createFloatingWindow,
   createMainWindow,
@@ -19,8 +32,13 @@ const {
   minimizeMainWindow,
   toggleMaximizeMainWindow,
   closeMainWindow,
+  ownsMainWindowSender,
   sendToWindow
 } = require("./windows");
+const { createActivationCoordinator } = require("./activationCoordinator");
+const { normalizeWeatherCoordinates } = require("./weatherCoordinates");
+const { createMacMenuBar } = require("./macMenuBar");
+const { startupPolicy } = require("./startupPolicy");
 const { createAppTray } = require("./tray");
 const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
@@ -33,6 +51,30 @@ const {
 } = require("./deepseekUsage");
 const { DEFAULT_MODEL: DEEPSEEK_CHAT_MODEL, callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
 const {
+  DEFAULT_APP_SETTINGS,
+  readAppSettings,
+  writeAppSettings,
+  applyLoginItemSetting
+} = require("./appSettings");
+const { readInitialAppSettings } = require("./appSettingsStartup");
+const { createAppPreferencesController } = require("./appPreferencesController");
+const {
+  DEFAULT_SERVICE_SETTINGS,
+  serviceSettingsFileExists,
+  readServiceSettings,
+  writeServiceSettings,
+  resolveServiceSettings,
+  publicServiceSettings,
+  toServiceEnvironment
+} = require("./serviceSettings");
+const { createServiceSettingsMigration } = require("./serviceSettingsMigration");
+const {
+  createServiceSettingsLifecycle,
+  safeObject
+} = require("./serviceSettingsLifecycle");
+const { registerSettingsIpc } = require("./settingsIpc");
+const { readWindowsServiceEnvironment } = require("./windowsEnvironment");
+const {
   readDeepSeekTokenUsage,
   recordDeepSeekTokenUsage
 } = require("./deepseekTokenUsage");
@@ -44,6 +86,8 @@ const { readSettings, writeSettings } = require("./settingsStore");
 const MODULES = validateMainModules().map((module) => module.meta);
 
 let tray;
+let appPreferences = null;
+const activationCoordinator = createActivationCoordinator(showMainWindow);
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
 const WEATHER_USAGE_CACHE_TTL_MS = 5 * 60_000;
@@ -53,6 +97,16 @@ const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const LOCAL_API_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
+const macAppIconPath = path.join(__dirname, "..", "..", "assets", "icon-macos.png");
+const processServiceEnvironment = Object.freeze({
+  QWEATHER_API_KEY: process.env.QWEATHER_API_KEY,
+  QWEATHER_API_HOST: process.env.QWEATHER_API_HOST,
+  QWEATHER_PROJECT_ID: process.env.QWEATHER_PROJECT_ID,
+  QWEATHER_CREDENTIAL_ID: process.env.QWEATHER_CREDENTIAL_ID,
+  QWEATHER_PRIVATE_KEY: process.env.QWEATHER_PRIVATE_KEY,
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL
+});
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
 let notificationDetailService = null;
@@ -129,6 +183,11 @@ async function fetchWeatherAlertById(alertId) {
     throw new Error(payload?.detail || `天气预警读取失败: HTTP ${response.status}`);
   }
   return response.json();
+}
+
+function quitApplication() {
+  setQuitting(true);
+  app.quit();
 }
 
 function setResponseCache(key, value) {
@@ -328,14 +387,38 @@ async function recordDeepSeekTokenUsageSafely(usage, feature = "unknown") {
     console.warn("deepseek token usage record failed:", error.message);
   }
 }
-
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", showMainWindow);
+  app.on("second-instance", activationCoordinator.onSecondInstance);
+  app.on("activate", activationCoordinator.onActivate);
 
   app.whenReady().then(async () => {
+    const userDataPath = app.getPath("userData");
+    const serviceSettingsMigration = await createServiceSettingsMigration({
+      platform: process.platform,
+      hasPersistedSettings: () => serviceSettingsFileExists(userDataPath),
+      readStoredSettings: () => readServiceSettings(userDataPath, safeStorage),
+      writeStoredSettings: (settings) => (
+        writeServiceSettings(userDataPath, settings, safeStorage)
+      ),
+      readLegacyEnvironment: () => readWindowsServiceEnvironment(execFileAsync),
+      resolveSettings: resolveServiceSettings,
+      reportError: (message) => console.error(message)
+    });
+    const serviceSettingsLifecycle = createServiceSettingsLifecycle({
+      defaults: DEFAULT_SERVICE_SETTINGS,
+      externalEnvironment: processServiceEnvironment,
+      targetEnvironment: process.env,
+      read: serviceSettingsMigration.read,
+      write: serviceSettingsMigration.write,
+      resolve: resolveServiceSettings,
+      publicProjection: publicServiceSettings,
+      toEnvironment: toServiceEnvironment,
+      reportError: (message) => console.error(message)
+    });
+
     try {
       await registerWindowsDesktopApp({
         app,
@@ -345,16 +428,20 @@ if (!gotLock) {
     } catch (error) {
       console.warn("WinPlate desktop app registration skipped:", error.message);
     }
+    if (process.platform === "darwin") {
+      app.dock.setIcon(nativeImage.createFromPath(macAppIconPath));
+    }
     session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === "geolocation");
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === "geolocation");
     });
+    await serviceSettingsLifecycle.loadForStartup();
     try {
       await startPythonService();
     } catch (error) {
       console.error(error.message);
     }
-    currentSettings = await readSettings(app.getPath("userData"));
+    currentSettings = await readSettings(userDataPath);
     const initialTheme = currentSettings.appearance.theme === "system"
       ? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
       : currentSettings.appearance.theme;
@@ -366,7 +453,7 @@ if (!gotLock) {
       const token = typeof github.token === "string" ? github.token.trim() : "";
       if (username) await writeUserEnvironment("WINPLATE_GITHUB_USERNAME", username);
       if (token) await writeUserEnvironment("GITHUB_TOKEN", token);
-      currentSettings = await writeSettings(app.getPath("userData"), settings);
+      currentSettings = await writeSettings(userDataPath, settings);
       setAppWindowOpacity(currentSettings.appearance.opacity);
       invalidateResponseCache("Status");
       const payload = await publicSettingsPayload();
@@ -378,7 +465,7 @@ if (!gotLock) {
       mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
     }));
     ipcMain.handle("appearance:save-settings", async (_event, settings) => {
-      currentSettings = await writeSettings(app.getPath("userData"), {
+      currentSettings = await writeSettings(userDataPath, {
         ...currentSettings,
         appearance: {
           ...currentSettings.appearance,
@@ -402,20 +489,83 @@ if (!gotLock) {
       };
     });
     createMainWindow(initialTheme);
-    createFloatingWindow();
     setAppWindowOpacity(currentSettings.appearance.opacity);
-
-    tray = createAppTray({
-      showMainWindow,
-      showFloatingWindow,
-      hideFloatingWindow,
-      quit: () => {
-        setQuitting(true);
-        app.quit();
-      }
+    activationCoordinator.markReady();
+    const policy = startupPolicy();
+    const initialAppSettings = await readInitialAppSettings({
+      read: () => readAppSettings(userDataPath),
+      defaults: DEFAULT_APP_SETTINGS,
+      reportError: (message) => console.error(message)
     });
 
+    appPreferences = createAppPreferencesController({
+      platform: policy.createMacMenuBar ? "darwin" : process.platform,
+      initialSettings: initialAppSettings,
+      createMenuBar: () => createMacMenuBar({
+        BrowserWindow,
+        Menu,
+        Tray,
+        nativeImage,
+        screen,
+        preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
+        rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
+        iconPath: path.join(__dirname, "..", "..", "assets", "menu-bar-template.png"),
+        actions: {
+          showMainWindow,
+          quit: quitApplication
+        }
+      }),
+      applyLoginItem: (enabled) => applyLoginItemSetting(app, enabled),
+      showMainWindow,
+      reportError: (error) => console.error(error.message)
+    });
+    appPreferences.apply(appPreferences.getSettings());
+
+    registerSettingsIpc({
+      ipcMain,
+      ownsMainWindowSender,
+      getAppPreferences: () => appPreferences,
+      userDataPath,
+      writeAppSettings,
+      serviceSettingsLifecycle,
+      normalizeDeepSeekBaseUrl,
+      defaultDeepSeekBaseUrl: DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl,
+      readDeepSeekUsage,
+      readDeepSeekTokenUsage,
+      publicServiceSettings,
+      safeObject
+    });
+
+    if (policy.createFloatingWindow) {
+      createFloatingWindow();
+      ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
+      ipcMain.on("floating:pin-interactive", (_event, value) => {
+        setFloatingPinInteractive(value);
+      });
+      ipcMain.on("tooltip:show", (_event, payload) => showTooltipWindow(payload));
+      ipcMain.on("tooltip:hide", hideTooltipWindow);
+    }
+
+    if (policy.createWindowsTray) {
+      tray = createAppTray({
+        showMainWindow,
+        showFloatingWindow,
+        hideFloatingWindow,
+        quit: quitApplication
+      });
+    }
+
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
+    ipcMain.on("menubar:update-temperature", (event, payload) => {
+      if (appPreferences?.ownsSender(event.sender)) {
+        appPreferences.setTemperature(payload);
+      }
+    });
+    ipcMain.on("menubar:hide", (event) => {
+      if (appPreferences?.ownsSender(event.sender)) {
+        appPreferences.hide();
+      }
+    });
     ipcMain.on("github:open-profile", (_event, url) => {
       if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
         shell.openExternal(url);
@@ -445,11 +595,7 @@ if (!gotLock) {
     ));
     ipcMain.handle("network:speed", () => readNetworkSpeed());
     ipcMain.handle("weather:set-location", async (_event, location) => {
-      const latitude = Number(location?.latitude);
-      const longitude = Number(location?.longitude);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        throw new Error("Invalid weather coordinates");
-      }
+      const { latitude, longitude } = normalizeWeatherCoordinates(location);
       const response = await fetch("http://127.0.0.1:8765/api/weather/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -491,51 +637,6 @@ if (!gotLock) {
       const weather = await response.json();
       broadcastStatusRefresh(weather);
       return weather;
-    });
-    ipcMain.handle("weather:get-settings", async () => {
-      const [apiKey, apiHost, projectId, credentialId, privateKey] = await Promise.all([
-        readUserEnvironment("QWEATHER_API_KEY"),
-        readUserEnvironment("QWEATHER_API_HOST"),
-        readUserEnvironment("QWEATHER_PROJECT_ID"),
-        readUserEnvironment("QWEATHER_CREDENTIAL_ID"),
-        readUserEnvironment("QWEATHER_PRIVATE_KEY")
-      ]);
-      return {
-        hasApiKey: Boolean(apiKey),
-        apiHost: apiHost || "devapi.qweather.com",
-        projectId,
-        credentialId,
-        hasPrivateKey: Boolean(privateKey)
-      };
-    });
-    ipcMain.handle("weather:save-settings", async (_event, settings) => {
-      const apiKey = typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
-      const apiHost = typeof settings?.apiHost === "string" ? settings.apiHost.trim() : "";
-      const projectId = typeof settings?.projectId === "string" ? settings.projectId.trim() : "";
-      const credentialId = typeof settings?.credentialId === "string" ? settings.credentialId.trim() : "";
-      const privateKey = typeof settings?.privateKey === "string" ? settings.privateKey.trim() : "";
-      if (!apiHost || !/^[a-z0-9.-]+$/i.test(apiHost)) {
-        throw new Error("API Host 格式无效");
-      }
-      const writes = [
-        writeUserEnvironment("QWEATHER_API_HOST", apiHost),
-        writeUserEnvironment("QWEATHER_PROJECT_ID", projectId),
-        writeUserEnvironment("QWEATHER_CREDENTIAL_ID", credentialId)
-      ];
-      if (apiKey) {
-        writes.push(writeUserEnvironment("QWEATHER_API_KEY", apiKey));
-      }
-      if (privateKey) {
-        writes.push(writeUserEnvironment("QWEATHER_PRIVATE_KEY", privateKey));
-      }
-      await Promise.all(writes);
-      return {
-        hasApiKey: Boolean(apiKey || await readUserEnvironment("QWEATHER_API_KEY")),
-        apiHost,
-        projectId,
-        credentialId,
-        hasPrivateKey: Boolean(privateKey || await readUserEnvironment("QWEATHER_PRIVATE_KEY"))
-      };
     });
     ipcMain.handle("weather:get-usage", () => (
       fetchJsonCached(
@@ -767,59 +868,11 @@ if (!gotLock) {
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
-    ipcMain.handle("deepseek:get-settings", async () => {
-      const [apiKey, baseUrl] = await Promise.all([
-        readUserEnvironment("DEEPSEEK_API_KEY"),
-        readUserEnvironment("DEEPSEEK_BASE_URL")
-      ]);
-      return {
-        hasApiKey: Boolean(apiKey),
-        baseUrl: normalizeDeepSeekBaseUrl(baseUrl || DEEPSEEK_DEFAULT_BASE_URL)
-      };
-    });
-    ipcMain.handle("deepseek:save-settings", async (_event, settings) => {
-      const apiKey = typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
-      const baseUrl = normalizeDeepSeekBaseUrl(settings?.baseUrl || DEEPSEEK_DEFAULT_BASE_URL);
-      let parsed;
-      try {
-        parsed = new URL(baseUrl);
-      } catch {
-        throw new Error("DeepSeek Base URL 格式无效");
-      }
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-        throw new Error("DeepSeek Base URL 必须是 HTTPS 地址");
-      }
-      const writes = [writeUserEnvironment("DEEPSEEK_BASE_URL", baseUrl)];
-      if (apiKey) writes.push(writeUserEnvironment("DEEPSEEK_API_KEY", apiKey));
-      await Promise.all(writes);
-      return {
-        hasApiKey: Boolean(apiKey || await readUserEnvironment("DEEPSEEK_API_KEY")),
-        baseUrl
-      };
-    });
-    ipcMain.handle("deepseek:usage", async (_event, options) => {
-      const [apiKey, baseUrl] = await Promise.all([
-        readUserEnvironment("DEEPSEEK_API_KEY"),
-        readUserEnvironment("DEEPSEEK_BASE_URL")
-      ]);
-      const usage = await readDeepSeekUsage({
-        ...options,
-        apiKey,
-        baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL
-      });
-      return {
-        ...usage,
-        tokenUsage: await readDeepSeekTokenUsage(app.getPath("userData"))
-      };
-    });
     ipcMain.handle("deepseek:test-chat", async () => {
-      const [apiKey, baseUrl] = await Promise.all([
-        readUserEnvironment("DEEPSEEK_API_KEY"),
-        readUserEnvironment("DEEPSEEK_BASE_URL")
-      ]);
+      const settings = serviceSettingsLifecycle.effectiveSettings();
       return testDeepSeekChat({
-        apiKey,
-        baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL,
+        apiKey: settings.deepseekApiKey,
+        baseUrl: settings.deepseekBaseUrl || DEEPSEEK_DEFAULT_BASE_URL,
         onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, "testChat")
       });
     });
@@ -827,17 +880,12 @@ if (!gotLock) {
     ipcMain.on("window:minimize", minimizeMainWindow);
     ipcMain.handle("window:toggle-maximize", toggleMaximizeMainWindow);
     ipcMain.on("window:close", closeMainWindow);
-    ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
-    ipcMain.on("floating:pin-interactive", (_event, value) => {
-      setFloatingPinInteractive(value);
-    });
-    ipcMain.on("tooltip:show", (_event, payload) => showTooltipWindow(payload));
-    ipcMain.on("tooltip:hide", hideTooltipWindow);
-    app.on("activate", showMainWindow);
   });
 
   app.on("before-quit", () => {
     setQuitting(true);
+    appPreferences?.destroy();
+    appPreferences = null;
     stopPythonService();
   });
   app.on("window-all-closed", (event) => event.preventDefault());

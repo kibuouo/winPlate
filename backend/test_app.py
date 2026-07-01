@@ -9,6 +9,7 @@ from email.message import EmailMessage
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
@@ -32,6 +33,55 @@ class DatabaseTests(unittest.TestCase):
     def test_environment_setting_prefers_process_environment(self):
         with patch.dict(main.os.environ, {"QWEATHER_API_KEY": "process-key"}):
             self.assertEqual(main.environment_setting("QWEATHER_API_KEY"), "process-key")
+
+    def test_environment_setting_treats_present_empty_process_value_as_authoritative(self):
+        winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(),
+            QueryValueEx=MagicMock(),
+        )
+        with (
+            patch.dict(main.os.environ, {"QWEATHER_API_KEY": ""}),
+            patch.object(main.os, "name", "nt"),
+            patch.dict(sys.modules, {"winreg": winreg}),
+        ):
+            self.assertEqual(
+                main.environment_setting("QWEATHER_API_KEY", "default-key"),
+                "",
+            )
+        winreg.OpenKey.assert_not_called()
+
+    def test_environment_setting_reads_legacy_windows_value_only_when_absent(self):
+        key = MagicMock()
+        winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(return_value=key),
+            QueryValueEx=MagicMock(return_value=("legacy-key", 1)),
+        )
+        with (
+            patch.dict(main.os.environ, {}, clear=True),
+            patch.object(main.os, "name", "nt"),
+            patch.dict(sys.modules, {"winreg": winreg}),
+        ):
+            self.assertEqual(main.environment_setting("QWEATHER_API_KEY"), "legacy-key")
+        winreg.OpenKey.assert_called_once_with(winreg.HKEY_CURRENT_USER, "Environment")
+        winreg.QueryValueEx.assert_called_once_with(key.__enter__.return_value, "QWEATHER_API_KEY")
+
+    def test_environment_setting_uses_default_when_legacy_windows_read_fails(self):
+        winreg = SimpleNamespace(
+            HKEY_CURRENT_USER=object(),
+            OpenKey=MagicMock(side_effect=FileNotFoundError),
+            QueryValueEx=MagicMock(),
+        )
+        with (
+            patch.dict(main.os.environ, {}, clear=True),
+            patch.object(main.os, "name", "nt"),
+            patch.dict(sys.modules, {"winreg": winreg}),
+        ):
+            self.assertEqual(
+                main.environment_setting("QWEATHER_API_KEY", "default-key"),
+                "default-key",
+            )
 
     def test_environment_setting_prefers_registry_for_truncated_windows_private_key(self):
         registry_key = MagicMock()
@@ -88,7 +138,12 @@ class DatabaseTests(unittest.TestCase):
         main.DATABASE_PATH = original_path
 
     def test_build_github_status_maps_profile_repository_and_contributions(self):
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 6, 12, tzinfo=timezone.utc)
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now
+
         today = now.date().isoformat()
         yesterday = (now.date() - timedelta(days=1)).isoformat()
         responses = {
@@ -107,6 +162,7 @@ class DatabaseTests(unittest.TestCase):
         with (
             patch.object(main, "github_request", side_effect=lambda path: responses[path]),
             patch.object(main, "github_contribution_days", return_value={yesterday: 2, today: 3}),
+            patch.object(main, "datetime", FixedDateTime),
         ):
             result = main.build_github_status("octocat")
         self.assertEqual(result["username"], "@octocat")
@@ -443,6 +499,7 @@ class DatabaseTests(unittest.TestCase):
                 "QWEATHER_API_KEY": "key",
                 "QWEATHER_API_HOST": "example.com",
             }.get(name, default)),
+            patch.object(main, "record_qweather_request"),
             patch.object(main, "urlopen", return_value=response),
         ):
             self.assertEqual(main.qweather_request("/test", {}), payload)
@@ -509,6 +566,7 @@ class DatabaseTests(unittest.TestCase):
         with (
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "record_qweather_request"),
             patch.object(main, "urlopen", return_value=response) as mock_urlopen,
         ):
             result = main.qweather_official_stats()
@@ -547,6 +605,7 @@ class DatabaseTests(unittest.TestCase):
         with (
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "record_qweather_request"),
             patch.object(main, "urlopen", return_value=response),
         ):
             result = main.qweather_official_stats()
@@ -862,6 +921,7 @@ class DatabaseTests(unittest.TestCase):
                 with (
                     patch.dict(main.os.environ, {"LOCALAPPDATA": str(base)}),
                     patch.object(main.os, "name", "nt"),
+                    patch.object(main, "windows_notification_database_path", return_value=windows_db),
                 ):
                     summary = main.notification_summary()
                     self.assertEqual(summary["unreadCount"], 1)

@@ -1,7 +1,8 @@
 const path = require("path");
 const { BrowserWindow, screen } = require("electron");
+const { getMainWindowOptions } = require("./windowPolicy");
+const { normalizeMainSection } = require("./activationCoordinator");
 const { sendToWindow } = require("./windowMessaging");
-
 let floatingWindow;
 let mainWindow;
 let tooltipWindow;
@@ -18,6 +19,15 @@ const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 const NOTIFICATION_TOOLTIP_SIZE = { width: 320, height: 238 };
 let floatingPinned = false;
+function isLiveNativeSurface(surface) {
+  if (!surface) return false;
+  try {
+    return typeof surface.isDestroyed !== "function" || !surface.isDestroyed();
+  } catch {
+    return false;
+  }
+}
+
 function setFloatingPinned(value) {
   floatingPinned = Boolean(value);
 
@@ -60,6 +70,8 @@ function positionFloatingWindow() {
 }
 
 function createFloatingWindow() {
+  if (isLiveNativeSurface(floatingWindow)) return floatingWindow;
+
   floatingWindow = new BrowserWindow({
     width: FLOATING_WINDOW_WIDTH,
     height: 104,
@@ -74,12 +86,17 @@ function createFloatingWindow() {
     icon: iconPath,
     webPreferences: secureWebPreferences()
   });
+  const createdWindow = floatingWindow;
 
   floatingWindow.loadFile(rendererPath, { query: { view: "floating" } });
-  floatingWindow.once("ready-to-show", () => floatingWindow.show());
+  floatingWindow.once("ready-to-show", () => {
+    if (isLiveNativeSurface(createdWindow)) createdWindow.show();
+  });
   floatingWindow.on("closed", () => {
-    hideTooltipWindow();
-    floatingWindow = null;
+    if (floatingWindow === createdWindow) {
+      hideTooltipWindow();
+      floatingWindow = null;
+    }
   });
   positionFloatingWindow();
 
@@ -87,6 +104,8 @@ function createFloatingWindow() {
 }
 
 function createTooltipWindow() {
+  if (isLiveNativeSurface(tooltipWindow)) return tooltipWindow;
+
   tooltipWindow = new BrowserWindow({
     width: CODEX_TOOLTIP_SIZE.width,
     height: CODEX_TOOLTIP_SIZE.height,
@@ -105,8 +124,9 @@ function createTooltipWindow() {
   tooltipWindow.setAlwaysOnTop(true, "screen-saver");
   tooltipWindow.setIgnoreMouseEvents(true);
   tooltipWindow.loadFile(rendererPath, { query: { view: "tooltip" } });
+  const createdWindow = tooltipWindow;
   tooltipWindow.on("closed", () => {
-    tooltipWindow = null;
+    if (tooltipWindow === createdWindow) tooltipWindow = null;
   });
   return tooltipWindow;
 }
@@ -117,7 +137,7 @@ function showTooltipWindow({ anchor, data }) {
   }
 
   tooltipVisible = true;
-  const window = tooltipWindow || createTooltipWindow();
+  const window = createTooltipWindow();
   const floatingBounds = floatingWindow && !floatingWindow.isDestroyed()
     ? floatingWindow.getBounds()
     : null;
@@ -192,47 +212,48 @@ function hideTooltipWindow() {
 
 function createMainWindow(initialTheme = "dark") {
   const dark = initialTheme !== "light";
-  mainWindow = new BrowserWindow({
-    width: 1080,
-    height: 720,
-    minWidth: 860,
-    minHeight: 560,
-    show: false,
-    backgroundColor: dark ? "#202123" : "#ffffff",
-    title: "WinPlate",
+  if (isLiveNativeSurface(mainWindow)) {
+    if (process.platform === "win32") {
+      mainWindow.setBackgroundColor(dark ? "#202123" : "#ffffff");
+    }
+    return mainWindow;
+  }
+
+  mainWindow = new BrowserWindow(getMainWindowOptions(process.platform, {
     icon: iconPath,
-    autoHideMenuBar: true,
-    frame: false,
+    dark,
     webPreferences: secureWebPreferences()
-  });
+  }));
+  const createdWindow = mainWindow;
 
   mainWindow.loadFile(rendererPath, { query: { view: "main" } });
   mainWindow.once("ready-to-show", () => {
-    if (mainWindow.__showWhenReady) {
-      mainWindow.show();
-      mainWindow.focus();
-      sendToWindow(mainWindow, "main:navigate", mainWindow.__pendingSection || "Dashboard");
-      mainWindow.__showWhenReady = false;
-      mainWindow.__pendingSection = null;
+    if (createdWindow.__showWhenReady && isLiveNativeSurface(createdWindow)) {
+      createdWindow.show();
+      createdWindow.focus();
+      sendToWindow(createdWindow, "main:navigate", createdWindow.__pendingSection || "Dashboard");
+      createdWindow.__showWhenReady = false;
+      createdWindow.__pendingSection = null;
     }
   });
   mainWindow.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
-      mainWindow.hide();
+      if (isLiveNativeSurface(createdWindow)) createdWindow.hide();
     }
   });
   mainWindow.on("closed", () => {
-    mainWindow = null;
+    if (mainWindow === createdWindow) mainWindow = null;
   });
-  mainWindow.on("maximize", () => sendToWindow(mainWindow, "window:maximized", true));
-  mainWindow.on("unmaximize", () => sendToWindow(mainWindow, "window:maximized", false));
+  mainWindow.on("maximize", () => sendToWindow(createdWindow, "window:maximized", true));
+  mainWindow.on("unmaximize", () => sendToWindow(createdWindow, "window:maximized", false));
 
   return mainWindow;
 }
 
 function setMainWindowTheme(theme) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.platform !== "win32") return;
   const dark = theme !== "light";
   mainWindow.setBackgroundColor(dark ? "#202123" : "#ffffff");
   mainWindow.setBackgroundMaterial?.("none");
@@ -244,6 +265,15 @@ function setAppWindowOpacity(value) {
     if (window && !window.isDestroyed()) window.setOpacity(opacity);
   });
   return opacity;
+}
+
+function ownsMainWindowSender(sender) {
+  return Boolean(
+    mainWindow
+    && !mainWindow.isDestroyed()
+    && !mainWindow.webContents.isDestroyed()
+    && sender === mainWindow.webContents
+  );
 }
 
 function minimizeMainWindow() {
@@ -262,27 +292,26 @@ function closeMainWindow() {
 
 function normalizeMainNavigation(sectionOrPayload) {
   if (typeof sectionOrPayload === "string" && sectionOrPayload.trim()) {
-    return { section: sectionOrPayload.trim() };
+    return normalizeMainSection(sectionOrPayload);
   }
   if (sectionOrPayload && typeof sectionOrPayload === "object") {
-    const section = typeof sectionOrPayload.section === "string" && sectionOrPayload.section.trim()
-      ? sectionOrPayload.section.trim()
-      : "Dashboard";
-    return {
-      section,
+    const navigation = {
+      section: normalizeMainSection(sectionOrPayload.section),
       moduleId: typeof sectionOrPayload.moduleId === "string" ? sectionOrPayload.moduleId : null,
       source: typeof sectionOrPayload.source === "string" ? sectionOrPayload.source : null,
       sourceId: typeof sectionOrPayload.sourceId === "string" ? sectionOrPayload.sourceId : null,
       notificationId: typeof sectionOrPayload.notificationId === "string" ? sectionOrPayload.notificationId : null
     };
+    return Object.values(navigation).some((value, index) => index > 0 && value !== null)
+      ? navigation
+      : navigation.section;
   }
-  return { section: "Dashboard" };
+  return "Dashboard";
 }
 
 function showMainWindow(section = "Dashboard") {
   const targetNavigation = normalizeMainNavigation(section);
-
-  if (!mainWindow) {
+  if (!isLiveNativeSurface(mainWindow)) {
     createMainWindow();
   }
 
@@ -298,7 +327,7 @@ function showMainWindow(section = "Dashboard") {
 }
 
 function showFloatingWindow() {
-  if (!floatingWindow) {
+  if (!isLiveNativeSurface(floatingWindow)) {
     createFloatingWindow();
   } else {
     floatingWindow.show();
@@ -315,6 +344,7 @@ function setQuitting(value) {
 
 module.exports = {
   createFloatingWindow,
+  createTooltipWindow,
   createMainWindow,
   showMainWindow,
   showFloatingWindow,
@@ -323,6 +353,7 @@ module.exports = {
   hideTooltipWindow,
   setQuitting,
   setMainWindowTheme,
+  ownsMainWindowSender,
   setAppWindowOpacity,
   minimizeMainWindow,
   toggleMaximizeMainWindow,
