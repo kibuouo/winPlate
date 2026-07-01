@@ -6,6 +6,8 @@
   "description": "A native status center for Windows and macOS built with Electron.",
   "main": "src/main/main.js",
   "workspaces": [
+    "apps/windows-electron",
+    "apps/macos/electron-menubar",
     "packages/core",
     "packages/shared-types",
     "packages/icons"
