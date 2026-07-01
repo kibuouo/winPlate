@@ -38,6 +38,13 @@ classic-script lexical collision that prevented `menubar.js` from initializing;
 renderer in one classic-script scope. After the fix, the cold-start panel had one
 listener on each action, refreshed, navigated, and dismissed correctly.
 
+Partial-source recovery used a temporary HTTPS server bound only to
+`127.0.0.1:9443`, a one-day self-signed certificate, a dummy API key, and a
+fictional CNY 12.34 balance. TLS verification was disabled only in that isolated
+test process. DeepSeek transitioned `Normal → Unavailable → Normal`; the panel
+kept the last successful balance during the failure while Codex and weather
+remained unavailable.
+
 ## macOS checklist
 
 | Runtime item | Result | Direct evidence |
@@ -57,7 +64,7 @@ listener on each action, refreshed, navigated, and dismissed correctly.
 | Keyboard focus visibility | pass | Tab traversal reached Open WinPlate, Refresh, then Settings in order. [The current-head focus capture](../qa/2026-07-01-macos-keyboard-focus-current.png) shows the visible blue focus ring. |
 | Service configuration and redaction | pass | Isolated dummy QWeather and DeepSeek values saved successfully. Renderer returns contained only `hasApiKey` plus public Host/URL; [dark Settings](../qa/2026-07-01-macos-settings-dark-current.png) shows configured flags and blank secret fields. `rg` found neither dummy plaintext in the isolated user-data directory; `service-settings.json` contained ciphertext only. |
 | Service-settings restart persistence | pass | After a complete app/backend restart with the same isolated user-data directory, both services returned `hasApiKey: true`, their public Host/URL, and no secret. Theme and menu-enabled settings also persisted. |
-| Partial/offline recovery | incomplete | The isolated current-head panel directly displayed total-outage fallbacks while retaining all actions, and the backend remained healthy. A partial-source transition followed by live recovery was not directly observed. |
+| Partial/offline recovery | pass | The isolated current-head panel displayed total-outage fallbacks while retaining all actions. A local dummy DeepSeek source then produced [the partial-success state](../qa/2026-07-01-macos-partial-source-current.png); stopping it changed only DeepSeek to unavailable while retaining ¥12.34, and restarting it restored Active without rebuilding the panel. |
 
 After capture, the development WinPlate process and child backend were stopped.
 An independent final check found no listener on port 8765.
@@ -90,7 +97,7 @@ are **incomplete**. Local policy tests do not substitute for those jobs.
 | One integrated branch contains the approved Windows and macOS experiences | Startup/window policy and renderer tests pass on the integrated branch; README documents both. No Windows runtime host was available. | incomplete |
 | macOS native main window, persisted menu/login preferences, durable service configuration, and no capsule path/setting | Native chrome, menu recreation, service configuration/redaction, and restart persistence now have direct evidence. Launch-at-login remains confirmation-gated and unobserved. | incomplete |
 | Windows retains main window, Tray, capsule, pin, tooltip, startup behavior | Focused Windows policy/static tests pass. | incomplete — Windows runtime unavailable |
-| Both platforms share FastAPI/SQLite and recover from partial/complete failure | Current-head macOS FastAPI health and repeated status reads returned 200 while the isolated panel showed complete-outage fallbacks. Focused backend/reducer tests pass, but Windows and a direct partial-failure-to-recovery transition remain absent. | incomplete |
+| Both platforms share FastAPI/SQLite and recover from partial/complete failure | Current-head macOS FastAPI health and repeated status reads returned 200; direct total-outage fallback and isolated `Normal → Unavailable → Normal` source recovery both passed. Windows runtime evidence remains absent. | incomplete |
 | Security, accessibility, lifecycle, persistence requirements have focused tests | `npm run check` passed 220 total focused tests (7 precheck + 213 main), including the new real-browser classic-script collision regression, activation coordination, sender ownership, CSP, semantic controls, transactional rollback, encryption/redaction, lifecycle, and persistence. | pass |
 | Node/backend checks pass on macOS and Windows CI | Local macOS checks pass; workflow exists. No remote workflow run exists. | incomplete |
 | macOS and Windows runtime checklists have direct evidence | Partial macOS direct evidence is linked above; Windows has none. | incomplete |
@@ -105,10 +112,8 @@ are **incomplete**. Local policy tests do not substitute for those jobs.
   persistence; it was intentionally not changed here.
 - With explicit system-appearance authorization, capture the current panel under
   native dark appearance and restore the original appearance.
-- Exercise a partial-source failure followed by live recovery in the isolated
-  configuration and retain direct evidence.
 
 Overall status: **DONE_WITH_CONCERNS** — the current macOS runtime, native pixels,
 panel interactions, keyboard path, encrypted settings, and restart persistence
-are directly verified. External Windows, remote CI, launch-at-login, native dark
-panel, and partial-failure recovery evidence remain incomplete.
+are directly verified. External Windows, remote CI, launch-at-login, and native
+dark-panel evidence remain incomplete.
