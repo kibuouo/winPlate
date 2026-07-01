@@ -483,6 +483,9 @@ test("macOS uses the supplied status artwork and rounded application icon while 
     path.join(__dirname, "..", "..", "assets", "icon.png")
   );
 
+  assert.equal(appIcon.readUInt32BE(16), 1024);
+  assert.equal(appIcon.readUInt32BE(20), 1024);
+
   assert.match(main, /"assets",\s*"icon-transparent\.png"/);
   assert.match(main, /app\.dock\.setIcon\(nativeImage\.createFromPath\(appIconPath\)\)/);
   assert.match(tray, /"assets",\s*"icon\.png"/);
@@ -494,7 +497,7 @@ test("macOS uses the supplied status artwork and rounded application icon while 
   );
   assert.equal(
     crypto.createHash("sha256").update(appIcon).digest("hex"),
-    "0e23755d77628c8a3ea06bca96065a9faf2bf369f4510ce0e344c19bc0f20ec2"
+    "332d86ee4577e3d93589a2bc75f8519754d68ee64e52119e988e46503e3819e3"
   );
 });
 
