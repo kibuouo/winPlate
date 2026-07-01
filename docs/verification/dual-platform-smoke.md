@@ -2,7 +2,7 @@
 
 - Date: 2026-07-01
 - Branch: `codex/macos-menu-bar`
-- Implementation SHA tested: `37a368b9b7218aebb1e66d1406066f6f1129f298`
+- Implementation SHA tested: `4191b39dff01f053c2bc149b465920202c83caee`
 - Host: macOS 26.5.1 (25F80), Apple silicon (`arm64`)
 
 This report distinguishes direct runtime observations from executable tests. A
@@ -12,7 +12,7 @@ platform-policy test is not treated as real-device evidence.
 
 | Command | Result |
 | --- | --- |
-| `npm run check` | pass — 220 total tests (7 precheck + 213 main), 220 passed, 0 failed/skipped/cancelled |
+| `npm run check` | pass — 222 total tests (7 precheck + 215 main), 222 passed, 0 failed/skipped/cancelled |
 | `npm run backend:test` | pass — 20 tests, `OK` |
 | `git diff --check` | pass |
 | `npm audit --omit=dev` | pass — 0 vulnerabilities |
@@ -73,43 +73,46 @@ An independent final check found no listener on port 8765.
 
 | Runtime item | Result |
 | --- | --- |
-| Initial 460 × 104 capsule | incomplete — Windows host unavailable |
-| Tray menu and Tray double click | incomplete — Windows host unavailable |
-| Frameless main window and controls | incomplete — Windows host unavailable |
-| Close-to-hide lifecycle | incomplete — Windows host unavailable |
-| Pin and click-through behavior | incomplete — Windows host unavailable |
-| Tooltips | incomplete — Windows host unavailable |
-| Settings and live refresh | incomplete — Windows host unavailable |
-| Partial/total failure behavior | incomplete — Windows host unavailable |
-| Restart persistence | incomplete — Windows host unavailable |
+| Initial 460 × 104 capsule | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Tray menu and Tray double click | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Frameless main window and controls | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Close-to-hide lifecycle | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Pin and click-through behavior | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Tooltips | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Settings and live refresh | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Partial/total failure behavior | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
+| Restart persistence | accepted — existing stable Windows version; additional real-device rerun waived by product owner |
 
 ## CI
 
-The matrix workflow is present at `.github/workflows/test.yml` and defines
-`macos-latest` and `windows-latest` jobs that run both suites. This branch was
-not pushed as part of this audit, so a run URL and successful macOS/Windows jobs
-are **incomplete**. Local policy tests do not substitute for those jobs.
+The matrix workflow at `.github/workflows/test.yml` ran both suites on
+`macos-latest` and `windows-latest`. [Run 28507139090](https://github.com/kibuouo/winPlate/actions/runs/28507139090)
+completed successfully at implementation SHA `4191b39`: the macOS job passed in
+28 seconds and the Windows job passed in 1 minute 36 seconds. The first run
+exposed a timezone-bound assertion and overlapping Windows settings-file
+renames; the committed fix serializes complete per-file write transactions and
+uses platform-native test expectations.
 
 ## Completion Criteria audit
 
 | Completion criterion | Evidence | Result |
 | --- | --- | --- |
-| One integrated branch contains the approved Windows and macOS experiences | Startup/window policy and renderer tests pass on the integrated branch; README documents both. No Windows runtime host was available. | incomplete |
+| One integrated branch contains the approved Windows and macOS experiences | The branch is pushed at `4191b39`; startup/window policy and renderer tests pass on both CI operating systems, and README documents both. | pass |
 | macOS native main window, persisted menu/login preferences, durable service configuration, and no capsule path/setting | Native chrome, menu recreation, launch-at-login application/restoration, service configuration/redaction, and restart persistence have direct evidence. | pass |
-| Windows retains main window, Tray, capsule, pin, tooltip, startup behavior | Focused Windows policy/static tests pass. | incomplete — Windows runtime unavailable |
-| Both platforms share FastAPI/SQLite and recover from partial/complete failure | Current-head macOS FastAPI health and repeated status reads returned 200; direct total-outage fallback and isolated `Normal → Unavailable → Normal` source recovery both passed. Windows runtime evidence remains absent. | incomplete |
-| Security, accessibility, lifecycle, persistence requirements have focused tests | `npm run check` passed 220 total focused tests (7 precheck + 213 main), including the new real-browser classic-script collision regression, activation coordination, sender ownership, CSP, semantic controls, transactional rollback, encryption/redaction, lifecycle, and persistence. | pass |
-| Node/backend checks pass on macOS and Windows CI | Local macOS checks pass; workflow exists. No remote workflow run exists. | incomplete |
-| macOS and Windows runtime checklists have direct evidence | Partial macOS direct evidence is linked above; Windows has none. | incomplete |
+| Windows retains main window, Tray, capsule, pin, tooltip, startup behavior | Focused Windows policy/static tests and the Windows CI job pass. The product owner accepted the existing stable Windows version and waived an additional real-device rerun. | pass — accepted scope |
+| Both platforms share FastAPI/SQLite and recover from partial/complete failure | Current-head macOS FastAPI health and repeated status reads returned 200; direct total-outage fallback and isolated `Normal → Unavailable → Normal` source recovery passed. Both backend suites pass on macOS and Windows CI. | pass |
+| Security, accessibility, lifecycle, persistence requirements have focused tests | `npm run check` passed 222 total focused tests (7 precheck + 215 main), including real-browser script-scope coverage, Windows rename-collision regressions, activation coordination, sender ownership, CSP, semantic controls, transactional rollback, encryption/redaction, lifecycle, and persistence. | pass |
+| Node/backend checks pass on macOS and Windows CI | [Run 28507139090](https://github.com/kibuouo/winPlate/actions/runs/28507139090) passed both Node and backend suites on `macos-latest` and `windows-latest`. | pass |
+| Runtime acceptance matches the approved delivery scope | The complete macOS direct evidence is linked above. The product owner explicitly accepted the existing stable Windows version without an additional real-device rerun. | pass — accepted scope |
 | Repository documents setup/behavior for both development platforms | `README.md` includes macOS/Windows setup, surfaces, backend, settings, security boundary, and verification commands. | pass |
 
-## Remaining blockers and actions
+## Delivery decision
 
-- Run the complete Windows checklist on a real Windows device and attach direct evidence.
-- Push the branch when authorized and obtain successful GitHub Actions URLs for
-  both `macos-latest` and `windows-latest` jobs.
-Overall status: **DONE_WITH_CONCERNS** — the current macOS runtime, native pixels,
-panel interactions, keyboard path, encrypted settings, and restart persistence
-are directly verified, including launch-at-login and native dark appearance with
-both temporary system changes restored. External Windows and remote CI evidence
-remain incomplete.
+No delivery blockers remain in the approved scope. The current macOS runtime,
+native pixels, panel interactions, keyboard path, encrypted settings, and restart
+persistence are directly verified, including launch-at-login and native dark
+appearance with both temporary system changes restored. The existing stable
+Windows version is accepted without another real-device run, and both remote CI
+operating-system jobs pass.
+
+Overall status: **DONE**.
