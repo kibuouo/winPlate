@@ -111,7 +111,7 @@ function updatePanelDom() {
     elements.weatherIcon.removeAttribute("src");
     elements.weatherIcon.alt = "";
   } else {
-    elements.weatherIcon.src = `../../node_modules/qweather-icons/icons/${icon}.svg`;
+    elements.weatherIcon.src = `../../assets/qweather-icons/icons/${icon}.svg`;
     elements.weatherIcon.alt = `${weather.condition}天气图标`;
   }
 

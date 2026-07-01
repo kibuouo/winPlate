@@ -1357,7 +1357,7 @@ function weatherDateTime(now = new Date()) {
 
 function weatherIconMarkup(iconCode, className = "weather-icon") {
   const code = /^\d{3,4}$/.test(String(iconCode || "")) ? String(iconCode) : "999";
-  return `<img class="${className}" src="../../node_modules/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
+  return `<img class="${className}" src="../../assets/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
 }
 
 function bindWeatherIconFallbacks(root = document) {
@@ -1365,7 +1365,7 @@ function bindWeatherIconFallbacks(root = document) {
     const showFallback = () => {
       if (image.dataset.fallbackApplied === "true") return;
       image.dataset.fallbackApplied = "true";
-      image.src = "../../node_modules/qweather-icons/icons/999.svg";
+      image.src = "../../assets/qweather-icons/icons/999.svg";
     };
     image.addEventListener("error", showFallback, { once: true });
     if (image.complete && !image.naturalWidth) showFallback();

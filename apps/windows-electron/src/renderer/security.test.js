@@ -5,6 +5,12 @@ const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function assertRendererSvgExists(relativeUrl, label) {
+  const absolutePath = path.resolve(__dirname, relativeUrl);
+  assert.equal(fs.existsSync(absolutePath), true, `${label} is missing: ${absolutePath}`);
+  assert.match(fs.readFileSync(absolutePath, "utf8"), /<svg\b/);
+}
+
 function loadPreloadBridge() {
   const preload = fs.readFileSync(
     path.join(__dirname, "..", "preload", "menuBarPreload.js"),
@@ -827,7 +833,9 @@ test("menu bar uses semantic controls and real QWeather artwork", () => {
   assert.match(html, /<progress[^>]+id="codex-seven-day-progress"[^>]+max="100"/);
   assert.equal((html.match(/<button\b/g) || []).length, 4);
   assert.match(html, /<img[^>]+id="weather-icon"/);
-  assert.match(js, /\.\.\/\.\.\/node_modules\/qweather-icons\/icons\/\$\{icon\}\.svg/);
+  const iconTemplate = js.match(/elements\.weatherIcon\.src = `([^`]+)`/)?.[1];
+  assert.ok(iconTemplate, "menu bar weather icon URL template is missing");
+  assertRendererSvgExists(iconTemplate.replace("${icon}", "100"), "menu bar weather icon");
   assert.match(js, /\^\\d\{3\}\$/);
 });
 
@@ -1128,7 +1136,12 @@ test("weather location changes update every window without an implicit location 
 test("weather icons use the official local package SVGs and keep floating weather visible", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
-  assert.match(renderer, /return `<img class="\$\{className\}" src="\.\.\/\.\.\/node_modules\/qweather-icons\/icons\/\$\{code\}\.svg"/);
+  const iconTemplate = renderer.match(/src="([^"`]+\$\{code\}\.svg)"/)?.[1];
+  const fallbackUrl = renderer.match(/image\.src = "([^"]+999\.svg)"/)?.[1];
+  assert.ok(iconTemplate, "main renderer weather icon URL template is missing");
+  assert.ok(fallbackUrl, "main renderer weather icon fallback URL is missing");
+  assertRendererSvgExists(iconTemplate.replace("${code}", "100"), "main renderer weather icon");
+  assertRendererSvgExists(fallbackUrl, "main renderer fallback weather icon");
   assert.match(renderer, /weatherIconMarkup\("100", "qweather-service-icon"\)/);
   assert.doesNotMatch(renderer, /qweather-icons-color/);
   assert.doesNotMatch(renderer, /https:\/\/.*weather/i);
