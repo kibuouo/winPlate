@@ -38,7 +38,8 @@ const {
 } = require("./windows");
 const { createActivationCoordinator } = require("./activationCoordinator");
 const { normalizeWeatherCoordinates } = require("./weatherCoordinates");
-const { createMacMenuBar } = require("./macMenuBar");
+const { createMacMenuBar } = require("@winplate/macos-electron-menubar");
+const macMenuBarPaths = require("@winplate/macos-electron-menubar/paths");
 const { startupPolicy } = require("./startupPolicy");
 const { createAppTray } = require("./tray");
 const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
@@ -512,8 +513,8 @@ if (!gotLock) {
         Tray,
         nativeImage,
         screen,
-        preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
-        rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
+        preloadPath: macMenuBarPaths.preloadPath,
+        rendererPath: macMenuBarPaths.rendererPath,
         iconPath: assetPath("menu-bar-template.png"),
         actions: {
           showMainWindow,

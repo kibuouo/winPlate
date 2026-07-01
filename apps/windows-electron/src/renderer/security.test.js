@@ -4,6 +4,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const macMenuBarRoot = path.resolve(__dirname, "..", "..", "..", "macos", "electron-menubar", "src");
 
 function assertRendererSvgExists(relativeUrl, label) {
   const absolutePath = path.resolve(__dirname, relativeUrl);
@@ -13,7 +14,7 @@ function assertRendererSvgExists(relativeUrl, label) {
 
 function loadPreloadBridge() {
   const preload = fs.readFileSync(
-    path.join(__dirname, "..", "preload", "menuBarPreload.js"),
+    path.join(macMenuBarRoot, "preload", "menuBarPreload.js"),
     "utf8"
   );
   const listeners = new Map();
@@ -444,10 +445,10 @@ test("menu bar refresh subscription uses one exact channel and returns cleanup",
 
 test("menu bar classic scripts do not redeclare shared global lexical bindings", () => {
   const model = fs.readFileSync(
-    path.join(__dirname, "..", "shared", "menuBarModel.js"),
+    path.join(macMenuBarRoot, "shared", "menuBarModel.js"),
     "utf8"
   );
-  const renderer = fs.readFileSync(path.join(__dirname, "menubar.js"), "utf8");
+  const renderer = fs.readFileSync(path.join(macMenuBarRoot, "renderer", "menubar.js"), "utf8");
 
   assert.doesNotThrow(() => new vm.Script(`${model}\n${renderer}`));
 });
@@ -460,10 +461,10 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
     assert.match(electronImport, new RegExp(`\\b${dependency}\\b`));
   }
   assert.match(main, /const path = require\("node:path"\)/);
-  assert.match(main, /require\("\.\/macMenuBar"\)/);
+  assert.match(main, /require\("@winplate\/macos-electron-menubar"\)/);
   assert.match(main, /require\("\.\/startupPolicy"\)/);
   assert.equal((main.match(/startupPolicy\(\)/g) || []).length, 1);
-  assert.match(main, /"preload",\s*"menuBarPreload\.js"/);
+  assert.match(main, /macMenuBarPaths\.preloadPath/);
   assert.match(
     main,
     /assetPath\("menu-bar-template\.png"\)/,
@@ -616,9 +617,9 @@ test("automatic status refresh updates the existing main content DOM", () => {
 
 function readMenuBarRenderer() {
   return {
-    html: fs.readFileSync(path.join(__dirname, "menubar.html"), "utf8"),
-    css: fs.readFileSync(path.join(__dirname, "menubar.css"), "utf8"),
-    js: fs.readFileSync(path.join(__dirname, "menubar.js"), "utf8")
+    html: fs.readFileSync(path.join(macMenuBarRoot, "renderer", "menubar.html"), "utf8"),
+    css: fs.readFileSync(path.join(macMenuBarRoot, "renderer", "menubar.css"), "utf8"),
+    js: fs.readFileSync(path.join(macMenuBarRoot, "renderer", "menubar.js"), "utf8")
   };
 }
 
@@ -672,8 +673,8 @@ function createFakeElement(onRootReplacement) {
 }
 
 function createMenuBarHarness(options = {}) {
-  const renderer = fs.readFileSync(path.join(__dirname, "menubar.js"), "utf8");
-  const realModel = require("../shared/menuBarModel.js");
+  const renderer = fs.readFileSync(path.join(macMenuBarRoot, "renderer", "menubar.js"), "utf8");
+  const realModel = require(path.join(macMenuBarRoot, "shared", "menuBarModel.js"));
   const elements = new Map();
   const documentListeners = new Map();
   const intervals = [];
@@ -978,7 +979,7 @@ test("menu bar refresh isolates synchronous source failures and restores control
 });
 
 test("menu bar refresh logs unexpected reducer errors without rejecting", async () => {
-  const realModel = require("../shared/menuBarModel.js");
+  const realModel = require(path.join(macMenuBarRoot, "shared", "menuBarModel.js"));
   let reductions = 0;
   const harness = createMenuBarHarness({
     reducePanelState(...args) {
