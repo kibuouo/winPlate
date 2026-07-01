@@ -434,6 +434,16 @@ test("menu bar refresh subscription uses one exact channel and returns cleanup",
   assert.equal(listeners.has("menubar:refresh"), false);
 });
 
+test("menu bar classic scripts do not redeclare shared global lexical bindings", () => {
+  const model = fs.readFileSync(
+    path.join(__dirname, "..", "shared", "menuBarModel.js"),
+    "utf8"
+  );
+  const renderer = fs.readFileSync(path.join(__dirname, "menubar.js"), "utf8");
+
+  assert.doesNotThrow(() => new vm.Script(`${model}\n${renderer}`));
+});
+
 test("main startup imports native menu bar dependencies and gates platform UI", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
   const electronImport = main.match(/const\s*\{([^}]+)\}\s*=\s*require\("electron"\)/)?.[1] || "";

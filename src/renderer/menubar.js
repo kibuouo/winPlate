@@ -1,6 +1,9 @@
 "use strict";
 
-const { EMPTY_PANEL_STATE, reducePanelState } = window.WinPlateMenuBarModel;
+const {
+  EMPTY_PANEL_STATE: initialPanelState,
+  reducePanelState: reduceMenuBarPanelState
+} = window.WinPlateMenuBarModel;
 
 const panel = document.querySelector("#menu-bar-panel");
 const refreshButton = document.querySelector("#refresh-panel");
@@ -25,7 +28,7 @@ const elements = {
   weatherLocation: document.querySelector("#weather-location")
 };
 
-let panelState = EMPTY_PANEL_STATE;
+let panelState = initialPanelState;
 let refreshing = false;
 
 function formatUpdatedAt(value) {
@@ -135,7 +138,7 @@ async function refresh({ force = false } = {}) {
       Promise.resolve().then(() => window.winplate.getDeepSeekUsage({ force }))
     ]);
 
-    panelState = reducePanelState(panelState, {
+    panelState = reduceMenuBarPanelState(panelState, {
       status: settledResult(status),
       codex: settledResult(codex),
       deepseek: settledResult(deepseek)
