@@ -12,7 +12,7 @@ Windows 桌面悬浮状态板，聚合 GitHub、Codex、天气、通知、邮件
 </div>
 
 <p align="center">
-  <img src="./assets/winplate-ui-preview.png" alt="WinPlate 软件界面预览" width="690" />
+  <img src="./apps/windows-electron/assets/winplate-ui-preview.png" alt="WinPlate 软件界面预览" width="690" />
 </p>
 
 <p align="center">
@@ -290,7 +290,7 @@ Node.js 22 and Python 3.12.
 - API Key 保留在本地后端，不会暴露到渲染层
 
 Packaging remains future work and is out of scope for the current development
-build. The backend is intentionally isolated behind `src/main/pythonService.js`.
+build. The backend is intentionally isolated behind `apps/windows-electron/src/main/pythonService.js`.
 
 ### Python 解释器覆盖
 
@@ -305,12 +305,8 @@ npm run dev
 
 ```text
 winPlate/
-|- assets/        图标与 README 展示资源
+|- apps/windows-electron/ Electron 应用源码与平台资源
 |- backend/       FastAPI、天气、GitHub、邮件、SQLite
-|- src/main/      Electron 主进程、窗口、托盘、状态读取
-|- src/preload/   预加载桥接层
-|- src/renderer/  主界面、悬浮态、设置页与样式
-|- src/shared/    共享 mock 数据与常量
 |- docs/          模块开发与维护说明
 ```
 
@@ -328,7 +324,7 @@ winPlate/
 
 ## 打包方向
 
-后端已经通过 `src/main/pythonService.js` 与 Electron 主进程解耦，后续可以打包为单文件可执行程序：
+后端已经通过 `apps/windows-electron/src/main/pythonService.js` 与 Electron 主进程解耦，后续可以打包为单文件可执行程序：
 
 ```powershell
 python -m pip install pyinstaller

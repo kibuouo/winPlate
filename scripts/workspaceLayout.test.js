@@ -68,3 +68,10 @@ test('multi-platform workspace boundaries exist', () => {
     );
   }
 });
+
+test('Windows Electron source and assets live inside their application workspace', () => {
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'src')), false);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'assets')), false);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/windows-electron/src/main/main.js')), true);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/windows-electron/assets/icon.ico')), true);
+});

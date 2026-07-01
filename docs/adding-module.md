@@ -4,7 +4,7 @@ WinPlate 的模块由同一个 ID 贯穿渲染层、Electron 主进程和 Python
 
 ## 1. 注册元数据
 
-在 `src/shared/moduleRegistry.js` 增加 `ModuleMeta`：
+在 `apps/windows-electron/src/shared/moduleRegistry.js` 增加 `ModuleMeta`：
 
 ```js
 {
@@ -25,7 +25,7 @@ WinPlate 的模块由同一个 ID 贯穿渲染层、Electron 主进程和 Python
 
 ## 2. 实现渲染契约
 
-渲染模块必须通过 `src/renderer/modules/contract.mjs` 校验，并实现：
+渲染模块必须通过 `apps/windows-electron/src/renderer/modules/contract.mjs` 校验，并实现：
 
 ```js
 {
@@ -44,7 +44,7 @@ WinPlate 的模块由同一个 ID 贯穿渲染层、Electron 主进程和 Python
 
 ## 3. 注册数据边界
 
-- Electron IPC 边界登记在 `src/main/modules/index.js`。
+- Electron IPC 边界登记在 `apps/windows-electron/src/main/modules/index.js`。
 - Python 数据服务登记在 `backend/modules/registry.py`。
 - 已存在的 IPC 和 FastAPI 路径保持兼容；新模块可以增加路径，但不要复用其他模块的私有状态。
 

@@ -1,6 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+const { repositoryRoot, backendEntryPath } = require("./repositoryPaths");
 
 let backendProcess;
 
@@ -30,8 +31,8 @@ async function startPythonService() {
     return;
   }
 
-  const backendDir = path.join(__dirname, "..", "..", "backend");
-  const projectDir = path.join(backendDir, "..");
+  const backendDir = path.dirname(backendEntryPath);
+  const projectDir = repositoryRoot;
   const venvPython = process.platform === "win32"
     ? path.join(projectDir, ".venv", "Scripts", "python.exe")
     : path.join(projectDir, ".venv", "bin", "python");
