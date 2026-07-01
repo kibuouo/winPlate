@@ -499,6 +499,7 @@ class DatabaseTests(unittest.TestCase):
                 "QWEATHER_API_KEY": "key",
                 "QWEATHER_API_HOST": "example.com",
             }.get(name, default)),
+            patch.object(main, "record_qweather_request"),
             patch.object(main, "urlopen", return_value=response),
         ):
             self.assertEqual(main.qweather_request("/test", {}), payload)
@@ -565,6 +566,7 @@ class DatabaseTests(unittest.TestCase):
         with (
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "record_qweather_request"),
             patch.object(main, "urlopen", return_value=response) as mock_urlopen,
         ):
             result = main.qweather_official_stats()
@@ -603,6 +605,7 @@ class DatabaseTests(unittest.TestCase):
         with (
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "record_qweather_request"),
             patch.object(main, "urlopen", return_value=response),
         ):
             result = main.qweather_official_stats()
