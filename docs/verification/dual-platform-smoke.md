@@ -1,5 +1,11 @@
 # Dual-platform smoke verification
 
+> Historical branch evidence: this report covers the pre-integration macOS
+> branch at `4191b39dff01f053c2bc149b465920202c83caee`. It does not verify the
+> merged monorepo branch. Current local Windows integration results and the
+> exact pre-merge comparison are recorded in
+> `docs/verification/macos-branch-integration.txt`.
+
 - Date: 2026-07-01
 - Branch: `codex/macos-menu-bar`
 - Implementation SHA tested: `4191b39dff01f053c2bc149b465920202c83caee`

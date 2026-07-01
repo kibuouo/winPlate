@@ -1,3 +1,25 @@
+WinPlate macOS branch integration verification
+==============================================
+
+Verification timestamp: 2026-07-01T22:32:45+08:00 (Asia/Shanghai)
+Verification environment: local Windows worktree; this is not a matrix CI result.
+Integrated merge commit: de730290586be049a3acbadefb9e5f26fdcd08f2
+First parent (codex/monorepo-migration before merge): 9e41c9b5a70896f7a7dfc08a0ba795c3cca6ee62
+Second parent (origin/codex/macos-menu-bar): 4358528e2e915df523583e407cb17ed931ce38a7
+
+Post-merge verification at de730290586be049a3acbadefb9e5f26fdcd08f2:
+- npm run check: PASS (7 precheck tests and 307 unit tests; 0 failures)
+- npm run backend:test: PASS (51 tests; 0 failures)
+
+The raw comparison below was captured before the merge. Its exact command and
+endpoints were:
+
+  git log --left-right --cherry-pick --oneline codex/monorepo-migration...origin/codex/macos-menu-bar
+  left endpoint: codex/monorepo-migration at 9e41c9b5a70896f7a7dfc08a0ba795c3cca6ee62
+  right endpoint: origin/codex/macos-menu-bar at 4358528e2e915df523583e407cb17ed931ce38a7
+
+Raw pre-merge comparison output:
+
 < 9e41c9b chore: ignore local worktrees
 < fbf15d9 docs: plan multi-platform monorepo migration
 < f89e2b4 docs: design multi-platform monorepo architecture
