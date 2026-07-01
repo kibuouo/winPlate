@@ -18,7 +18,7 @@
     "backend": "node scripts/venvPython.js -m uvicorn winplate_local_api.main:api --app-dir backend/local-api --host 127.0.0.1 --port 8765 --reload --use-colors --log-config backend/local-api/logging.json",
     "frontend": "echo Frontend ready",
     "precheck": "npm run precheck --workspace @winplate/windows-electron",
-    "check": "npm run check --workspace @winplate/windows-electron && npm run test:layout && npm test --workspace @winplate/macos-electron-menubar --workspace @winplate/core --workspace @winplate/shared-types --workspace @winplate/icons",
+    "check": "npm run check --workspace @winplate/windows-electron && npm run test:layout && npm run check:syntax --workspace @winplate/macos-electron-menubar && npm test --workspace @winplate/macos-electron-menubar --workspace @winplate/core --workspace @winplate/shared-types --workspace @winplate/icons",
     "test:layout": "node --test scripts/workspaceLayout.test.js",
     "check:syntax": "npm run check:syntax --workspace @winplate/windows-electron && node --check scripts/venvPython.js",
     "test:unit": "node --test scripts/venvPython.test.js && npm run test:unit --workspace @winplate/windows-electron",

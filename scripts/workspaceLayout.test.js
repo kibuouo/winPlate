@@ -33,6 +33,12 @@ const expectedWorkspaceNames = new Map([
   ['packages/icons', '@winplate/icons'],
 ]);
 
+const architectureDocs = [
+  'docs/architecture.md',
+  'docs/notification-center.md',
+  'docs/platform-roadmap.md',
+];
+
 function readManifest(relativePath) {
   return JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, relativePath, 'package.json'), 'utf8'),
@@ -74,4 +80,12 @@ test('Windows Electron source and assets live inside their application workspace
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'assets')), false);
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/windows-electron/src/main/main.js')), true);
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/windows-electron/assets/icon.ico')), true);
+});
+
+test('README links every required architecture document', () => {
+  const readme = fs.readFileSync(path.join(repositoryRoot, 'README.md'), 'utf8');
+  for (const document of architectureDocs) {
+    assert.equal(fs.existsSync(path.join(repositoryRoot, document)), true, `missing ${document}`);
+    assert.match(readme, new RegExp(document.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
 });
