@@ -59,8 +59,8 @@ remained unavailable.
 | Close hides; Dock/menu action reopens | pass | Native close left main BrowserWindow id 1 `destroyed=false, visible=false` while the menu item remained. The repaired panel action then made the same main window visible immediately. |
 | Settings contains exactly Menu bar status and Launch at login, no capsule option | pass | [Current Settings capture](../qa/2026-07-01-macos-settings-current.png) shows exactly those two macOS Application toggles and no capsule setting. |
 | Menu-bar enable/disable recreates once | pass | Disabling removed status item window id 2037 and destroyed the panel; re-enabling created exactly one replacement item, id 2060. The setting was restored to enabled in the same session and persisted across restart. |
-| Launch at login applies/persists | incomplete | Deliberately not toggled: it changes a local system setting and no action-time confirmation was obtained. Focused normalization/application tests pass but are not runtime evidence. |
-| Light/dark legibility | incomplete | Current-head light and dark main-window captures are legible and the isolated Settings theme was restored to System. A current-head native dark-system menu-panel capture was not produced because changing the OS appearance requires separate system-setting authorization. |
+| Launch at login applies/persists | pass | With explicit confirmation, the isolated setting was changed from off to on. Electron reported the login item enabled, the renderer persisted `launchAtLogin: true`, and both remained on after a full restart. [The enabled-state capture](../qa/2026-07-01-macos-launch-at-login-enabled-current.png) shows the checked control. It was then restored to off; a second restart retained `launchAtLogin: false`, and System Events listed no WinPlate/Electron login item. |
+| Light/dark legibility | pass | Current-head light and dark main-window captures are legible. With explicit confirmation, macOS Appearance was temporarily changed from Auto to Dark; [the native dark-system panel capture](../qa/2026-07-01-macos-menu-panel-dark-current.png) shows legible status sections, neutral bars, and actions. Appearance was restored to the original Auto selection immediately afterward. |
 | Keyboard focus visibility | pass | Tab traversal reached Open WinPlate, Refresh, then Settings in order. [The current-head focus capture](../qa/2026-07-01-macos-keyboard-focus-current.png) shows the visible blue focus ring. |
 | Service configuration and redaction | pass | Isolated dummy QWeather and DeepSeek values saved successfully. Renderer returns contained only `hasApiKey` plus public Host/URL; [dark Settings](../qa/2026-07-01-macos-settings-dark-current.png) shows configured flags and blank secret fields. `rg` found neither dummy plaintext in the isolated user-data directory; `service-settings.json` contained ciphertext only. |
 | Service-settings restart persistence | pass | After a complete app/backend restart with the same isolated user-data directory, both services returned `hasApiKey: true`, their public Host/URL, and no secret. Theme and menu-enabled settings also persisted. |
@@ -95,7 +95,7 @@ are **incomplete**. Local policy tests do not substitute for those jobs.
 | Completion criterion | Evidence | Result |
 | --- | --- | --- |
 | One integrated branch contains the approved Windows and macOS experiences | Startup/window policy and renderer tests pass on the integrated branch; README documents both. No Windows runtime host was available. | incomplete |
-| macOS native main window, persisted menu/login preferences, durable service configuration, and no capsule path/setting | Native chrome, menu recreation, service configuration/redaction, and restart persistence now have direct evidence. Launch-at-login remains confirmation-gated and unobserved. | incomplete |
+| macOS native main window, persisted menu/login preferences, durable service configuration, and no capsule path/setting | Native chrome, menu recreation, launch-at-login application/restoration, service configuration/redaction, and restart persistence have direct evidence. | pass |
 | Windows retains main window, Tray, capsule, pin, tooltip, startup behavior | Focused Windows policy/static tests pass. | incomplete — Windows runtime unavailable |
 | Both platforms share FastAPI/SQLite and recover from partial/complete failure | Current-head macOS FastAPI health and repeated status reads returned 200; direct total-outage fallback and isolated `Normal → Unavailable → Normal` source recovery both passed. Windows runtime evidence remains absent. | incomplete |
 | Security, accessibility, lifecycle, persistence requirements have focused tests | `npm run check` passed 220 total focused tests (7 precheck + 213 main), including the new real-browser classic-script collision regression, activation coordination, sender ownership, CSP, semantic controls, transactional rollback, encryption/redaction, lifecycle, and persistence. | pass |
@@ -108,12 +108,8 @@ are **incomplete**. Local policy tests do not substitute for those jobs.
 - Run the complete Windows checklist on a real Windows device and attach direct evidence.
 - Push the branch when authorized and obtain successful GitHub Actions URLs for
   both `macos-latest` and `windows-latest` jobs.
-- With explicit action-time confirmation, observe launch-at-login application and
-  persistence; it was intentionally not changed here.
-- With explicit system-appearance authorization, capture the current panel under
-  native dark appearance and restore the original appearance.
-
 Overall status: **DONE_WITH_CONCERNS** — the current macOS runtime, native pixels,
 panel interactions, keyboard path, encrypted settings, and restart persistence
-are directly verified. External Windows, remote CI, launch-at-login, and native
-dark-panel evidence remain incomplete.
+are directly verified, including launch-at-login and native dark appearance with
+both temporary system changes restored. External Windows and remote CI evidence
+remain incomplete.
