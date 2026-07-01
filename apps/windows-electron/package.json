@@ -27,6 +27,7 @@
     "win": { "icon": "assets/icon.ico" }
   },
   "dependencies": {
+    "@winplate/core": "0.1.0",
     "qweather-icons": "^1.8.0",
     "strip-ansi": "^6.0.1"
   },

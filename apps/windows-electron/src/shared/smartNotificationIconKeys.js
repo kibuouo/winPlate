@@ -1,5 +1,7 @@
 (function exposeSmartNotificationIconKeys(root, factory) {
-  const api = factory();
+  const api = typeof module !== "undefined" && module.exports
+    ? require("@winplate/core/notification/smart-icon-keys")
+    : factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.WinPlateSmartNotificationIconKeys = api;
 })(typeof window !== "undefined" ? window : null, function createSmartNotificationIconKeys() {

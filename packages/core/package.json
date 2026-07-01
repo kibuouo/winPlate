@@ -2,7 +2,15 @@
   "name": "@winplate/core",
   "version": "0.1.0",
   "private": true,
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./digest": "./digest/index.js",
+    "./module-registry": "./module-registry/index.js",
+    "./notification": "./notification/index.js",
+    "./notification/smart-icon-keys": "./notification/smart-icon-keys.js"
+  },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test architecture.test.js digest/digestEngine.test.js module-registry/moduleRegistry.test.js notification/smartNotificationIconKeys.test.js"
   }
 }
