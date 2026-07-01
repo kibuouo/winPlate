@@ -15,7 +15,7 @@ test("captures process overrides and builds the migration store before lifecycle
   const migration = main.indexOf("await createServiceSettingsMigration({");
   const lifecycle = main.indexOf("createServiceSettingsLifecycle({");
   const load = main.indexOf("await serviceSettingsLifecycle.loadForStartup()");
-  const python = main.indexOf("await startPythonService()");
+  const python = main.indexOf("await startPythonService({");
 
   assert.notEqual(capture, -1);
   assert.notEqual(migration, -1);
@@ -30,6 +30,8 @@ test("captures process overrides and builds the migration store before lifecycle
   assert.match(main, /serviceSettingsFileExists/);
   assert.match(main, /readWindowsServiceEnvironment/);
   assert.match(main, /serviceSettingsLifecycle/);
+  assert.match(main, /isPackaged: app\.isPackaged/);
+  assert.match(main, /userDataPath: app\.getPath\("userData"\)/);
   assert.equal((main.match(/ipcMain\.handle\("deepseek:(?:get-settings|save-settings|usage)"/g) || []).length, 0);
 });
 

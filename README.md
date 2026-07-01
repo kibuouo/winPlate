@@ -324,14 +324,17 @@ winPlate/
 
 ## 打包方向
 
-后端已经通过 `apps/windows-electron/src/main/pythonService.js` 与 Electron 主进程解耦，后续可以打包为单文件可执行程序：
+后端已经通过 `apps/windows-electron/src/main/pythonService.js` 与 Electron 主进程解耦，
+但发行版仍需要明确提供后端运行时：
 
-```powershell
-python -m pip install pyinstaller
-pyinstaller --onefile --name winplate-backend backend/local-api/winplate_local_api/main.py
-```
+Electron Builder 会通过 `extraResources` 将 `backend/local-api` 复制到应用的
+`resources/backend/local-api`。当前仓库尚未捆绑 Python 解释器或后端可执行文件，
+因此开发模式使用仓库 `.venv`（或系统 Python）；打包模式必须通过
+`WINPLATE_PYTHON` 指向已安装且具备后端依赖的解释器，或由发行流程提供一个后端运行时。
 
-后续只需将生成的后端可执行文件作为 Electron 资源一并打包，并在生产模式切换启动入口即可。
+后端的 one-file 打包目前不是受支持的命令。要支持它，需要专用入口包装器和
+PyInstaller spec 来处理包内相对导入、依赖与资源；不要直接对 `main.py` 运行
+PyInstaller。
 
 ## 版本
 

@@ -24,6 +24,27 @@ class DatabaseTests(unittest.TestCase):
     def tearDown(self):
         self.notification_sync_patch.stop()
 
+    def test_database_path_uses_and_creates_explicit_data_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_directory = Path(directory) / "nested" / "winplate"
+
+            database_path = main.resolve_database_path(
+                environment={"WINPLATE_DATA_DIR": str(data_directory)}
+            )
+
+            self.assertEqual(database_path, data_directory / "winplate.db")
+            self.assertTrue(data_directory.is_dir())
+
+    def test_database_path_fallback_is_user_local_not_package_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            database_path = main.resolve_database_path(
+                environment={}, home=home, platform="linux"
+            )
+
+            self.assertEqual(database_path, home / ".local" / "share" / "WinPlate" / "winplate.db")
+            self.assertNotEqual(database_path.parent, Path(main.__file__).parent)
+
     def test_uvicorn_log_formats_include_timestamp(self):
         config = main.build_log_config()
         for formatter in config["formatters"].values():

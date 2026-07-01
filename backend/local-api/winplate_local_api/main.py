@@ -5,8 +5,10 @@ import os
 import re
 import email.utils
 import sqlite3
+import sys
 import threading
 import time
+from collections.abc import Mapping
 from copy import deepcopy
 from contextlib import closing
 from calendar import monthrange
@@ -32,7 +34,26 @@ from pydantic import BaseModel
 from .modules.registry import public_modules
 
 
-DATABASE_PATH = Path(__file__).with_name("winplate.db")
+def resolve_database_path(
+    environment: Mapping[str, str] = os.environ,
+    home: Path | None = None,
+    platform: str = sys.platform,
+) -> Path:
+    explicit_directory = environment.get("WINPLATE_DATA_DIR", "").strip()
+    user_home = home or Path.home()
+    if explicit_directory:
+        data_directory = Path(explicit_directory).expanduser()
+    elif platform == "win32":
+        data_directory = Path(environment.get("LOCALAPPDATA", user_home / "AppData" / "Local")) / "WinPlate"
+    elif platform == "darwin":
+        data_directory = user_home / "Library" / "Application Support" / "WinPlate"
+    else:
+        data_directory = Path(environment.get("XDG_DATA_HOME", user_home / ".local" / "share")) / "WinPlate"
+    data_directory.mkdir(parents=True, exist_ok=True)
+    return data_directory / "winplate.db"
+
+
+DATABASE_PATH = resolve_database_path()
 GITHUB_API_URL = "https://api.github.com"
 DEFAULT_GITHUB_USERNAME = "kibuouo"
 GITHUB_CACHE_SECONDS = 300

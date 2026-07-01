@@ -18,6 +18,12 @@
   },
   "build": {
     "appId": "com.kiko.winplate",
+    "extraResources": [
+      {
+        "from": "../../backend/local-api",
+        "to": "backend/local-api"
+      }
+    ],
     "win": { "icon": "assets/icon.ico" }
   },
   "dependencies": {

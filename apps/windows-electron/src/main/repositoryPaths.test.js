@@ -2,7 +2,12 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
 
-const { repositoryRoot, backendEntryPath, assetPath } = require('./repositoryPaths');
+const {
+  repositoryRoot,
+  backendEntryPath,
+  assetPath,
+  resolveBackendPaths
+} = require('./repositoryPaths');
 
 test('repository paths stay anchored when launched from the nested application directory', () => {
   const previousCwd = process.cwd();
@@ -19,4 +24,15 @@ test('repository paths stay anchored when launched from the nested application d
   } finally {
     process.chdir(previousCwd);
   }
+});
+
+test('packaged backend paths resolve below Electron resources', () => {
+  const resourcesPath = path.join('C:', 'Program Files', 'WinPlate', 'resources');
+  const paths = resolveBackendPaths({ isPackaged: true, resourcesPath });
+
+  assert.equal(paths.backendAppDir, path.join(resourcesPath, 'backend', 'local-api'));
+  assert.equal(
+    paths.backendEntryPath,
+    path.join(resourcesPath, 'backend', 'local-api', 'winplate_local_api', 'main.py')
+  );
 });

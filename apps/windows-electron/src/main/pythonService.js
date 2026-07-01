@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
-const { repositoryRoot, backendAppDir, backendLogConfigPath } = require("./repositoryPaths");
+const { repositoryRoot, resolveBackendPaths } = require("./repositoryPaths");
 
 let backendProcess;
 
@@ -26,7 +26,7 @@ async function waitForBackend() {
   throw new Error(`FastAPI failed to become ready: ${lastError?.message}`);
 }
 
-function backendPythonArgs() {
+function backendPythonArgs({ backendAppDir, backendLogConfigPath }) {
   return [
     "-m", "uvicorn", "winplate_local_api.main:api",
     "--app-dir", backendAppDir,
@@ -36,23 +36,73 @@ function backendPythonArgs() {
   ];
 }
 
-async function startPythonService() {
+function resolveBackendLaunch({
+  isPackaged = false,
+  resourcesPath,
+  userDataPath,
+  repositoryRoot: sourceRoot = repositoryRoot,
+  platform = process.platform,
+  env = process.env,
+  existsSync = fs.existsSync
+} = {}) {
+  const paths = resolveBackendPaths({ isPackaged, resourcesPath, repositoryRoot: sourceRoot });
+  const extension = platform === "win32" ? ".exe" : "";
+  const packagedExecutable = env.WINPLATE_BACKEND_EXECUTABLE
+    || (isPackaged ? path.join(resourcesPath, "backend", "bin", `winplate-backend${extension}`) : null);
+  if (packagedExecutable && existsSync(packagedExecutable)) {
+    return {
+      command: packagedExecutable,
+      args: [],
+      cwd: path.dirname(packagedExecutable),
+      env: userDataPath ? { WINPLATE_DATA_DIR: userDataPath } : {}
+    };
+  }
+
+  const venvPython = platform === "win32"
+    ? path.join(sourceRoot, ".venv", "Scripts", "python.exe")
+    : path.join(sourceRoot, ".venv", "bin", "python");
+  const bundledPython = !isPackaged
+    ? null
+    : platform === "win32"
+      ? path.join(resourcesPath, "python", "python.exe")
+      : path.join(resourcesPath, "python", "bin", "python3");
+  const configuredPython = env.WINPLATE_PYTHON;
+  let python;
+  if (configuredPython && (!isPackaged || existsSync(configuredPython))) {
+    python = configuredPython;
+  } else if (bundledPython && existsSync(bundledPython)) {
+    python = bundledPython;
+  } else if (!isPackaged) {
+    python = existsSync(venvPython) ? venvPython : (platform === "win32" ? "python" : "python3");
+  }
+  if (!python) {
+    throw new Error(
+      "No packaged WinPlate backend runtime was found. Set WINPLATE_BACKEND_EXECUTABLE, "
+      + "bundle backend/bin/winplate-backend, bundle resources/python, or set WINPLATE_PYTHON "
+      + "to an existing interpreter."
+    );
+  }
+  return {
+    command: python,
+    args: backendPythonArgs(paths),
+    cwd: isPackaged ? resourcesPath : sourceRoot,
+    env: userDataPath ? { WINPLATE_DATA_DIR: userDataPath } : {}
+  };
+}
+
+async function startPythonService(options = {}) {
   if (backendProcess && !backendProcess.killed) {
     return;
   }
 
-  const projectDir = repositoryRoot;
-  const venvPython = process.platform === "win32"
-    ? path.join(projectDir, ".venv", "Scripts", "python.exe")
-    : path.join(projectDir, ".venv", "bin", "python");
-  const python = process.env.WINPLATE_PYTHON
-    || (fs.existsSync(venvPython) ? venvPython : (process.platform === "win32" ? "python" : "python3"));
-  backendProcess = spawn(python, backendPythonArgs(), {
-    cwd: repositoryRoot,
+  const launch = resolveBackendLaunch(options);
+  backendProcess = spawn(launch.command, launch.args, {
+    cwd: launch.cwd,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
+      ...launch.env,
       FORCE_COLOR: "1",
       TERM: process.env.TERM || "xterm-256color"
     }
@@ -77,4 +127,4 @@ function stopPythonService() {
   backendProcess = null;
 }
 
-module.exports = { backendPythonArgs, startPythonService, stopPythonService };
+module.exports = { backendPythonArgs, resolveBackendLaunch, startPythonService, stopPythonService };

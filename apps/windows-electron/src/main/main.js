@@ -438,7 +438,11 @@ if (!gotLock) {
     });
     await serviceSettingsLifecycle.loadForStartup();
     try {
-      await startPythonService();
+      await startPythonService({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        userDataPath: app.getPath("userData")
+      });
     } catch (error) {
       console.error(error.message);
     }
