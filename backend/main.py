@@ -149,9 +149,18 @@ class NotificationDigestRecordPayload(BaseModel):
 
 
 def environment_setting(name: str, default: str | None = None) -> str | None:
-    value = os.getenv(name)
+    environment_has_value = name in os.environ
+    value = os.environ.get(name)
     if os.name != "nt":
-        return value or default
+        return value if environment_has_value else default
+    has_truncated_private_key = (
+        environment_has_value
+        and name.endswith("_PRIVATE_KEY")
+        and str(value or "").replace("\\n", "\n").strip().startswith("-----BEGIN ")
+        and "-----END " not in str(value or "").replace("\\n", "\n").strip()
+    )
+    if environment_has_value and not has_truncated_private_key:
+        return value
     try:
         import winreg
 
@@ -164,9 +173,9 @@ def environment_setting(name: str, default: str | None = None) -> str | None:
                 normalized_registry = registry_value.replace("\\n", "\n").strip()
                 if normalized_value.startswith("-----BEGIN ") and "-----END " not in normalized_value and "-----END " in normalized_registry:
                     return registry_value
-            return value or registry_value or default
+            return registry_value or default
     except (ImportError, FileNotFoundError, OSError):
-        return value or default
+        return value if environment_has_value else default
 
 
 def github_username() -> str:

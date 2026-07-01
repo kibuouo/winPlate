@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 http://localhost:8765"
+    >
+    <title>WinPlate 状态</title>
+    <link rel="stylesheet" href="menubar.css">
+  </head>
+  <body>
+    <main id="menu-bar-panel" class="panel" role="region" aria-label="WinPlate 状态面板">
+      <section id="codex-section" class="panel-section" aria-labelledby="codex-title">
+        <header class="section-header">
+          <div class="title-row">
+            <span id="codex-status-point" class="status-point inactive" aria-hidden="true"></span>
+            <h1 id="codex-title">Codex</h1>
+            <span id="codex-status-copy" class="status-copy">不可用 (Unavailable)</span>
+          </div>
+          <time id="codex-updated-at" class="updated-at">更新于 --</time>
+        </header>
+
+        <div class="usage-window">
+          <div class="usage-heading">
+            <label for="codex-five-hour-progress">5 小时剩余</label>
+            <strong id="codex-five-hour-percent" class="numeric">--%</strong>
+          </div>
+          <progress id="codex-five-hour-progress" max="100" value="0" aria-valuetext="不可用"></progress>
+          <p class="reset-copy">重置：<span id="codex-five-hour-reset">--</span></p>
+        </div>
+
+        <div class="usage-window">
+          <div class="usage-heading">
+            <label for="codex-seven-day-progress">7 天剩余</label>
+            <strong id="codex-seven-day-percent" class="numeric">--%</strong>
+          </div>
+          <progress id="codex-seven-day-progress" max="100" value="0" aria-valuetext="不可用"></progress>
+          <p class="reset-copy">重置：<span id="codex-seven-day-reset">--</span></p>
+        </div>
+      </section>
+
+      <section id="deepseek-section" class="panel-section" aria-labelledby="deepseek-title">
+        <header class="section-header">
+          <div class="title-row">
+            <span id="deepseek-status-point" class="status-point inactive" aria-hidden="true"></span>
+            <h2 id="deepseek-title">DeepSeek</h2>
+            <span id="deepseek-status-copy" class="status-copy">不可用 (Unavailable)</span>
+          </div>
+          <time id="deepseek-updated-at" class="updated-at">更新于 --</time>
+        </header>
+        <p class="balance-label">人民币余额</p>
+        <p id="deepseek-balance" class="balance numeric">¥--</p>
+        <button id="deepseek-configure" class="secondary-button" type="button" hidden>配置 DeepSeek</button>
+      </section>
+
+      <section id="weather-section" class="panel-section weather" aria-labelledby="weather-title">
+        <img id="weather-icon" class="weather-icon" alt="" hidden>
+        <div class="weather-reading">
+          <h2 id="weather-title" class="visually-hidden">天气</h2>
+          <p id="weather-temperature" class="temperature numeric">--°</p>
+          <p id="weather-condition" class="weather-condition">不可用</p>
+          <p id="weather-location" class="weather-location">--</p>
+        </div>
+      </section>
+
+      <footer id="panel-actions" class="panel-actions">
+        <button id="open-dashboard" class="primary-button" type="button">打开 WinPlate</button>
+        <button id="refresh-panel" class="secondary-button" type="button">刷新</button>
+        <button id="open-settings" class="secondary-button" type="button">设置</button>
+      </footer>
+    </main>
+    <script src="../shared/menuBarModel.js"></script>
+    <script src="menubar.js"></script>
+  </body>
+</html>

@@ -21,12 +21,16 @@ function resolveShortcutDetails(app, options = {}) {
     ? `"${appPath}"`
     : "";
 
+  const executableDirectory = /^[A-Za-z]:[\\/]/.test(executablePath)
+    ? path.win32.dirname(executablePath)
+    : path.dirname(executablePath);
+
   return {
     target: executablePath,
     args: argumentsValue,
     cwd: shouldUseAppPathArgument(app, processObject) && appPath
       ? appPath
-      : path.dirname(executablePath),
+      : executableDirectory,
     description: "WinPlate desktop status board",
     icon: iconPath,
     iconIndex: 0,

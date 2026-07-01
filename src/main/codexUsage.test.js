@@ -79,15 +79,22 @@ test("ignores the temporary limits refresh response", () => {
 
 test("maps app-server rate limits to the compact usage windows", () => {
   const now = Date.UTC(2026, 5, 13, 4, 0, 0);
+  const formatLocalClock = (value) => new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
+  const primaryReset = now + 2 * 60 * 60 * 1000;
+  const secondaryReset = now + 3 * 24 * 60 * 60 * 1000;
   const usage = parseRateLimitsResponse({
     rateLimits: {
       primary: {
         usedPercent: 18,
-        resetsAt: Math.floor((now + 2 * 60 * 60 * 1000) / 1000)
+        resetsAt: Math.floor(primaryReset / 1000)
       },
       secondary: {
         usedPercent: 36,
-        resetsAt: Math.floor((now + 3 * 24 * 60 * 60 * 1000) / 1000)
+        resetsAt: Math.floor(secondaryReset / 1000)
       }
     }
   }, now);
@@ -97,13 +104,13 @@ test("maps app-server rate limits to the compact usage windows", () => {
     remainingPct: 82,
     usedPct: 18,
     resetText: "2h",
-    resetClock: "14:00"
+    resetClock: formatLocalClock(primaryReset)
   });
   assert.deepEqual(usage.windows.sevenDay, {
     remainingPct: 64,
     usedPct: 36,
     resetText: "3d",
-    resetClock: "12:00"
+    resetClock: formatLocalClock(secondaryReset)
   });
   assert.equal(usage.source, "codex-app-server");
 });

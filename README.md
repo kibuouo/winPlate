@@ -1,5 +1,8 @@
 # WinPlate
 
+WinPlate is a native status center for Windows and macOS, built with Electron
+and a local FastAPI and SQLite backend.
+
 <div align="center">
 
 Windows 桌面悬浮状态板，聚合 GitHub、Codex、天气、通知、邮件与网络信息。
@@ -119,12 +122,33 @@ Electron Main
 
 ### 开发启动
 
-```powershell
-npm run venv:create
-npm run backend:install
+### macOS
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
 npm install
 npm run dev
 ```
+
+macOS starts one native menu bar item with an anchored panel and a native main
+window. It never creates the desktop capsule.
+
+### Windows (PowerShell)
+
+```powershell
+py -m venv .venv
+.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+npm install
+npm run dev
+```
+
+Windows starts the 460 × 104 desktop capsule, Windows Tray, and frameless main
+window.
+
+Electron starts `backend/main.py`, waits for `http://127.0.0.1:8765/api/health`,
+then creates the platform-specific shell. The renderer refreshes
+`GET /api/status` every 30 seconds.
 
 启动流程如下：
 
@@ -133,7 +157,11 @@ npm run dev
 3. 创建主窗口与悬浮窗口
 4. 渲染层按模块刷新；默认 Codex 30 秒、通知 60 秒、网络 2 秒，其余周期由设置中心管理
 
-如果仓库根目录存在 `.venv\Scripts\python.exe`，Electron 会优先使用它；不需要先手动激活虚拟环境。
+The setup scripts use `scripts/venvPython.js` to resolve `.venv/bin/python` on
+macOS and `.venv\Scripts\python.exe` on Windows. Electron uses those same
+platform paths when it starts the backend, so the virtual environment does not
+need to be activated before `npm run dev`. Set `WINPLATE_PYTHON` to an explicit
+interpreter path to override Electron's automatic resolution.
 
 如需手动激活：
 
@@ -174,19 +202,95 @@ npm run dev
 
 ### QWeather
 
-天气数据由本地后端请求 QWeather，并在本地缓存 10 分钟。
+## Platform and settings
+
+On macOS, Settings exposes `menuBarEnabled` and `launchAtLogin`.
+`menuBarEnabled` creates or removes the native menu bar item and panel;
+`launchAtLogin` controls whether WinPlate starts when you sign in. The Dock icon
+and native main window remain reachable even when the menu bar item is disabled.
+
+QWeather and DeepSeek are configured in the main window's Settings page on both
+platforms. Public fields are stored under Electron's `userData` directory.
+QWeather API keys/private keys and the DeepSeek API key are encrypted with
+Electron `safeStorage`. User-entered secrets exist in the renderer form and
+cross the narrow preload IPC boundary when saved. Persisted secret values are
+never returned to the renderer; settings reads expose only public values and
+configured flags. API requests use secrets only in privileged processes: the
+Electron main process or the local Python backend.
+
+Process environment variables are advanced overrides and take precedence over
+stored values on both platforms. The exact supported overrides are
+`QWEATHER_API_KEY`, `QWEATHER_API_HOST`, `QWEATHER_PROJECT_ID`,
+`QWEATHER_CREDENTIAL_ID`, `QWEATHER_PRIVATE_KEY`, `DEEPSEEK_API_KEY`, and
+`DEEPSEEK_BASE_URL`.
+
+For compatibility on Windows, the first startup with no encrypted settings file
+imports legacy values from `HKCU\Environment` into encrypted storage
+automatically. After a successful import, the registry is no longer read. If the
+encrypted import fails, the legacy values remain the current-session fallback
+and the import is retried later. WinPlate does not write new registry values.
+
+Restart WinPlate after changing QWeather credentials because the Python backend
+receives its environment at startup. A saved DeepSeek change may be used
+immediately by the Electron main-process request path, but restart if a result
+still reflects an earlier configuration.
+
+## QWeather
+
+Weather data is loaded by the Python backend and cached for ten minutes. Create a
+project and API key in the [QWeather console](https://console.qweather.com/),
+then open WinPlate's main window and enter its API Key and assigned API Host in
+Settings. Project ID, Credential ID, and an Ed25519 private key are optional and
+enable official usage statistics.
+
+For automation or temporary overrides, set process environment variables before
+starting WinPlate. For example, in PowerShell:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("QWEATHER_API_KEY", "your-api-key", "User")
-[Environment]::SetEnvironmentVariable("QWEATHER_API_HOST", "your-project-api-host", "User")
+$env:QWEATHER_API_KEY = "your-api-key"
+$env:QWEATHER_API_HOST = "your-project-api-host"
 npm run dev
 ```
+
+WinPlate requests system location permission and sends only the resulting
+coordinates to the local backend. `QWEATHER_LOCATION` is an optional process
+environment fallback when system location is unavailable; it accepts a city
+name or location ID. There is no default fallback location. The QWeather API key
+crosses the preload IPC boundary when the form is saved, but persisted settings
+reads return only its configured flag. Electron injects the effective key into
+the local Python backend at startup, where QWeather API requests are made.
+
+## DeepSeek
+
+Open the main window's Settings page and enter the DeepSeek API Key and Base URL
+(the default is `https://api.deepseek.com`). The key crosses the preload IPC
+boundary when the form is saved, but persisted settings reads return only its
+configured flag. DeepSeek API requests are made by the privileged Electron main
+process, never by renderer code. Advanced users can override the saved values for
+a launch with `DEEPSEEK_API_KEY` and `DEEPSEEK_BASE_URL` in the process
+environment.
+
+## Verification
+
+Run the same Node and Python suites used by CI:
+
+```sh
+npm run check
+npm run backend:test
+git diff --check
+```
+
+GitHub Actions runs both suites on `macos-latest` and `windows-latest` with
+Node.js 22 and Python 3.12.
 
 补充说明：
 
 - `QWEATHER_LOCATION` 可作为系统定位失败时的后备位置
 - 如果未授权定位且未配置后备位置，界面会提示手动设置城市
 - API Key 保留在本地后端，不会暴露到渲染层
+
+Packaging remains future work and is out of scope for the current development
+build. The backend is intentionally isolated behind `src/main/pythonService.js`.
 
 ### Python 解释器覆盖
 
