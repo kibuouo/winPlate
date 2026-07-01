@@ -99,7 +99,7 @@ Electron Main
   |- 读取 Codex CLI 状态
   |- 管理系统交互与 IPC
   |
-  |- FastAPI Backend (backend/main.py)
+  |- FastAPI Backend (backend/local-api/winplate_local_api/main.py)
       |- GitHub 数据拉取
       |- QWeather 天气与预警
       |- QQ Mail IMAP 摘要
@@ -126,7 +126,7 @@ Electron Main
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -r backend/requirements.txt
+.venv/bin/python -m pip install -r backend/local-api/requirements.txt
 npm install
 npm run dev
 ```
@@ -138,7 +138,7 @@ window. It never creates the desktop capsule.
 
 ```powershell
 py -m venv .venv
-.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+.venv\Scripts\python.exe -m pip install -r backend/local-api/requirements.txt
 npm install
 npm run dev
 ```
@@ -146,13 +146,13 @@ npm run dev
 Windows starts the 460 × 104 desktop capsule, Windows Tray, and frameless main
 window.
 
-Electron starts `backend/main.py`, waits for `http://127.0.0.1:8765/api/health`,
-then creates the platform-specific shell. The renderer refreshes
+Electron starts `winplate_local_api.main:api` from `backend/local-api`, waits for
+`http://127.0.0.1:8765/api/health`, then creates the platform-specific shell. The renderer refreshes
 `GET /api/status` every 30 seconds.
 
 启动流程如下：
 
-1. Electron 拉起本地 Python 后端 `backend/main.py`
+1. Electron 拉起本地 Python 后端 `backend/local-api/winplate_local_api/main.py`
 2. 等待 `http://127.0.0.1:8765/api/health` 返回正常
 3. 创建主窗口与悬浮窗口
 4. 渲染层按模块刷新；默认 Codex 30 秒、通知 60 秒、网络 2 秒，其余周期由设置中心管理
@@ -328,7 +328,7 @@ winPlate/
 
 ```powershell
 python -m pip install pyinstaller
-pyinstaller --onefile --name winplate-backend backend/main.py
+pyinstaller --onefile --name winplate-backend backend/local-api/winplate_local_api/main.py
 ```
 
 后续只需将生成的后端可执行文件作为 Electron 资源一并打包，并在生产模式切换启动入口即可。

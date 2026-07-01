@@ -29,10 +29,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-try:
-    from .modules.registry import public_modules
-except ImportError:
-    from modules.registry import public_modules
+from .modules.registry import public_modules
 
 
 DATABASE_PATH = Path(__file__).with_name("winplate.db")

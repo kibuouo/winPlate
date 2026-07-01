@@ -3,11 +3,9 @@ node_modules/
 npm-debug.log*
 .DS_Store
 .venv/
-backend/.venv/
-backend/__pycache__/
-__pycache__/
+backend/**/.venv/
+**/__pycache__/
 *.py[cod]
-backend/*.db
 *.db
 out/
 dist/

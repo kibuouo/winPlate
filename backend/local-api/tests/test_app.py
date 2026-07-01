@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
-import main
+from winplate_local_api import main
 
 
 class DatabaseTests(unittest.TestCase):

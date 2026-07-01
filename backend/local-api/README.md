@@ -1,3 +1,5 @@
 # Local API boundary
 
-This directory is the future boundary for the local API. The existing backend implementation remains in `backend/` until its dedicated migration task moves it here.
+The importable FastAPI application lives in `winplate_local_api/`, with tests in
+`tests/`. From the repository root, use `npm run backend` to start it on
+`127.0.0.1:8765` and `npm run backend:test` to run its unit tests.

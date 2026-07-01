@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
-const { repositoryRoot, backendEntryPath } = require("./repositoryPaths");
+const { repositoryRoot, backendAppDir, backendLogConfigPath } = require("./repositoryPaths");
 
 let backendProcess;
 
@@ -26,20 +26,29 @@ async function waitForBackend() {
   throw new Error(`FastAPI failed to become ready: ${lastError?.message}`);
 }
 
+function backendPythonArgs() {
+  return [
+    "-m", "uvicorn", "winplate_local_api.main:api",
+    "--app-dir", backendAppDir,
+    "--host", "127.0.0.1",
+    "--port", "8765",
+    "--log-config", backendLogConfigPath
+  ];
+}
+
 async function startPythonService() {
   if (backendProcess && !backendProcess.killed) {
     return;
   }
 
-  const backendDir = path.dirname(backendEntryPath);
   const projectDir = repositoryRoot;
   const venvPython = process.platform === "win32"
     ? path.join(projectDir, ".venv", "Scripts", "python.exe")
     : path.join(projectDir, ".venv", "bin", "python");
   const python = process.env.WINPLATE_PYTHON
     || (fs.existsSync(venvPython) ? venvPython : (process.platform === "win32" ? "python" : "python3"));
-  backendProcess = spawn(python, ["main.py"], {
-    cwd: backendDir,
+  backendProcess = spawn(python, backendPythonArgs(), {
+    cwd: repositoryRoot,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
@@ -68,4 +77,4 @@ function stopPythonService() {
   backendProcess = null;
 }
 
-module.exports = { startPythonService, stopPythonService };
+module.exports = { backendPythonArgs, startPythonService, stopPythonService };
