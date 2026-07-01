@@ -29,6 +29,7 @@ function registerSettingsIpc({
   normalizeDeepSeekBaseUrl,
   defaultDeepSeekBaseUrl,
   readDeepSeekUsage,
+  readDeepSeekTokenUsage,
   publicServiceSettings,
   safeObject
 }) {
@@ -144,7 +145,7 @@ function registerSettingsIpc({
     );
   });
 
-  ipcMain.handle("deepseek:usage", (event, options) => {
+  ipcMain.handle("deepseek:usage", async (event, options) => {
     const appPreferences = getAppPreferences();
     if (
       !ownsMainWindowSender(event.sender)
@@ -153,11 +154,15 @@ function registerSettingsIpc({
       throw new Error("Unauthorized usage sender");
     }
     const settings = serviceSettingsLifecycle.effectiveSettings();
-    return readDeepSeekUsage({
+    const usage = await readDeepSeekUsage({
       ...safeObject(options),
       apiKey: settings.deepseekApiKey,
       baseUrl: settings.deepseekBaseUrl
     });
+    return {
+      ...usage,
+      tokenUsage: await readDeepSeekTokenUsage(userDataPath)
+    };
   });
 }
 

@@ -6,7 +6,7 @@ function getMainWindowOptions(platform, { icon, dark, webPreferences }) {
       minWidth: 860,
       minHeight: 560,
       show: false,
-      backgroundColor: dark ? "#181818" : "#f7f7f8",
+      backgroundColor: dark ? "#202123" : "#ffffff",
       title: "WinPlate",
       icon,
       autoHideMenuBar: true,

@@ -92,6 +92,10 @@ function createHarness({
       usageReads.push({ ...options });
       return { status: "usage-result" };
     },
+    readDeepSeekTokenUsage: async (userDataPath) => ({
+      userDataPath,
+      total: { inputTokens: 12, outputTokens: 3 }
+    }),
     publicServiceSettings,
     safeObject
   });
@@ -395,7 +399,13 @@ test("DeepSeek usage accepts owned renderers and forces effective credentials", 
       baseUrl: "https://attacker.example",
       fetchImpl
     }),
-    { status: "usage-result" }
+    {
+      status: "usage-result",
+      tokenUsage: {
+        userDataPath: "/user/data",
+        total: { inputTokens: 12, outputTokens: 3 }
+      }
+    }
   );
   await harness.invoke("deepseek:usage", harness.menuSender, {});
 

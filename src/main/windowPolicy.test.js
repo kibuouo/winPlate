@@ -11,8 +11,8 @@ const webPreferences = Object.freeze({
 });
 
 for (const [dark, backgroundColor] of [
-  [true, "#181818"],
-  [false, "#f7f7f8"]
+  [true, "#202123"],
+  [false, "#ffffff"]
 ]) {
   test(`returns the Windows main-window policy for ${dark ? "dark" : "light"} mode`, () => {
     const options = getMainWindowOptions("win32", {

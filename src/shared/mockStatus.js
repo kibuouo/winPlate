@@ -55,7 +55,7 @@ const mockStatus = {
     precipitation: 0,
     pressure: 1008,
     visibility: 16,
-    weatherSummary: "请允许系统定位，或配置 QWEATHER_LOCATION 作为回退位置。",
+    weatherSummary: "请在设置中手动选择城市，或授权系统定位。",
     forecast: []
   }
 };

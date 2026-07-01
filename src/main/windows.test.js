@@ -125,10 +125,10 @@ test("updates Windows main-window background colors with the theme", () => {
   withPlatform("win32", () => {
     const window = windows.createMainWindow("dark");
 
-    assert.equal(window.options.backgroundColor, "#181818");
+    assert.equal(window.options.backgroundColor, "#202123");
     windows.setMainWindowTheme("light");
     windows.setMainWindowTheme("dark");
-    assert.deepEqual(window.backgroundColors, ["#f7f7f8", "#181818"]);
+    assert.deepEqual(window.backgroundColors, ["#ffffff", "#202123"]);
 
     closeWindow(window);
   });
@@ -189,7 +189,7 @@ test("createMainWindow replaces a destroyed window and applies a reused Windows 
 
     assert.notEqual(replacement, first);
     assert.equal(reused, replacement);
-    assert.deepEqual(replacement.backgroundColors, ["#f7f7f8"]);
+    assert.deepEqual(replacement.backgroundColors, ["#ffffff"]);
     closeWindow(replacement);
   });
 });

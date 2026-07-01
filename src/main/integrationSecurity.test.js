@@ -29,7 +29,8 @@ test("captures process overrides and builds the migration store before lifecycle
   assert.match(main, /platform: process\.platform/);
   assert.match(main, /serviceSettingsFileExists/);
   assert.match(main, /readWindowsServiceEnvironment/);
-  assert.doesNotMatch(main, /readUserEnvironment|writeUserEnvironment|reg\.exe/);
+  assert.match(main, /serviceSettingsLifecycle/);
+  assert.equal((main.match(/ipcMain\.handle\("deepseek:(?:get-settings|save-settings|usage)"/g) || []).length, 0);
 });
 
 test("app settings startup fallback runs after the main window and before preferences", () => {
