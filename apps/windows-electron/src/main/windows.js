@@ -3,6 +3,7 @@ const { BrowserWindow, screen } = require("electron");
 const { getMainWindowOptions } = require("./windowPolicy");
 const { normalizeMainSection } = require("./activationCoordinator");
 const { sendToWindow } = require("./windowMessaging");
+const { assetPath } = require("./repositoryPaths");
 let floatingWindow;
 let mainWindow;
 let tooltipWindow;
@@ -11,7 +12,7 @@ let quitting = false;
 
 const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
 const preloadPath = path.join(__dirname, "..", "preload", "preload.js");
-const iconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
+const iconPath = assetPath("icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
 const CODEX_TOOLTIP_SIZE = { width: 232, height: 128 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };

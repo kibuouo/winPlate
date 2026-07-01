@@ -1,11 +1,11 @@
-const path = require("path");
 const { Menu, Tray, nativeImage } = require("electron");
+const { assetPath } = require("./repositoryPaths");
 
 let appTray;
 
 function createTrayIcon() {
   return nativeImage
-    .createFromPath(path.join(__dirname, "..", "..", "assets", "icon.png"))
+    .createFromPath(assetPath("icon.png"))
     .resize({ width: 16, height: 16 });
 }
 

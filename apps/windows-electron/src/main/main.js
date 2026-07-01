@@ -16,6 +16,7 @@ const { execFile } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { assetPath } = require("./repositoryPaths");
 const {
   createFloatingWindow,
   createMainWindow,
@@ -97,7 +98,7 @@ const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const LOCAL_API_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
-const macAppIconPath = path.join(__dirname, "..", "..", "assets", "icon-macos.png");
+const macAppIconPath = assetPath("icon-macos.png");
 const processServiceEnvironment = Object.freeze({
   QWEATHER_API_KEY: process.env.QWEATHER_API_KEY,
   QWEATHER_API_HOST: process.env.QWEATHER_API_HOST,
@@ -111,7 +112,7 @@ const responseCacheVersions = new Map();
 let notificationSummaryService = null;
 let notificationDetailService = null;
 let currentSettings = null;
-const desktopIconPath = path.join(__dirname, "..", "..", "assets", "icon.ico");
+const desktopIconPath = assetPath("icon.ico");
 
 function broadcastStatusRefresh(weather = null) {
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -509,7 +510,7 @@ if (!gotLock) {
         screen,
         preloadPath: path.join(__dirname, "..", "preload", "menuBarPreload.js"),
         rendererPath: path.join(__dirname, "..", "renderer", "menubar.html"),
-        iconPath: path.join(__dirname, "..", "..", "assets", "menu-bar-template.png"),
+        iconPath: assetPath("menu-bar-template.png"),
         actions: {
           showMainWindow,
           quit: quitApplication

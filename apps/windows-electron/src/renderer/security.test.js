@@ -460,7 +460,7 @@ test("main startup imports native menu bar dependencies and gates platform UI", 
   assert.match(main, /"preload",\s*"menuBarPreload\.js"/);
   assert.match(
     main,
-    /"assets",\s*"menu-bar-template\.png"/,
+    /assetPath\("menu-bar-template\.png"\)/,
     "the native menu bar should use the supplied transparent status artwork"
   );
 
@@ -498,11 +498,12 @@ test("macOS uses the supplied status artwork and rounded application icon while 
   assert.equal(appIcon.readUInt32BE(16), 1024);
   assert.equal(appIcon.readUInt32BE(20), 1024);
 
-  assert.match(main, /"assets",\s*"menu-bar-template\.png"/);
-  assert.match(main, /"assets",\s*"icon-macos\.png"/);
+  assert.match(main, /const \{ assetPath \} = require\("\.\/repositoryPaths"\)/);
+  assert.match(main, /assetPath\("menu-bar-template\.png"\)/);
+  assert.match(main, /assetPath\("icon-macos\.png"\)/);
   assert.match(main, /app\.dock\.setIcon\(nativeImage\.createFromPath\(macAppIconPath\)\)/);
-  assert.match(tray, /"assets",\s*"icon\.png"/);
-  assert.match(windows, /"assets",\s*"icon\.ico"/);
+  assert.match(tray, /assetPath\("icon\.png"\)/);
+  assert.match(windows, /assetPath\("icon\.ico"\)/);
   assert.equal((renderer.match(/\.\.\/\.\.\/assets\/icon\.png/g) || []).length, 1);
   assert.equal(
     crypto.createHash("sha256").update(menuBarIcon).digest("hex"),
