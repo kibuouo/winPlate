@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { serializeFileWrite } = require("./fileWriteQueue");
 
 const DEFAULT_SERVICE_SETTINGS = Object.freeze({
   qweatherApiKey: "",
@@ -210,32 +211,34 @@ function encryptedSecrets(settings, safeStorage, preservedEncrypted) {
 }
 
 async function writeServiceSettings(userDataPath, value, safeStorage) {
-  const preservedEncrypted = await encryptedSecretsToPreserve(userDataPath);
-  const settings = normalizeServiceSettings(value);
-  const hasSecrets = SECRET_FIELDS.some((field) => settings[field]);
-  if (hasSecrets) {
-    requireEncryptionStorage(safeStorage);
-  }
-
-  const persisted = {
-    version: 1,
-    qweatherApiHost: settings.qweatherApiHost,
-    qweatherProjectId: settings.qweatherProjectId,
-    qweatherCredentialId: settings.qweatherCredentialId,
-    deepseekBaseUrl: settings.deepseekBaseUrl,
-    encrypted: encryptedSecrets(settings, safeStorage, preservedEncrypted)
-  };
   const target = serviceSettingsPath(userDataPath);
-  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  return serializeFileWrite(target, async () => {
+    const preservedEncrypted = await encryptedSecretsToPreserve(userDataPath);
+    const settings = normalizeServiceSettings(value);
+    const hasSecrets = SECRET_FIELDS.some((field) => settings[field]);
+    if (hasSecrets) {
+      requireEncryptionStorage(safeStorage);
+    }
 
-  await fs.mkdir(userDataPath, { recursive: true });
-  try {
-    await fs.writeFile(temporary, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
-    await fs.rename(temporary, target);
-  } finally {
-    await fs.rm(temporary, { force: true });
-  }
-  return settings;
+    const persisted = {
+      version: 1,
+      qweatherApiHost: settings.qweatherApiHost,
+      qweatherProjectId: settings.qweatherProjectId,
+      qweatherCredentialId: settings.qweatherCredentialId,
+      deepseekBaseUrl: settings.deepseekBaseUrl,
+      encrypted: encryptedSecrets(settings, safeStorage, preservedEncrypted)
+    };
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+
+    await fs.mkdir(userDataPath, { recursive: true });
+    try {
+      await fs.writeFile(temporary, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+      await fs.rename(temporary, target);
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
+    return settings;
+  });
 }
 
 function resolveServiceSettings(stored, environment = process.env) {

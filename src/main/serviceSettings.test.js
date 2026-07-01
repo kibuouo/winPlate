@@ -373,10 +373,20 @@ test("unsupported persisted versions reject before decryption without changing t
 });
 
 test("non-missing-file read errors propagate", async (t) => {
-  const filePath = path.join(await createTemporaryDirectory(t), "not-a-directory");
-  await fs.writeFile(filePath, "file", "utf8");
+  const directory = await createTemporaryDirectory(t);
+  const target = path.join(directory, SETTINGS_FILE);
+  await fs.mkdir(target);
+  let platformError;
+  try {
+    await fs.readFile(target, "utf8");
+  } catch (error) {
+    platformError = error;
+  }
 
-  await assert.rejects(readServiceSettings(filePath, createSafeStorage()), { code: "ENOTDIR" });
+  assert.notEqual(platformError?.code, "ENOENT");
+  await assert.rejects(readServiceSettings(directory, createSafeStorage()), {
+    code: platformError.code
+  });
 });
 
 test("unavailable encryption rejects before creating files when a secret is present", async (t) => {
@@ -524,6 +534,35 @@ test("concurrent writes never reject and leave one complete requested payload", 
   const result = await readServiceSettings(directory, createSafeStorage());
   assert.equal(requested.some((candidate) => JSON.stringify(candidate) === JSON.stringify(result)), true);
   assert.deepEqual(await fs.readdir(directory), [SETTINGS_FILE]);
+});
+
+test("serializes encrypted replacements when overlapping renames are rejected", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const originalRename = fs.rename;
+  let replacementInProgress = false;
+
+  fs.rename = async (...args) => {
+    if (replacementInProgress) {
+      const error = new Error("overlapping replacement");
+      error.code = "EPERM";
+      throw error;
+    }
+    replacementInProgress = true;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return await originalRename(...args);
+    } finally {
+      replacementInProgress = false;
+    }
+  };
+  t.after(() => {
+    fs.rename = originalRename;
+  });
+
+  await Promise.all([
+    writeServiceSettings(directory, completeSettings("one"), createSafeStorage()),
+    writeServiceSettings(directory, completeSettings("two"), createSafeStorage())
+  ]);
 });
 
 test("failed writes clean up unique temporary files", async (t) => {

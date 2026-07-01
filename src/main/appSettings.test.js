@@ -113,6 +113,35 @@ test("concurrent settings writes each complete without mixing payloads", async (
   assert.deepEqual(await fs.readdir(directory), ["app-settings.json"]);
 });
 
+test("serializes replacements when the platform rejects overlapping renames", async (t) => {
+  const directory = await createTemporaryDirectory(t);
+  const originalRename = fs.rename;
+  let replacementInProgress = false;
+
+  fs.rename = async (...args) => {
+    if (replacementInProgress) {
+      const error = new Error("overlapping replacement");
+      error.code = "EPERM";
+      throw error;
+    }
+    replacementInProgress = true;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return await originalRename(...args);
+    } finally {
+      replacementInProgress = false;
+    }
+  };
+  t.after(() => {
+    fs.rename = originalRename;
+  });
+
+  await Promise.all([
+    writeAppSettings(directory, { menuBarEnabled: false, launchAtLogin: false }),
+    writeAppSettings(directory, { menuBarEnabled: true, launchAtLogin: true })
+  ]);
+});
+
 test("failed settings writes remove their temporary files", async (t) => {
   const directory = await createTemporaryDirectory(t);
   await fs.mkdir(path.join(directory, "app-settings.json"));
@@ -140,10 +169,18 @@ test("corrupt JSON returns a fresh default object", async (t) => {
 });
 
 test("non-missing-file read errors propagate", async (t) => {
-  const filePath = path.join(await createTemporaryDirectory(t), "not-a-directory");
-  await fs.writeFile(filePath, "file", "utf8");
+  const directory = await createTemporaryDirectory(t);
+  const target = path.join(directory, "app-settings.json");
+  await fs.mkdir(target);
+  let platformError;
+  try {
+    await fs.readFile(target, "utf8");
+  } catch (error) {
+    platformError = error;
+  }
 
-  await assert.rejects(readAppSettings(filePath), { code: "ENOTDIR" });
+  assert.notEqual(platformError?.code, "ENOENT");
+  await assert.rejects(readAppSettings(directory), { code: platformError.code });
 });
 
 test("login item application is a no-op when the setting already matches", () => {

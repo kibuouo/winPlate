@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { serializeFileWrite } = require("./fileWriteQueue");
 
 const DEFAULT_APP_SETTINGS = Object.freeze({
   menuBarEnabled: true,
@@ -40,16 +41,18 @@ async function readAppSettings(userDataPath) {
 async function writeAppSettings(userDataPath, value) {
   const settings = normalizeAppSettings(value);
   const target = appSettingsPath(userDataPath);
-  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  return serializeFileWrite(target, async () => {
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
 
-  await fs.mkdir(userDataPath, { recursive: true });
-  try {
-    await fs.writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-    await fs.rename(temporary, target);
-  } finally {
-    await fs.rm(temporary, { force: true });
-  }
-  return settings;
+    await fs.mkdir(userDataPath, { recursive: true });
+    try {
+      await fs.writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+      await fs.rename(temporary, target);
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
+    return settings;
+  });
 }
 
 function applyLoginItemSetting(app, enabled) {
