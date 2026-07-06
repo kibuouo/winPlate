@@ -145,14 +145,7 @@ function registerSettingsIpc({
     );
   });
 
-  ipcMain.handle("deepseek:usage", async (event, options) => {
-    const appPreferences = getAppPreferences();
-    if (
-      !ownsMainWindowSender(event.sender)
-      && !appPreferences?.ownsSender(event.sender)
-    ) {
-      throw new Error("Unauthorized usage sender");
-    }
+  ipcMain.handle("deepseek:usage", async (_event, options) => {
     const settings = serviceSettingsLifecycle.effectiveSettings();
     const usage = await readDeepSeekUsage({
       ...safeObject(options),
