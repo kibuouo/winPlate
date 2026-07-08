@@ -10,10 +10,17 @@ const DEFAULT_SERVICE_SETTINGS = Object.freeze({
   qweatherCredentialId: "",
   qweatherPrivateKey: "",
   deepseekApiKey: "",
-  deepseekBaseUrl: "https://api.deepseek.com"
+  deepseekBaseUrl: "https://api.deepseek.com",
+  githubToken: "",
+  qqMailAddress: "",
+  qqMailAuthCode: "",
+  qqMailImapHost: "imap.qq.com",
+  qqMailImapPort: "993",
+  qqMailSmtpHost: "smtp.qq.com",
+  qqMailSmtpPort: "465"
 });
 
-const SECRET_FIELDS = ["qweatherApiKey", "qweatherPrivateKey", "deepseekApiKey"];
+const SECRET_FIELDS = ["qweatherApiKey", "qweatherPrivateKey", "deepseekApiKey", "githubToken", "qqMailAuthCode"];
 const ENVIRONMENT_FIELDS = {
   QWEATHER_API_KEY: "qweatherApiKey",
   QWEATHER_API_HOST: "qweatherApiHost",
@@ -21,7 +28,14 @@ const ENVIRONMENT_FIELDS = {
   QWEATHER_CREDENTIAL_ID: "qweatherCredentialId",
   QWEATHER_PRIVATE_KEY: "qweatherPrivateKey",
   DEEPSEEK_API_KEY: "deepseekApiKey",
-  DEEPSEEK_BASE_URL: "deepseekBaseUrl"
+  DEEPSEEK_BASE_URL: "deepseekBaseUrl",
+  GITHUB_TOKEN: "githubToken",
+  QQ_MAIL_ADDRESS: "qqMailAddress",
+  QQ_MAIL_AUTH_CODE: "qqMailAuthCode",
+  QQ_MAIL_IMAP_HOST: "qqMailImapHost",
+  QQ_MAIL_IMAP_PORT: "qqMailImapPort",
+  QQ_MAIL_SMTP_HOST: "qqMailSmtpHost",
+  QQ_MAIL_SMTP_PORT: "qqMailSmtpPort"
 };
 
 function normalizedString(value, fallback = "") {
@@ -46,6 +60,25 @@ function normalizeServiceSettings(value = {}) {
     deepseekBaseUrl: normalizedString(
       candidate.deepseekBaseUrl,
       DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl
+    ),
+    githubToken: normalizedString(candidate.githubToken),
+    qqMailAddress: normalizedString(candidate.qqMailAddress),
+    qqMailAuthCode: normalizedString(candidate.qqMailAuthCode),
+    qqMailImapHost: normalizedString(
+      candidate.qqMailImapHost,
+      DEFAULT_SERVICE_SETTINGS.qqMailImapHost
+    ),
+    qqMailImapPort: normalizedString(
+      candidate.qqMailImapPort,
+      DEFAULT_SERVICE_SETTINGS.qqMailImapPort
+    ),
+    qqMailSmtpHost: normalizedString(
+      candidate.qqMailSmtpHost,
+      DEFAULT_SERVICE_SETTINGS.qqMailSmtpHost
+    ),
+    qqMailSmtpPort: normalizedString(
+      candidate.qqMailSmtpPort,
+      DEFAULT_SERVICE_SETTINGS.qqMailSmtpPort
     )
   };
 }
@@ -150,7 +183,9 @@ async function readServiceSettings(userDataPath, safeStorage) {
     ...candidate,
     qweatherApiKey: decryptSecret(encrypted, "qweatherApiKey", safeStorage),
     qweatherPrivateKey: decryptSecret(encrypted, "qweatherPrivateKey", safeStorage),
-    deepseekApiKey: decryptSecret(encrypted, "deepseekApiKey", safeStorage)
+    deepseekApiKey: decryptSecret(encrypted, "deepseekApiKey", safeStorage),
+    githubToken: decryptSecret(encrypted, "githubToken", safeStorage),
+    qqMailAuthCode: decryptSecret(encrypted, "qqMailAuthCode", safeStorage)
   });
 }
 
@@ -226,6 +261,11 @@ async function writeServiceSettings(userDataPath, value, safeStorage) {
       qweatherProjectId: settings.qweatherProjectId,
       qweatherCredentialId: settings.qweatherCredentialId,
       deepseekBaseUrl: settings.deepseekBaseUrl,
+      qqMailAddress: settings.qqMailAddress,
+      qqMailImapHost: settings.qqMailImapHost,
+      qqMailImapPort: settings.qqMailImapPort,
+      qqMailSmtpHost: settings.qqMailSmtpHost,
+      qqMailSmtpPort: settings.qqMailSmtpPort,
       encrypted: encryptedSecrets(settings, safeStorage, preservedEncrypted)
     };
     const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
@@ -261,7 +301,14 @@ function publicServiceSettings(value) {
     qweatherCredentialId: settings.qweatherCredentialId,
     hasQWeatherPrivateKey: Boolean(settings.qweatherPrivateKey),
     hasDeepSeekApiKey: Boolean(settings.deepseekApiKey),
-    deepseekBaseUrl: settings.deepseekBaseUrl
+    deepseekBaseUrl: settings.deepseekBaseUrl,
+    hasGitHubToken: Boolean(settings.githubToken),
+    qqMailAddress: settings.qqMailAddress,
+    hasQqMailAuthCode: Boolean(settings.qqMailAuthCode),
+    qqMailImapHost: settings.qqMailImapHost,
+    qqMailImapPort: settings.qqMailImapPort,
+    qqMailSmtpHost: settings.qqMailSmtpHost,
+    qqMailSmtpPort: settings.qqMailSmtpPort
   };
 }
 
@@ -274,7 +321,14 @@ function toServiceEnvironment(value) {
     QWEATHER_CREDENTIAL_ID: settings.qweatherCredentialId,
     QWEATHER_PRIVATE_KEY: settings.qweatherPrivateKey,
     DEEPSEEK_API_KEY: settings.deepseekApiKey,
-    DEEPSEEK_BASE_URL: settings.deepseekBaseUrl
+    DEEPSEEK_BASE_URL: settings.deepseekBaseUrl,
+    GITHUB_TOKEN: settings.githubToken,
+    QQ_MAIL_ADDRESS: settings.qqMailAddress,
+    QQ_MAIL_AUTH_CODE: settings.qqMailAuthCode,
+    QQ_MAIL_IMAP_HOST: settings.qqMailImapHost,
+    QQ_MAIL_IMAP_PORT: settings.qqMailImapPort,
+    QQ_MAIL_SMTP_HOST: settings.qqMailSmtpHost,
+    QQ_MAIL_SMTP_PORT: settings.qqMailSmtpPort
   };
 }
 

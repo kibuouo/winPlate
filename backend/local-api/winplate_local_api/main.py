@@ -28,7 +28,6 @@ import uvicorn
 import jwt
 from uvicorn.config import LOGGING_CONFIG
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .modules.registry import public_modules
@@ -121,12 +120,6 @@ DEFAULT_STATUS = {
 }
 
 api = FastAPI(title="WinPlate API", version="0.1.0")
-api.add_middleware(
-    CORSMiddleware,
-    allow_origins=["null"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
 
 
 class WeatherLocation(BaseModel):

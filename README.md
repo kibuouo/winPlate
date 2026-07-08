@@ -1,132 +1,163 @@
 # WinPlate
 
-WinPlate is a native status center for Windows and macOS, built with Electron
-and a local FastAPI and SQLite backend.
-
-<div align="center">
-
-Windows 桌面悬浮状态板，聚合 GitHub、Codex、天气、通知、邮件与网络信息。
-
-轻量常驻、信息集中、交互直接，适合把高频状态放回桌面可见区域。
-
-</div>
+WinPlate 是一个面向 Windows 和 macOS 的本地优先状态中心，把 GitHub、Codex、天气、通知、邮件、网络等高频信息压缩进桌面胶囊和主界面里，让开发过程里的关键状态始终留在视线范围内。
 
 <p align="center">
-  <img src="./apps/windows-electron/assets/winplate-ui-preview.png" alt="WinPlate 软件界面预览" width="690" />
+  <img src="./apps/windows-electron/assets/winplate-ui-preview.png" alt="WinPlate 胶囊态预览" width="690" />
 </p>
 
 <p align="center">
-  <strong>Electron</strong> + <strong>FastAPI</strong> + <strong>SQLite</strong>
+  <strong>Electron</strong> + <strong>FastAPI</strong> + <strong>SQLite</strong> + <strong>safeStorage</strong>
 </p>
 
-## 项目简介
+## 主界面展示
 
-WinPlate 是一个面向 Windows 的悬浮状态面板。它将开发者日常最常看的几类信息收拢到一个紧凑的胶囊界面中，包括：
+WinPlate 提供两类核心界面：
 
-- GitHub 账号状态与贡献信息
-- Codex 使用额度与重置时间
-- 和风天气与位置选择
-- 系统通知与智能通知摘要
-- QQ 邮箱 IMAP 摘要
-- 心率占位模块与网络速率显示
+- 胶囊态：常驻桌面，负责“抬眼即见”的即时状态。
+- 主界面：承载 Dashboard、设置页、模块详情和服务配置。
 
-相比频繁切换网页、客户端和系统面板，WinPlate 更强调“抬眼即见”的桌面信息密度。
+### 胶囊态预览
 
-## 软件界面展示
+上图是 Windows 胶囊态。它把 GitHub、Codex、通知、天气、心率和网络压缩在一个圆角浮层里，适合长期悬浮而不打断工作流。
 
-上图展示的是 WinPlate 的悬浮主胶囊界面，整体布局分为三层：
+### 主界面浅色 / 深色展示
 
-- 左侧为 GitHub、Codex 等高频开发状态
-- 中间为智能通知摘要区，突出当前最值得关注的信息
-- 右侧为天气、心率、网络和设置入口等辅助信息
+<p align="center">
+  <img src="./docs/qa/2026-07-01-macos-settings-current.png" alt="WinPlate 主界面浅色主题" width="48%" />
+  <img src="./docs/qa/2026-07-01-macos-settings-dark-current.png" alt="WinPlate 主界面深色主题" width="48%" />
+</p>
 
-界面设计重点：
+这两张截图展示的是共享主界面在浅色和深色主题下的实际效果。Windows 与 macOS 使用同一套渲染层主题变量，差异主要在平台壳层和窗口策略上。
 
-- 信息块足够紧凑，但仍保持清晰分组
-- 核心数值使用强对比强调，适合桌面快速扫读
-- 悬浮窗适合长期常驻，不会像完整应用窗口那样打断工作流
+## 深色 / 浅色双 CSS 主题
 
-## 核心能力
+WinPlate 的主题不是两套分裂页面，而是一套 DOM 结构配合两层主题变量：
 
-### 1. GitHub 状态聚合
+- 胶囊态主题：定义在 `apps/windows-electron/src/renderer/styles.css` 的 `.status-capsule` 和 `html[data-theme="light"] .status-capsule`。
+- 主界面主题：定义在同一个文件里的 `.main-body` 和 `html[data-theme="light"] .main-body`。
+- 运行时切换：由 `apps/windows-electron/src/renderer/app.js` 写入 `document.documentElement.dataset.theme`，同步驱动胶囊态和主界面。
 
-- 拉取公开 GitHub 资料、仓库信息与贡献日历
-- 支持缓存与失败回退，避免 GitHub 接口偶发波动影响展示
-- 可结合 Token 提升请求额度并启用官方 GraphQL 贡献数据
+### 胶囊态主题变量
 
-### 2. Codex 使用情况读取
+```css
+.status-capsule {
+  --capsule-surface: rgba(24, 24, 27, .92);
+  --capsule-text: #f4f4f5;
+  --capsule-border: rgba(255, 255, 255, .12);
+  --capsule-shadow: 0 16px 40px rgba(0, 0, 0, .28);
+}
 
-- Electron 主进程独立启动隐藏 Codex CLI PTY
-- 通过 `/status` 提取额度剩余百分比与重置时间
-- 结果缓存 30 秒，避免频繁拉起命令造成干扰
+html[data-theme="light"] .status-capsule {
+  --capsule-surface: rgba(250, 250, 252, .94);
+  --capsule-text: #18181b;
+  --capsule-border: rgba(24, 24, 27, .14);
+  --capsule-shadow: 0 16px 38px rgba(15, 23, 42, .18);
+}
+```
 
-### 3. 天气与位置管理
+### 主界面主题变量
 
-- 由本地 FastAPI 后端统一请求 QWeather
-- 支持系统定位、手动城市选择与环境变量兜底
-- 包含天气用量统计与预警通知同步逻辑
+```css
+.main-body {
+  --main-bg: #202123;
+  --surface-card: #26272a;
+  --text: #f4f4f5;
+  --text-muted: #8e8ea0;
+}
 
-### 4. 智能通知摘要
+html[data-theme="light"] .main-body {
+  --main-bg: #ffffff;
+  --surface-card: #ffffff;
+  --text: #202123;
+  --text-muted: #8e8ea0;
+}
+```
 
-- 聚合原始通知并按来源、优先级、风险变化做归类
-- 对天气预警、GitHub 动态、开发任务状态做统一视图整理
-- 支持未读数、批量已读、清空与测试通知注入
+### 主题切换入口
 
-### 5. 邮件摘要与收件箱接入
+```js
+const theme = resolvedTheme();
+document.documentElement.dataset.theme = theme;
+document.documentElement.style.colorScheme = theme;
+```
 
-- 支持 QQ 邮箱 IMAP 连接
-- 提供邮件列表摘要、正文读取与已读同步
-- 让邮件提醒进入同一个桌面信息面板
+这套做法的好处是明确：
 
-### 6. 桌面悬浮体验
+- 胶囊态和主界面共享主题状态，不会出现一边深色一边浅色的割裂。
+- 主题差异集中在 token 层，模块结构本身无需复制。
+- 后续新增模块时，只要遵循现有变量体系，就能自然获得深浅色适配。
 
-- 独立浮窗显示，不必总停留在主应用页
-- 主界面与悬浮态共享数据源
-- 适合做常驻桌面开发状态总览
+## 关键能力
 
-### 7. 模块化刷新与设置中心
+- 桌面胶囊：在 460 × 104 的浮层里聚合开发者最常看的实时状态。
+- Dashboard 主界面：提供更完整的模块卡片、详情页、设置页和服务状态。
+- 模块化刷新：GitHub、Codex、天气、通知、邮件、心率、网络都走独立模块注册和刷新节奏。
+- 本地优先安全边界：敏感配置保留在 Electron 主进程或本地 Python 后端，渲染层只拿展示所需数据。
+- 平台分层：Windows Electron、macOS Electron Menu Bar、共享包和本地 API 都有清晰边界。
 
-- GitHub、Codex、邮件、通知、天气、心率和网络使用统一模块注册表
-- 自动刷新按模块独立调度，失败时保留最后成功数据并显示降级状态
-- 设置页支持模块启停、排序、刷新周期、界面密度、透明度和 AI 摘要开关
-- GitHub Token 等密钥继续保存在 Windows 用户环境变量中，不会回显到渲染层
+## 关键技术
 
-## 技术架构
+- `Electron`：负责桌面窗口、托盘、平台壳层、IPC 与系统能力接入。
+- `FastAPI`：承接本地 API、天气请求、GitHub 聚合、邮件接入和通知数据整理。
+- `SQLite`：承载本地缓存、通知归档和状态持久化。
+- `Electron safeStorage`：加密保存 GitHub Token、DeepSeek Key、QWeather 私钥、QQ 邮箱授权码等敏感信息。
+- `Monorepo Workspaces`：通过 npm workspaces 管理 Windows、macOS、共享包和验证脚本。
+- `Loopback-only local API`：后端仅绑定 `127.0.0.1:8765`，不暴露到局域网。
 
-详细边界与演进约束：
-
-- [仓库架构](./docs/architecture.md)
-- [通知中心契约](./docs/notification-center.md)
-- [平台路线图](./docs/platform-roadmap.md)
+## 项目结构
 
 ```text
-Electron Main
-  |- 启动桌面窗口 / 托盘 / 悬浮窗
-  |- 读取 Codex CLI 状态
-  |- 管理系统交互与 IPC
-  |
-  |- FastAPI Backend (backend/local-api/winplate_local_api/main.py)
-      |- GitHub 数据拉取
-      |- QWeather 天气与预警
-      |- QQ Mail IMAP 摘要
-      |- SQLite 本地缓存与状态持久化
-      |- 通知归档与聚合
-  |
-  |- Renderer
-      |- Dashboard 主界面
-      |- Floating 悬浮界面
-      |- Settings / Mail / Notifications / QWeather 交互
+winPlate/
+|- apps/
+|  |- windows-electron/        Windows 桌面胶囊与主界面
+|  |- macos/electron-menubar/  macOS 菜单栏与主界面壳层
+|  |- ios/                     平台边界说明
+|  `- watchos/                 平台边界说明
+|- backend/
+|  `- local-api/               FastAPI、本地服务、SQLite、测试
+|- packages/
+|  |- core/                    共享业务规则与模块模型
+|  |- shared-types/            JSON Schema 与共享契约
+|  `- icons/                   图标映射与语义图标
+|- docs/                       架构、路线图、验证记录
+|- scripts/                    venv、布局和仓库校验脚本
+|- package.json                workspace 入口脚本
+`- README.md
 ```
+
+如果要新增模块，建议先看 [`docs/adding-module.md`](./docs/adding-module.md) 和 [`docs/architecture.md`](./docs/architecture.md)。
+
+## 架构说明
+
+```text
+apps/windows-electron ─┐
+apps/macos/* ──────────┼─> packages/core + shared-types + icons
+                       └─> backend/local-api (127.0.0.1:8765 only)
+```
+
+职责划分如下：
+
+- `apps/`：平台生命周期、窗口、托盘、菜单栏和渲染壳层。
+- `packages/`：跨平台共享规则，不直接依赖 Electron、FastAPI 或 SQLite。
+- `backend/local-api/`：网络请求、邮件、天气、GitHub、通知、缓存与持久化。
 
 ## 快速开始
 
 ### 环境要求
 
-- Windows
-- Python 3.x
-- Node.js
+- Node.js 22+
+- Python 3.12+
+- Windows 或 macOS
 
-### 开发启动
+### Windows
+
+```powershell
+py -m venv .venv
+.venv\Scripts\python.exe -m pip install -r backend/local-api/requirements.txt
+npm install
+npm run dev
+```
 
 ### macOS
 
@@ -137,43 +168,7 @@ npm install
 npm run dev
 ```
 
-macOS starts one native menu bar item with an anchored panel and a native main
-window. It never creates the desktop capsule.
-
-### Windows (PowerShell)
-
-```powershell
-py -m venv .venv
-.venv\Scripts\python.exe -m pip install -r backend/local-api/requirements.txt
-npm install
-npm run dev
-```
-
-Windows starts the 460 × 104 desktop capsule, Windows Tray, and frameless main
-window.
-
-Electron starts `winplate_local_api.main:api` from `backend/local-api`, waits for
-`http://127.0.0.1:8765/api/health`, then creates the platform-specific shell. The renderer refreshes
-`GET /api/status` every 30 seconds.
-
-启动流程如下：
-
-1. Electron 拉起本地 Python 后端 `backend/local-api/winplate_local_api/main.py`
-2. 等待 `http://127.0.0.1:8765/api/health` 返回正常
-3. 创建主窗口与悬浮窗口
-4. 渲染层按模块刷新；默认 Codex 30 秒、通知 60 秒、网络 2 秒，其余周期由设置中心管理
-
-The setup scripts use `scripts/venvPython.js` to resolve `.venv/bin/python` on
-macOS and `.venv\Scripts\python.exe` on Windows. Electron uses those same
-platform paths when it starts the backend, so the virtual environment does not
-need to be activated before `npm run dev`. Set `WINPLATE_PYTHON` to an explicit
-interpreter path to override Electron's automatic resolution.
-
-如需手动激活：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+Electron 会自动拉起本地后端，等待 `http://127.0.0.1:8765/api/health` 就绪后再创建平台窗口。
 
 ## 常用脚本
 
@@ -183,102 +178,18 @@ npm run check
 npm run backend:test
 ```
 
-说明：
+- `npm run dev`：启动桌面应用开发环境。
+- `npm run check`：运行 Node 语法检查和测试。
+- `npm run backend:test`：运行 Python 后端测试。
 
-- `npm run dev`：启动 Electron 开发环境
-- `npm run check`：执行主进程、渲染层语法检查与 Node 测试
-- `npm run backend:test`：运行后端 Python 单元测试
+## 配置与安全
 
-## 配置说明
+- GitHub、DeepSeek、QWeather、QQ 邮箱等服务配置统一在主界面的 Settings 页保存。
+- GitHub Token、DeepSeek Key、QWeather 私钥与 QQ 邮箱授权码都走本地加密存储，不会回显到渲染层。
+- 进程环境变量仍可作为高级覆盖项使用，例如 `GITHUB_TOKEN`、`DEEPSEEK_API_KEY`、`QWEATHER_API_KEY`、`QQ_MAIL_AUTH_CODE`。
+- 保存 QWeather、GitHub、QQ 邮箱等后端依赖配置后，WinPlate 会自动重启本地 Python 后端以应用新配置。
 
-### GitHub
-
-默认 GitHub 账号为 `kibuouo`。如需切换：
-
-```powershell
-$env:WINPLATE_GITHUB_USERNAME = "your-login"
-$env:GITHUB_TOKEN = "github_pat_..."
-npm run dev
-```
-
-说明：
-
-- `WINPLATE_GITHUB_USERNAME`：指定展示的 GitHub 用户
-- `GITHUB_TOKEN`：可选，但推荐配置，用于提升速率限制并启用 GraphQL 贡献数据
-
-### QWeather
-
-## Platform and settings
-
-On macOS, Settings exposes `menuBarEnabled` and `launchAtLogin`.
-`menuBarEnabled` creates or removes the native menu bar item and panel;
-`launchAtLogin` controls whether WinPlate starts when you sign in. The Dock icon
-and native main window remain reachable even when the menu bar item is disabled.
-
-QWeather and DeepSeek are configured in the main window's Settings page on both
-platforms. Public fields are stored under Electron's `userData` directory.
-QWeather API keys/private keys and the DeepSeek API key are encrypted with
-Electron `safeStorage`. User-entered secrets exist in the renderer form and
-cross the narrow preload IPC boundary when saved. Persisted secret values are
-never returned to the renderer; settings reads expose only public values and
-configured flags. API requests use secrets only in privileged processes: the
-Electron main process or the local Python backend.
-
-Process environment variables are advanced overrides and take precedence over
-stored values on both platforms. The exact supported overrides are
-`QWEATHER_API_KEY`, `QWEATHER_API_HOST`, `QWEATHER_PROJECT_ID`,
-`QWEATHER_CREDENTIAL_ID`, `QWEATHER_PRIVATE_KEY`, `DEEPSEEK_API_KEY`, and
-`DEEPSEEK_BASE_URL`.
-
-For compatibility on Windows, the first startup with no encrypted settings file
-imports legacy values from `HKCU\Environment` into encrypted storage
-automatically. After a successful import, the registry is no longer read. If the
-encrypted import fails, the legacy values remain the current-session fallback
-and the import is retried later. WinPlate does not write new registry values.
-
-Restart WinPlate after changing QWeather credentials because the Python backend
-receives its environment at startup. A saved DeepSeek change may be used
-immediately by the Electron main-process request path, but restart if a result
-still reflects an earlier configuration.
-
-## QWeather
-
-Weather data is loaded by the Python backend and cached for ten minutes. Create a
-project and API key in the [QWeather console](https://console.qweather.com/),
-then open WinPlate's main window and enter its API Key and assigned API Host in
-Settings. Project ID, Credential ID, and an Ed25519 private key are optional and
-enable official usage statistics.
-
-For automation or temporary overrides, set process environment variables before
-starting WinPlate. For example, in PowerShell:
-
-```powershell
-$env:QWEATHER_API_KEY = "your-api-key"
-$env:QWEATHER_API_HOST = "your-project-api-host"
-npm run dev
-```
-
-WinPlate requests system location permission and sends only the resulting
-coordinates to the local backend. `QWEATHER_LOCATION` is an optional process
-environment fallback when system location is unavailable; it accepts a city
-name or location ID. There is no default fallback location. The QWeather API key
-crosses the preload IPC boundary when the form is saved, but persisted settings
-reads return only its configured flag. Electron injects the effective key into
-the local Python backend at startup, where QWeather API requests are made.
-
-## DeepSeek
-
-Open the main window's Settings page and enter the DeepSeek API Key and Base URL
-(the default is `https://api.deepseek.com`). The key crosses the preload IPC
-boundary when the form is saved, but persisted settings reads return only its
-configured flag. DeepSeek API requests are made by the privileged Electron main
-process, never by renderer code. Advanced users can override the saved values for
-a launch with `DEEPSEEK_API_KEY` and `DEEPSEEK_BASE_URL` in the process
-environment.
-
-## Verification
-
-Run the same Node and Python suites used by CI:
+## 验证
 
 ```sh
 npm run check
@@ -286,63 +197,8 @@ npm run backend:test
 git diff --check
 ```
 
-GitHub Actions runs both suites on `macos-latest` and `windows-latest` with
-Node.js 22 and Python 3.12.
+更多背景可以继续看：
 
-补充说明：
-
-- `QWEATHER_LOCATION` 可作为系统定位失败时的后备位置
-- 如果未授权定位且未配置后备位置，界面会提示手动设置城市
-- API Key 保留在本地后端，不会暴露到渲染层
-
-Packaging remains future work and is out of scope for the current development
-build. The backend is intentionally isolated behind `apps/windows-electron/src/main/pythonService.js`.
-
-### Python 解释器覆盖
-
-如果你不想使用默认 `.venv`，可以显式指定解释器：
-
-```powershell
-$env:WINPLATE_PYTHON = "C:\path\to\python.exe"
-npm run dev
-```
-
-## 项目结构
-
-```text
-winPlate/
-|- apps/          Windows Electron 与 Apple 平台边界
-|- packages/      通用规则、共享契约与语义图标
-|- backend/local-api/  本地 FastAPI、天气、GitHub、邮件与 SQLite
-|- docs/          架构、通知中心与平台路线图
-```
-
-新增模块请参阅 [`docs/adding-module.md`](./docs/adding-module.md)。
-
-## 当前定位
-
-这个项目更像一个“桌面开发状态中枢”，而不只是一个天气或 GitHub 小组件。它把多来源信息压缩到同一个稳定、轻量、低打扰的桌面入口中。
-
-适合的使用场景：
-
-- 一边开发一边关注 GitHub / Codex / 邮件变化
-- 想在桌面常驻看到天气与网络速率
-- 希望把通知整合成更有优先级的摘要，而不是散落在多个应用里
-
-## 打包方向
-
-后端已经通过 `apps/windows-electron/src/main/pythonService.js` 与 Electron 主进程解耦，
-但发行版仍需要明确提供后端运行时：
-
-Electron Builder 会通过 `extraResources` 将 `backend/local-api` 复制到应用的
-`resources/backend/local-api`。当前仓库尚未捆绑 Python 解释器或后端可执行文件，
-因此开发模式使用仓库 `.venv`（或系统 Python）；打包模式必须通过
-`WINPLATE_PYTHON` 指向已安装且具备后端依赖的解释器，或由发行流程提供一个后端运行时。
-
-后端的 one-file 打包目前不是受支持的命令。要支持它，需要专用入口包装器和
-PyInstaller spec 来处理包内相对导入、依赖与资源；不要直接对 `main.py` 运行
-PyInstaller。
-
-## 版本
-
-当前项目版本：`v0.1.0`
+- [仓库架构](./docs/architecture.md)
+- [通知中心契约](./docs/notification-center.md)
+- [平台路线图](./docs/platform-roadmap.md)

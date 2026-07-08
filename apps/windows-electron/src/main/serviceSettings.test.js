@@ -62,7 +62,14 @@ function completeSettings(suffix = "one") {
     qweatherCredentialId: `credential-${suffix}`,
     qweatherPrivateKey: `private-secret-${suffix}`,
     deepseekApiKey: `deepseek-secret-${suffix}`,
-    deepseekBaseUrl: `https://deepseek-${suffix}.example.com`
+    deepseekBaseUrl: `https://deepseek-${suffix}.example.com`,
+    githubToken: `github-secret-${suffix}`,
+    qqMailAddress: `user-${suffix}@qq.com`,
+    qqMailAuthCode: `mail-auth-${suffix}`,
+    qqMailImapHost: `imap-${suffix}.qq.com`,
+    qqMailImapPort: `${900 + suffix.length}`,
+    qqMailSmtpHost: `smtp-${suffix}.qq.com`,
+    qqMailSmtpPort: `${400 + suffix.length}`
   };
 }
 
@@ -74,7 +81,14 @@ test("default service settings have the exact frozen schema", () => {
     qweatherCredentialId: "",
     qweatherPrivateKey: "",
     deepseekApiKey: "",
-    deepseekBaseUrl: "https://api.deepseek.com"
+    deepseekBaseUrl: "https://api.deepseek.com",
+    githubToken: "",
+    qqMailAddress: "",
+    qqMailAuthCode: "",
+    qqMailImapHost: "imap.qq.com",
+    qqMailImapPort: "993",
+    qqMailSmtpHost: "smtp.qq.com",
+    qqMailSmtpPort: "465"
   });
   assert.equal(Object.isFrozen(DEFAULT_SERVICE_SETTINGS), true);
 });
@@ -88,6 +102,13 @@ test("normalization trims strings, discards unknown keys, and does not alias inp
     qweatherPrivateKey: "  private-key  ",
     deepseekApiKey: "  deepseek-key  ",
     deepseekBaseUrl: "  https://deepseek.example  ",
+    githubToken: "  github-token  ",
+    qqMailAddress: "  user@qq.com  ",
+    qqMailAuthCode: "  mail-auth  ",
+    qqMailImapHost: "  imap.qq.com  ",
+    qqMailImapPort: "  993  ",
+    qqMailSmtpHost: "  smtp.qq.com  ",
+    qqMailSmtpPort: "  465  ",
     unknown: "discard me"
   };
 
@@ -100,7 +121,14 @@ test("normalization trims strings, discards unknown keys, and does not alias inp
     qweatherCredentialId: "credential",
     qweatherPrivateKey: "private-key",
     deepseekApiKey: "deepseek-key",
-    deepseekBaseUrl: "https://deepseek.example"
+    deepseekBaseUrl: "https://deepseek.example",
+    githubToken: "github-token",
+    qqMailAddress: "user@qq.com",
+    qqMailAuthCode: "mail-auth",
+    qqMailImapHost: "imap.qq.com",
+    qqMailImapPort: "993",
+    qqMailSmtpHost: "smtp.qq.com",
+    qqMailSmtpPort: "465"
   });
   assert.notStrictEqual(normalized, input);
   input.qweatherApiKey = "changed";
@@ -116,7 +144,14 @@ test("normalization uses URL defaults and empty values for invalid fields", () =
       qweatherCredentialId: false,
       qweatherPrivateKey: {},
       deepseekApiKey: [],
-      deepseekBaseUrl: 42
+      deepseekBaseUrl: 42,
+      githubToken: 7,
+      qqMailAddress: {},
+      qqMailAuthCode: false,
+      qqMailImapHost: 8,
+      qqMailImapPort: {},
+      qqMailSmtpHost: [],
+      qqMailSmtpPort: null
     }),
     DEFAULT_SERVICE_SETTINGS
   );
@@ -135,7 +170,9 @@ test("settings round-trip while the exact persisted schema contains no plaintext
   for (const secret of [
     requested.qweatherApiKey,
     requested.qweatherPrivateKey,
-    requested.deepseekApiKey
+    requested.deepseekApiKey,
+    requested.githubToken,
+    requested.qqMailAuthCode
   ]) {
     assert.equal(raw.includes(secret), false);
   }
@@ -145,10 +182,17 @@ test("settings round-trip while the exact persisted schema contains no plaintext
     qweatherProjectId: requested.qweatherProjectId,
     qweatherCredentialId: requested.qweatherCredentialId,
     deepseekBaseUrl: requested.deepseekBaseUrl,
+    qqMailAddress: requested.qqMailAddress,
+    qqMailImapHost: requested.qqMailImapHost,
+    qqMailImapPort: requested.qqMailImapPort,
+    qqMailSmtpHost: requested.qqMailSmtpHost,
+    qqMailSmtpPort: requested.qqMailSmtpPort,
     encrypted: {
       qweatherApiKey: Buffer.from(`sealed:${requested.qweatherApiKey}`).toString("base64"),
       qweatherPrivateKey: Buffer.from(`sealed:${requested.qweatherPrivateKey}`).toString("base64"),
-      deepseekApiKey: Buffer.from(`sealed:${requested.deepseekApiKey}`).toString("base64")
+      deepseekApiKey: Buffer.from(`sealed:${requested.deepseekApiKey}`).toString("base64"),
+      githubToken: Buffer.from(`sealed:${requested.githubToken}`).toString("base64"),
+      qqMailAuthCode: Buffer.from(`sealed:${requested.qqMailAuthCode}`).toString("base64")
     }
   });
   assert.deepEqual(await fs.readdir(directory), [SETTINGS_FILE]);
@@ -242,7 +286,7 @@ test("public-only writes preserve recoverable ciphertext after an isolated decry
   }, transientFailureStorage);
   const afterSecondSave = JSON.parse(await fs.readFile(target, "utf8"));
   assert.deepEqual(afterSecondSave.encrypted, before.encrypted);
-  assert.equal(availableStorage.encryptionCount(), 3);
+  assert.equal(availableStorage.encryptionCount(), 5);
   transientFailureStorage.decryptString = decryptString;
   assert.deepEqual(await readServiceSettings(directory, transientFailureStorage), {
     ...requested,
@@ -268,7 +312,7 @@ test("changing one secret rotates only that ciphertext", async (t) => {
   assert.equal(after.encrypted.qweatherApiKey, before.encrypted.qweatherApiKey);
   assert.equal(after.encrypted.qweatherPrivateKey, before.encrypted.qweatherPrivateKey);
   assert.notEqual(after.encrypted.deepseekApiKey, before.encrypted.deepseekApiKey);
-  assert.equal(storage.encryptionCount(), 4);
+  assert.equal(storage.encryptionCount(), 6);
   assert.equal((await readServiceSettings(directory, storage)).deepseekApiKey, "changed-deepseek-secret");
 });
 
@@ -310,7 +354,12 @@ test("public-only settings load when secure storage is unavailable", async (t) =
     qweatherApiHost: "public.weather.example",
     qweatherProjectId: "public-project",
     qweatherCredentialId: "public-credential",
-    deepseekBaseUrl: "https://public.deepseek.example"
+    deepseekBaseUrl: "https://public.deepseek.example",
+    qqMailAddress: "public@qq.com",
+    qqMailImapHost: "imap.public.qq.com",
+    qqMailImapPort: "2993",
+    qqMailSmtpHost: "smtp.public.qq.com",
+    qqMailSmtpPort: "2465"
   };
   await writeServiceSettings(directory, requested, createSafeStorage(false));
 
@@ -436,6 +485,11 @@ test("unavailable encryption can persist public settings when all secrets are em
     qweatherProjectId: requested.qweatherProjectId,
     qweatherCredentialId: requested.qweatherCredentialId,
     deepseekBaseUrl: requested.deepseekBaseUrl,
+    qqMailAddress: "",
+    qqMailImapHost: DEFAULT_SERVICE_SETTINGS.qqMailImapHost,
+    qqMailImapPort: DEFAULT_SERVICE_SETTINGS.qqMailImapPort,
+    qqMailSmtpHost: DEFAULT_SERVICE_SETTINGS.qqMailSmtpHost,
+    qqMailSmtpPort: DEFAULT_SERVICE_SETTINGS.qqMailSmtpPort,
     encrypted: {}
   });
 });
@@ -451,6 +505,13 @@ test("environment resolution overrides each field only with nonblank strings wit
     QWEATHER_PRIVATE_KEY: " private-env ",
     DEEPSEEK_API_KEY: "deepseek-env",
     DEEPSEEK_BASE_URL: "https://deepseek-env.example",
+    GITHUB_TOKEN: " github-env ",
+    QQ_MAIL_ADDRESS: " env@qq.com ",
+    QQ_MAIL_AUTH_CODE: " env-auth ",
+    QQ_MAIL_IMAP_HOST: "imap.env.qq.com",
+    QQ_MAIL_IMAP_PORT: "3993",
+    QQ_MAIL_SMTP_HOST: "smtp.env.qq.com",
+    QQ_MAIL_SMTP_PORT: "3465",
     UNRELATED: "ignored"
   };
   const environmentSnapshot = { ...environment };
@@ -462,7 +523,14 @@ test("environment resolution overrides each field only with nonblank strings wit
     qweatherCredentialId: "credential-env",
     qweatherPrivateKey: "private-env",
     deepseekApiKey: "deepseek-env",
-    deepseekBaseUrl: "https://deepseek-env.example"
+    deepseekBaseUrl: "https://deepseek-env.example",
+    githubToken: "github-env",
+    qqMailAddress: "env@qq.com",
+    qqMailAuthCode: "env-auth",
+    qqMailImapHost: "imap.env.qq.com",
+    qqMailImapPort: "3993",
+    qqMailSmtpHost: "smtp.env.qq.com",
+    qqMailSmtpPort: "3465"
   });
   assert.deepEqual(stored, storedSnapshot);
   assert.deepEqual(environment, environmentSnapshot);
@@ -471,7 +539,9 @@ test("environment resolution overrides each field only with nonblank strings wit
     resolveServiceSettings(stored, {
       QWEATHER_API_KEY: "   ",
       QWEATHER_API_HOST: 123,
-      DEEPSEEK_BASE_URL: "\t"
+      DEEPSEEK_BASE_URL: "\t",
+      GITHUB_TOKEN: {},
+      QQ_MAIL_AUTH_CODE: "   "
     }),
     stored
   );
@@ -488,7 +558,14 @@ test("public settings have the exact redacted renderer-safe shape", () => {
     qweatherCredentialId: requested.qweatherCredentialId,
     hasQWeatherPrivateKey: true,
     hasDeepSeekApiKey: true,
-    deepseekBaseUrl: requested.deepseekBaseUrl
+    deepseekBaseUrl: requested.deepseekBaseUrl,
+    hasGitHubToken: true,
+    qqMailAddress: requested.qqMailAddress,
+    hasQqMailAuthCode: true,
+    qqMailImapHost: requested.qqMailImapHost,
+    qqMailImapPort: requested.qqMailImapPort,
+    qqMailSmtpHost: requested.qqMailSmtpHost,
+    qqMailSmtpPort: requested.qqMailSmtpPort
   });
   assert.deepEqual(Object.keys(result), [
     "hasQWeatherApiKey",
@@ -497,9 +574,18 @@ test("public settings have the exact redacted renderer-safe shape", () => {
     "qweatherCredentialId",
     "hasQWeatherPrivateKey",
     "hasDeepSeekApiKey",
-    "deepseekBaseUrl"
+    "deepseekBaseUrl",
+    "hasGitHubToken",
+    "qqMailAddress",
+    "hasQqMailAuthCode",
+    "qqMailImapHost",
+    "qqMailImapPort",
+    "qqMailSmtpHost",
+    "qqMailSmtpPort"
   ]);
   assert.equal(JSON.stringify(result).includes("weather-secret-one"), false);
+  assert.equal(JSON.stringify(result).includes("github-secret-one"), false);
+  assert.equal(JSON.stringify(result).includes("mail-auth-one"), false);
 });
 
 test("service environment mapping is exact, string-valued, and non-mutating", () => {
@@ -513,7 +599,14 @@ test("service environment mapping is exact, string-valued, and non-mutating", ()
     QWEATHER_CREDENTIAL_ID: requested.qweatherCredentialId,
     QWEATHER_PRIVATE_KEY: requested.qweatherPrivateKey,
     DEEPSEEK_API_KEY: requested.deepseekApiKey,
-    DEEPSEEK_BASE_URL: requested.deepseekBaseUrl
+    DEEPSEEK_BASE_URL: requested.deepseekBaseUrl,
+    GITHUB_TOKEN: requested.githubToken,
+    QQ_MAIL_ADDRESS: requested.qqMailAddress,
+    QQ_MAIL_AUTH_CODE: requested.qqMailAuthCode,
+    QQ_MAIL_IMAP_HOST: requested.qqMailImapHost,
+    QQ_MAIL_IMAP_PORT: requested.qqMailImapPort,
+    QQ_MAIL_SMTP_HOST: requested.qqMailSmtpHost,
+    QQ_MAIL_SMTP_PORT: requested.qqMailSmtpPort
   });
   assert.deepEqual(requested, snapshot);
   for (const value of Object.values(toServiceEnvironment({}))) {

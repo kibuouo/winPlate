@@ -121,6 +121,28 @@ test("owns only the exact live main-window sender", () => {
   });
 });
 
+test("owns only the exact live floating and tooltip senders", () => {
+  withPlatform("win32", () => {
+    const floating = windows.createFloatingWindow();
+    const tooltip = windows.createTooltipWindow();
+    const floatingSender = floating.webContents;
+    const tooltipSender = tooltip.webContents;
+
+    assert.equal(windows.ownsFloatingWindowSender(floatingSender), true);
+    assert.equal(windows.ownsFloatingWindowSender(tooltipSender), false);
+    assert.equal(windows.ownsTooltipWindowSender(tooltipSender), true);
+    assert.equal(windows.ownsTooltipWindowSender(floatingSender), false);
+
+    floatingSender.destroyed = true;
+    tooltipSender.destroyed = true;
+    assert.equal(windows.ownsFloatingWindowSender(floatingSender), false);
+    assert.equal(windows.ownsTooltipWindowSender(tooltipSender), false);
+
+    closeWindow(floating);
+    closeWindow(tooltip);
+  });
+});
+
 test("updates Windows main-window background colors with the theme", () => {
   withPlatform("win32", () => {
     const window = windows.createMainWindow("dark");

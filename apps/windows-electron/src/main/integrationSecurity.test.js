@@ -9,6 +9,10 @@ function readMain() {
   return fs.readFileSync(mainPath, "utf8");
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 test("captures process overrides and builds the migration store before lifecycle injection", () => {
   const main = readMain();
   const capture = main.indexOf("processServiceEnvironment");
@@ -78,6 +82,94 @@ test("registers the tested settings IPC boundary once after preferences exist", 
   assert.match(main, /getAppPreferences: \(\) => appPreferences/);
   assert.match(main, /ownsMainWindowSender/);
   assert.match(main, /serviceSettingsLifecycle/);
+});
+
+test("notification AI summaries read effective DeepSeek settings instead of user environment", () => {
+  const main = readMain();
+  const summaryServiceStart = main.indexOf("notificationSummaryService = createNotificationSummaryService({");
+  const summaryServiceEnd = main.indexOf('ipcMain.handle("notification:get-digest"', summaryServiceStart);
+  const summaryServiceBlock = main.slice(summaryServiceStart, summaryServiceEnd);
+
+  assert.notEqual(summaryServiceStart, -1);
+  assert.notEqual(summaryServiceEnd, -1);
+  assert.match(summaryServiceBlock, /const settings = serviceSettingsLifecycle\.effectiveSettings\(\);/);
+  assert.match(summaryServiceBlock, /apiKey: settings\.deepseekApiKey/);
+  assert.match(summaryServiceBlock, /baseUrl: settings\.deepseekBaseUrl \|\| DEEPSEEK_DEFAULT_BASE_URL/);
+  assert.doesNotMatch(summaryServiceBlock, /readUserEnvironment\("DEEPSEEK_API_KEY"\)/);
+  assert.doesNotMatch(summaryServiceBlock, /readUserEnvironment\("DEEPSEEK_BASE_URL"\)/);
+});
+
+test("sensitive business IPC handlers require the live main-window sender", () => {
+  const main = readMain();
+  const guardedChannels = [
+    "settings:save",
+    "appearance:save-settings",
+    "weather:set-location",
+    "weather:set-manual-location",
+    "weather:refresh-official-usage",
+    "mail:save-settings",
+    "email:read-message",
+    "notifications:refresh-smart-brief",
+    "notifications:mark-read",
+    "notifications:mark-all-read",
+    "notifications:clear",
+    "notifications:push-test",
+    "deepseek:test-chat"
+  ];
+
+  for (const channel of guardedChannels) {
+    assert.match(
+      main,
+      new RegExp(
+        `ipcMain\\.handle\\("${escapeRegExp(channel)}",\\s*async\\s*\\(event(?:, [^)]*)?\\) => \\{\\s*requireMainWindowSender\\(event\\);`
+      ),
+      `${channel} must reject non-main senders`
+    );
+  }
+});
+
+test("floating shell IPC handlers require the live floating-window sender", () => {
+  const main = readMain();
+
+  assert.match(
+    main,
+    /ipcMain\.handle\("floating:set-pinned",\s*\(event,\s*value\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?setFloatingPinned\(value\);[\s\S]*?\}\);/
+  );
+  assert.match(
+    main,
+    /ipcMain\.on\("floating:pin-interactive",\s*\(event,\s*value\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?setFloatingPinInteractive\(value\);[\s\S]*?\}\);/
+  );
+  assert.match(
+    main,
+    /ipcMain\.on\("tooltip:show",\s*\(event,\s*payload\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?showTooltipWindow\(payload\);[\s\S]*?\}\);/
+  );
+  assert.match(
+    main,
+    /ipcMain\.on\("tooltip:hide",\s*\(event\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?hideTooltipWindow\(\);[\s\S]*?\}\);/
+  );
+});
+
+test("GitHub and QQ secrets no longer persist through user environment writes", () => {
+  const main = readMain();
+
+  assert.doesNotMatch(main, /writeUserEnvironment\("GITHUB_TOKEN"/);
+  assert.doesNotMatch(main, /writeUserEnvironment\("QQ_MAIL_AUTH_CODE"/);
+});
+
+test("settings save derives GitHub token state from service settings and refreshes digest when the AI toggle changes", () => {
+  const main = readMain();
+  const publicSettingsStart = main.indexOf("async function publicSettingsPayload");
+  const publicSettingsEnd = main.indexOf("async function recordDeepSeekTokenUsageSafely", publicSettingsStart);
+  const publicSettings = main.slice(publicSettingsStart, publicSettingsEnd);
+  const settingsSaveStart = main.indexOf('ipcMain.handle("settings:save"');
+  const settingsSaveEnd = main.indexOf('ipcMain.handle("appearance:get-settings"', settingsSaveStart);
+  const settingsSaveHandler = main.slice(settingsSaveStart, settingsSaveEnd);
+
+  assert.match(publicSettings, /const servicePublicSettings = serviceSettingsLifecycle\.publicSettings\(\);/);
+  assert.match(publicSettings, /hasToken: Boolean\(servicePublicSettings\.hasGitHubToken\)/);
+  assert.match(settingsSaveHandler, /const previousDigestEnabled = currentSettings\.notificationDigest\.enabled;/);
+  assert.match(settingsSaveHandler, /if \(previousDigestEnabled !== currentSettings\.notificationDigest\.enabled\) \{/);
+  assert.match(settingsSaveHandler, /await notificationSummaryService\?\.refreshNow\(\{ force: true \}\);/);
 });
 
 test("selects startup policy once while retaining platform-specific window gates", () => {

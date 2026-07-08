@@ -2576,7 +2576,7 @@ function dashboardContent(section) {
         <h2>QQ 邮箱</h2>
         <form class="settings-panel weather-settings-panel mail-settings-panel" id="mail-settings-form">
           <fieldset>
-            <legend><strong>QQ 邮箱 IMAP</strong><small>邮箱地址和授权码仅保存在 Windows 用户环境变量中</small></legend>
+            <legend><strong>QQ 邮箱 IMAP</strong><small>邮箱地址保存在本地配置中，授权码使用系统加密存储</small></legend>
             <label>
               <span><strong>邮箱地址</strong><small>例如 123456@qq.com</small></span>
               <input id="qq-mail-address" type="email" autocomplete="off" spellcheck="false" value="${escapeHtml(mailSettings.address || "")}" placeholder="请输入 QQ 邮箱地址">

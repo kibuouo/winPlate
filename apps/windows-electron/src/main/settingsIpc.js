@@ -26,6 +26,7 @@ function registerSettingsIpc({
   userDataPath,
   writeAppSettings,
   serviceSettingsLifecycle,
+  afterServiceSettingsPersist = async () => {},
   normalizeDeepSeekBaseUrl,
   defaultDeepSeekBaseUrl,
   readDeepSeekUsage,
@@ -38,6 +39,14 @@ function registerSettingsIpc({
   function requireMainWindowSender(event) {
     if (!ownsMainWindowSender(event.sender)) {
       throw new Error("Unauthorized settings sender");
+    }
+  }
+
+  function requireUsageSender(event) {
+    const appPreferences = getAppPreferences();
+    const ownsMenuBarSender = Boolean(appPreferences?.ownsSender?.(event.sender));
+    if (!ownsMainWindowSender(event.sender) && !ownsMenuBarSender) {
+      throw new Error("Unauthorized usage sender");
     }
   }
 
@@ -107,6 +116,7 @@ function registerSettingsIpc({
     if (apiKey) patch.qweatherApiKey = apiKey;
     if (privateKey) patch.qweatherPrivateKey = privateKey;
     await serviceSettingsLifecycle.persist(patch);
+    await afterServiceSettingsPersist(patch);
     return weatherSettingsResponse(
       serviceSettingsLifecycle.effectiveSettings(),
       publicServiceSettings
@@ -139,13 +149,15 @@ function registerSettingsIpc({
     const patch = { deepseekBaseUrl: baseUrl };
     if (apiKey) patch.deepseekApiKey = apiKey;
     await serviceSettingsLifecycle.persist(patch);
+    await afterServiceSettingsPersist(patch);
     return deepSeekSettingsResponse(
       serviceSettingsLifecycle.effectiveSettings(),
       publicServiceSettings
     );
   });
 
-  ipcMain.handle("deepseek:usage", async (_event, options) => {
+  ipcMain.handle("deepseek:usage", async (event, options) => {
+    requireUsageSender(event);
     const settings = serviceSettingsLifecycle.effectiveSettings();
     const usage = await readDeepSeekUsage({
       ...safeObject(options),

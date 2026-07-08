@@ -9,7 +9,14 @@ const EXPECTED_NAMES = [
   "QWEATHER_CREDENTIAL_ID",
   "QWEATHER_PRIVATE_KEY",
   "DEEPSEEK_API_KEY",
-  "DEEPSEEK_BASE_URL"
+  "DEEPSEEK_BASE_URL",
+  "GITHUB_TOKEN",
+  "QQ_MAIL_ADDRESS",
+  "QQ_MAIL_AUTH_CODE",
+  "QQ_MAIL_IMAP_HOST",
+  "QQ_MAIL_IMAP_PORT",
+  "QQ_MAIL_SMTP_HOST",
+  "QQ_MAIL_SMTP_PORT"
 ];
 
 function requireApi() {
@@ -20,7 +27,7 @@ function requireApi() {
   );
 }
 
-test("reads the exact seven legacy registry values", async () => {
+test("reads the exact legacy registry values for service settings migration", async () => {
   requireApi();
   const calls = [];
   const result = await windowsEnvironment.readWindowsServiceEnvironment(

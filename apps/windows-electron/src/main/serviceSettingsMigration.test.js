@@ -87,7 +87,10 @@ test("a missing file imports legacy values into encrypted storage on first read"
     legacyEnvironment: {
       QWEATHER_API_KEY: "legacy-weather",
       QWEATHER_API_HOST: "legacy.weather.example",
-      DEEPSEEK_API_KEY: "legacy-deepseek"
+      DEEPSEEK_API_KEY: "legacy-deepseek",
+      GITHUB_TOKEN: "legacy-github",
+      QQ_MAIL_ADDRESS: "legacy@qq.com",
+      QQ_MAIL_AUTH_CODE: "legacy-auth"
     }
   });
   const lifecycle = createLifecycle(harness.store, {
@@ -99,10 +102,16 @@ test("a missing file imports legacy values into encrypted storage on first read"
   assert.equal(effective.qweatherApiKey, "process-weather");
   assert.equal(effective.qweatherApiHost, "legacy.weather.example");
   assert.equal(effective.deepseekApiKey, "legacy-deepseek");
+  assert.equal(effective.githubToken, "legacy-github");
+  assert.equal(effective.qqMailAddress, "legacy@qq.com");
+  assert.equal(effective.qqMailAuthCode, "legacy-auth");
   assert.equal(harness.getLegacyReads(), 1);
   assert.equal(harness.writes.length, 1);
   assert.equal(harness.getStored().qweatherApiKey, "legacy-weather");
   assert.equal(harness.getStored().deepseekApiKey, "legacy-deepseek");
+  assert.equal(harness.getStored().githubToken, "legacy-github");
+  assert.equal(harness.getStored().qqMailAddress, "legacy@qq.com");
+  assert.equal(harness.getStored().qqMailAuthCode, "legacy-auth");
 });
 
 test("a simulated restart uses the imported store without querying changed registry values", async () => {

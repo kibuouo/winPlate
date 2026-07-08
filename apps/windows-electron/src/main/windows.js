@@ -277,6 +277,24 @@ function ownsMainWindowSender(sender) {
   );
 }
 
+function ownsFloatingWindowSender(sender) {
+  return Boolean(
+    floatingWindow
+    && !floatingWindow.isDestroyed()
+    && !floatingWindow.webContents.isDestroyed()
+    && sender === floatingWindow.webContents
+  );
+}
+
+function ownsTooltipWindowSender(sender) {
+  return Boolean(
+    tooltipWindow
+    && !tooltipWindow.isDestroyed()
+    && !tooltipWindow.webContents.isDestroyed()
+    && sender === tooltipWindow.webContents
+  );
+}
+
 function minimizeMainWindow() {
   mainWindow?.minimize();
 }
@@ -355,6 +373,8 @@ module.exports = {
   setQuitting,
   setMainWindowTheme,
   ownsMainWindowSender,
+  ownsFloatingWindowSender,
+  ownsTooltipWindowSender,
   setAppWindowOpacity,
   minimizeMainWindow,
   toggleMaximizeMainWindow,

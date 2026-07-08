@@ -1016,8 +1016,8 @@ test("versioned settings IPC never returns credential values", () => {
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
   assert.match(preload, /getSettings: \(\) => ipcRenderer\.invoke\("settings:get"\)/);
   assert.match(preload, /saveSettings: \(settings\) => ipcRenderer\.invoke\("settings:save", settings\)/);
-  assert.match(main, /hasToken: Boolean\(githubToken\)/);
-  assert.doesNotMatch(main, /github:\s*\{[\s\S]{0,120}token:\s*githubToken/);
+  assert.match(main, /hasToken: Boolean\(servicePublicSettings\.hasGitHubToken\)/);
+  assert.doesNotMatch(main, /github:\s*\{[\s\S]{0,160}token:/);
 });
 
 test("appearance-only saves broadcast the updated theme to every window", () => {

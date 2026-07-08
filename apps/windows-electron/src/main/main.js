@@ -34,6 +34,7 @@ const {
   toggleMaximizeMainWindow,
   closeMainWindow,
   ownsMainWindowSender,
+  ownsFloatingWindowSender,
   sendToWindow
 } = require("./windows");
 const { createActivationCoordinator } = require("./activationCoordinator");
@@ -107,12 +108,20 @@ const processServiceEnvironment = Object.freeze({
   QWEATHER_CREDENTIAL_ID: process.env.QWEATHER_CREDENTIAL_ID,
   QWEATHER_PRIVATE_KEY: process.env.QWEATHER_PRIVATE_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
-  DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL
+  DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  QQ_MAIL_ADDRESS: process.env.QQ_MAIL_ADDRESS,
+  QQ_MAIL_AUTH_CODE: process.env.QQ_MAIL_AUTH_CODE,
+  QQ_MAIL_IMAP_HOST: process.env.QQ_MAIL_IMAP_HOST,
+  QQ_MAIL_IMAP_PORT: process.env.QQ_MAIL_IMAP_PORT,
+  QQ_MAIL_SMTP_HOST: process.env.QQ_MAIL_SMTP_HOST,
+  QQ_MAIL_SMTP_PORT: process.env.QQ_MAIL_SMTP_PORT
 });
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
 let notificationDetailService = null;
 let currentSettings = null;
+let serviceSettingsLifecycle = null;
 const desktopIconPath = assetPath("icon.ico");
 
 function broadcastStatusRefresh(weather = null) {
@@ -317,24 +326,6 @@ async function fetchJsonCached(key, url, ttlMs) {
   return promise;
 }
 
-async function readUserEnvironment(name) {
-  if (process.platform !== "win32") {
-    return process.env[name] || "";
-  }
-  try {
-    const safeName = String(name).replace(/'/g, "''");
-    const { stdout } = await execFileAsync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      `[Environment]::GetEnvironmentVariable('${safeName}', 'User')`
-    ], { windowsHide: true, maxBuffer: 1024 * 1024 });
-    return stdout.replace(/\r?\n$/, "");
-  } catch {
-    return process.env[name] || "";
-  }
-}
-
 async function writeUserEnvironment(name, value) {
   if (process.platform !== "win32") {
     process.env[name] = value;
@@ -369,14 +360,14 @@ function validateSettingsInput(settings = {}) {
 }
 
 async function publicSettingsPayload(settings = currentSettings) {
-  const githubToken = await readUserEnvironment("GITHUB_TOKEN");
+  const servicePublicSettings = serviceSettingsLifecycle.publicSettings();
   return {
     ...settings,
     integrations: {
       ...settings.integrations,
       github: {
         ...settings.integrations.github,
-        hasToken: Boolean(githubToken)
+        hasToken: Boolean(servicePublicSettings.hasGitHubToken)
       }
     }
   };
@@ -409,7 +400,7 @@ if (!gotLock) {
       resolveSettings: resolveServiceSettings,
       reportError: (message) => console.error(message)
     });
-    const serviceSettingsLifecycle = createServiceSettingsLifecycle({
+    serviceSettingsLifecycle = createServiceSettingsLifecycle({
       defaults: DEFAULT_SERVICE_SETTINGS,
       externalEnvironment: processServiceEnvironment,
       targetEnvironment: process.env,
@@ -451,17 +442,65 @@ if (!gotLock) {
     const initialTheme = currentSettings.appearance.theme === "system"
       ? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
       : currentSettings.appearance.theme;
+    const restartPythonBackend = async () => {
+      stopPythonService();
+      try {
+        await startPythonService({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          userDataPath
+        });
+      } catch (error) {
+        console.error(error.message);
+      }
+    };
+    const serviceSettingsRequireBackendRestart = new Set([
+      "qweatherApiKey",
+      "qweatherApiHost",
+      "qweatherProjectId",
+      "qweatherCredentialId",
+      "qweatherPrivateKey",
+      "githubToken",
+      "qqMailAddress",
+      "qqMailAuthCode",
+      "qqMailImapHost",
+      "qqMailImapPort",
+      "qqMailSmtpHost",
+      "qqMailSmtpPort"
+    ]);
+
+    function requireMainWindowSender(event) {
+      if (!ownsMainWindowSender(event.sender)) {
+        throw new Error("Unauthorized settings sender");
+      }
+    }
+
+    function requireFloatingWindowSender(event) {
+      if (!ownsFloatingWindowSender(event.sender)) {
+        throw new Error("Unauthorized floating sender");
+      }
+    }
+
     ipcMain.handle("settings:get", () => publicSettingsPayload());
-    ipcMain.handle("settings:save", async (_event, settings) => {
+    ipcMain.handle("settings:save", async (event, settings) => {
+      requireMainWindowSender(event);
       validateSettingsInput(settings);
+      const previousDigestEnabled = currentSettings.notificationDigest.enabled;
       const github = settings?.integrations?.github || {};
       const username = typeof github.username === "string" ? github.username.trim() : "";
       const token = typeof github.token === "string" ? github.token.trim() : "";
       if (username) await writeUserEnvironment("WINPLATE_GITHUB_USERNAME", username);
-      if (token) await writeUserEnvironment("GITHUB_TOKEN", token);
+      if (token) {
+        await serviceSettingsLifecycle.persist({ githubToken: token });
+        await restartPythonBackend();
+      }
       currentSettings = await writeSettings(userDataPath, settings);
       setAppWindowOpacity(currentSettings.appearance.opacity);
       invalidateResponseCache("Status");
+      if (previousDigestEnabled !== currentSettings.notificationDigest.enabled) {
+        clearNotificationCaches();
+        await notificationSummaryService?.refreshNow({ force: true });
+      }
       const payload = await publicSettingsPayload();
       broadcastSettingsUpdated(payload);
       return payload;
@@ -470,7 +509,8 @@ if (!gotLock) {
       theme: currentSettings.appearance.theme,
       mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
     }));
-    ipcMain.handle("appearance:save-settings", async (_event, settings) => {
+    ipcMain.handle("appearance:save-settings", async (event, settings) => {
+      requireMainWindowSender(event);
       currentSettings = await writeSettings(userDataPath, {
         ...currentSettings,
         appearance: {
@@ -534,6 +574,11 @@ if (!gotLock) {
       userDataPath,
       writeAppSettings,
       serviceSettingsLifecycle,
+      afterServiceSettingsPersist: async (patch) => {
+        if (Object.keys(patch).some((key) => serviceSettingsRequireBackendRestart.has(key))) {
+          await restartPythonBackend();
+        }
+      },
       normalizeDeepSeekBaseUrl,
       defaultDeepSeekBaseUrl: DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl,
       readDeepSeekUsage,
@@ -544,12 +589,22 @@ if (!gotLock) {
 
     if (policy.createFloatingWindow) {
       createFloatingWindow();
-      ipcMain.handle("floating:set-pinned", (_event, value) => setFloatingPinned(value));
-      ipcMain.on("floating:pin-interactive", (_event, value) => {
+      ipcMain.handle("floating:set-pinned", (event, value) => {
+        requireFloatingWindowSender(event);
+        return setFloatingPinned(value);
+      });
+      ipcMain.on("floating:pin-interactive", (event, value) => {
+        requireFloatingWindowSender(event);
         setFloatingPinInteractive(value);
       });
-      ipcMain.on("tooltip:show", (_event, payload) => showTooltipWindow(payload));
-      ipcMain.on("tooltip:hide", hideTooltipWindow);
+      ipcMain.on("tooltip:show", (event, payload) => {
+        requireFloatingWindowSender(event);
+        showTooltipWindow(payload);
+      });
+      ipcMain.on("tooltip:hide", (event) => {
+        requireFloatingWindowSender(event);
+        hideTooltipWindow();
+      });
     }
 
     if (policy.createWindowsTray) {
@@ -581,7 +636,8 @@ if (!gotLock) {
       await shell.openExternal("https://mail.qq.com/");
       return { opened: true };
     });
-    ipcMain.handle("email:read-message", async (_event, uid) => {
+    ipcMain.handle("email:read-message", async (event, uid) => {
+      requireMainWindowSender(event);
       return fetchMailMessageByUid(uid, { markRead: true });
     });
     ipcMain.handle("mail:get-message", async (_event, uid) => {
@@ -600,7 +656,8 @@ if (!gotLock) {
       fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
     ));
     ipcMain.handle("network:speed", () => readNetworkSpeed());
-    ipcMain.handle("weather:set-location", async (_event, location) => {
+    ipcMain.handle("weather:set-location", async (event, location) => {
+      requireMainWindowSender(event);
       const { latitude, longitude } = normalizeWeatherCoordinates(location);
       const response = await fetch("http://127.0.0.1:8765/api/weather/refresh", {
         method: "POST",
@@ -627,7 +684,8 @@ if (!gotLock) {
         30_000
       );
     });
-    ipcMain.handle("weather:set-manual-location", async (_event, location) => {
+    ipcMain.handle("weather:set-manual-location", async (event, location) => {
+      requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/weather/location/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -659,7 +717,8 @@ if (!gotLock) {
       )
     ));
     ipcMain.handle("weather:get-alert", async (_event, alertId) => fetchWeatherAlertById(alertId));
-    ipcMain.handle("weather:refresh-official-usage", async () => {
+    ipcMain.handle("weather:refresh-official-usage", async (event) => {
+      requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/weather/usage/official", { method: "POST" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -681,7 +740,8 @@ if (!gotLock) {
     ipcMain.handle("mail:get-settings", () => (
       fetchJsonCached("Mail settings", "http://127.0.0.1:8765/api/mail/settings", MAIL_CACHE_TTL_MS)
     ));
-    ipcMain.handle("mail:save-settings", async (_event, settings) => {
+    ipcMain.handle("mail:save-settings", async (event, settings) => {
+      requireMainWindowSender(event);
       const address = typeof settings?.address === "string" ? settings.address.trim() : "";
       const authCode = typeof settings?.authCode === "string" ? settings.authCode.trim() : "";
       if (!address || !/^[^@\s]+@qq\.com$/i.test(address)) {
@@ -690,25 +750,35 @@ if (!gotLock) {
       if (!authCode) {
         throw new Error("QQ 邮箱授权码不能为空");
       }
-      await Promise.all([
-        writeUserEnvironment("QQ_MAIL_ADDRESS", address),
-        writeUserEnvironment("QQ_MAIL_AUTH_CODE", authCode),
-        writeUserEnvironment("QQ_MAIL_IMAP_HOST", "imap.qq.com"),
-        writeUserEnvironment("QQ_MAIL_IMAP_PORT", "993"),
-        writeUserEnvironment("QQ_MAIL_SMTP_HOST", "smtp.qq.com"),
-        writeUserEnvironment("QQ_MAIL_SMTP_PORT", "465")
-      ]);
+      await serviceSettingsLifecycle.persist({
+        qqMailAddress: address,
+        qqMailAuthCode: authCode,
+        qqMailImapHost: DEFAULT_SERVICE_SETTINGS.qqMailImapHost,
+        qqMailImapPort: DEFAULT_SERVICE_SETTINGS.qqMailImapPort,
+        qqMailSmtpHost: DEFAULT_SERVICE_SETTINGS.qqMailSmtpHost,
+        qqMailSmtpPort: DEFAULT_SERVICE_SETTINGS.qqMailSmtpPort
+      });
+      await restartPythonBackend();
       responseCaches.delete("Mail settings");
       clearMailCaches();
+      const servicePublicSettings = serviceSettingsLifecycle.publicSettings();
       return {
         configured: true,
         connected: true,
-        address,
+        address: servicePublicSettings.qqMailAddress,
         protocol: "IMAP",
         query: "IMAP INBOX SINCE 30 days",
         windowDays: 30,
-        imap: { host: "imap.qq.com", port: 993, secure: true },
-        smtp: { host: "smtp.qq.com", port: 465, secure: true },
+        imap: {
+          host: servicePublicSettings.qqMailImapHost,
+          port: Number(servicePublicSettings.qqMailImapPort),
+          secure: true
+        },
+        smtp: {
+          host: servicePublicSettings.qqMailSmtpHost,
+          port: Number(servicePublicSettings.qqMailSmtpPort),
+          secure: true
+        },
         updatedAt: null
       };
     });
@@ -782,21 +852,21 @@ if (!gotLock) {
         }
       },
       callChat: async (options) => {
-        const [apiKey, baseUrl] = await Promise.all([
-          readUserEnvironment("DEEPSEEK_API_KEY"),
-          readUserEnvironment("DEEPSEEK_BASE_URL")
-        ]);
+        const settings = serviceSettingsLifecycle.effectiveSettings();
         return callDeepSeekChat({
           ...options,
-          apiKey,
-          baseUrl: baseUrl || DEEPSEEK_DEFAULT_BASE_URL,
+          apiKey: settings.deepseekApiKey,
+          baseUrl: settings.deepseekBaseUrl || DEEPSEEK_DEFAULT_BASE_URL,
           onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, options.feature || "unknown")
         });
       }
     });
     ipcMain.handle("notification:get-digest", () => notificationSummaryService.getDigest());
     ipcMain.handle("notifications:get-smart-brief", () => notificationSummaryService.getDigest());
-    ipcMain.handle("notifications:refresh-smart-brief", () => notificationSummaryService.refreshNow({ force: true }));
+    ipcMain.handle("notifications:refresh-smart-brief", async (event) => {
+      requireMainWindowSender(event);
+      return notificationSummaryService.refreshNow({ force: true });
+    });
     ipcMain.handle("notifications:get-detail", async (_event, id) => notificationDetailService.getNotificationDetail(id));
     ipcMain.handle("notifications:copy", (_event, value) => {
       const text = typeof value === "string" ? value : "";
@@ -818,7 +888,8 @@ if (!gotLock) {
       });
       return { ok: true, action: resolvedAction };
     });
-    ipcMain.handle("notifications:mark-read", async (_event, id) => {
+    ipcMain.handle("notifications:mark-read", async (event, id) => {
+      requireMainWindowSender(event);
       const notificationId = typeof id === "string" ? id.trim() : "";
       if (!notificationId) {
         throw new Error("Notification id is required");
@@ -835,7 +906,8 @@ if (!gotLock) {
       scheduleNotificationDigestRefresh();
       return summary;
     });
-    ipcMain.handle("notifications:mark-all-read", async () => {
+    ipcMain.handle("notifications:mark-all-read", async (event) => {
+      requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/notifications/read-all", { method: "POST" });
       if (!response.ok) {
         throw new Error(`Notification read-all failed: HTTP ${response.status}`);
@@ -845,7 +917,8 @@ if (!gotLock) {
       scheduleNotificationDigestRefresh();
       return summary;
     });
-    ipcMain.handle("notifications:clear", async () => {
+    ipcMain.handle("notifications:clear", async (event) => {
+      requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/notifications", { method: "DELETE" });
       if (!response.ok) {
         throw new Error(`Notification clear failed: HTTP ${response.status}`);
@@ -855,7 +928,8 @@ if (!gotLock) {
       scheduleNotificationDigestRefresh();
       return summary;
     });
-    ipcMain.handle("notifications:push-test", async () => {
+    ipcMain.handle("notifications:push-test", async (event) => {
+      requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -874,7 +948,8 @@ if (!gotLock) {
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
-    ipcMain.handle("deepseek:test-chat", async () => {
+    ipcMain.handle("deepseek:test-chat", async (event) => {
+      requireMainWindowSender(event);
       const settings = serviceSettingsLifecycle.effectiveSettings();
       return testDeepSeekChat({
         apiKey: settings.deepseekApiKey,
