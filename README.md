@@ -21,14 +21,13 @@ WinPlate 提供两类核心界面：
 
 上图是基于两张现有胶囊图融合得到的 WinPlate 胶囊主题展示：同一枚胶囊里通过一条斜向分界同时呈现深色与浅色主题，同时保留原始布局不变。它把 GitHub、Codex、通知、天气、心率和网络压缩在一个圆角浮层里，适合长期悬浮而不打断工作流。
 
-### 主界面浅色 / 深色展示
+### 主界面主题融合展示
 
 <p align="center">
-  <img src="./docs/qa/2026-07-01-macos-settings-current.png" alt="WinPlate 主界面浅色主题" width="48%" />
-  <img src="./docs/qa/2026-07-01-macos-settings-dark-current.png" alt="WinPlate 主界面深色主题" width="48%" />
+  <img src="./docs/qa/winplate-main-fused-diagonal.png" alt="WinPlate 主界面斜向主题融合展示" width="900" />
 </p>
 
-这两张截图展示的是共享主界面在浅色和深色主题下的实际效果。Windows 与 macOS 使用同一套渲染层主题变量，差异主要在平台壳层和窗口策略上。
+这张图展示的是 WinPlate 主界面的斜向主题融合效果：在同一个完整窗口里同时呈现深色与浅色主题，并保持侧边栏、状态卡片和设置区域属于同一套连续布局。Windows 与 macOS 使用同一套渲染层主题变量，差异主要在平台壳层和窗口策略上。
 
 ## 深色 / 浅色双 CSS 主题
 
