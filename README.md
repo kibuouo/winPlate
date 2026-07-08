@@ -3,7 +3,7 @@
 WinPlate 是一个面向 Windows 和 macOS 的本地优先状态中心，把 GitHub、Codex、天气、通知、邮件、网络等高频信息压缩进桌面胶囊和主界面里，让开发过程里的关键状态始终留在视线范围内。
 
 <p align="center">
-  <img src="./apps/windows-electron/assets/winplate-ui-preview.png" alt="WinPlate 胶囊态预览" width="690" />
+  <img src="./apps/windows-electron/assets/winplate-capsule-fused-diagonal.png" alt="WinPlate 胶囊斜向主题融合展示" width="900" />
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@ WinPlate 提供两类核心界面：
 
 ### 胶囊态预览
 
-上图是 Windows 胶囊态。它把 GitHub、Codex、通知、天气、心率和网络压缩在一个圆角浮层里，适合长期悬浮而不打断工作流。
+上图是基于两张现有胶囊图融合得到的 WinPlate 胶囊主题展示：同一枚胶囊里通过一条斜向分界同时呈现深色与浅色主题，同时保留原始布局不变。它把 GitHub、Codex、通知、天气、心率和网络压缩在一个圆角浮层里，适合长期悬浮而不打断工作流。
 
 ### 主界面浅色 / 深色展示
 
