@@ -1613,6 +1613,15 @@ test("notification detail titles stay within the drawer header", () => {
   assert.match(css, /\.notification-detail-close \{ flex: 0 0 40px; \}/);
 });
 
+test("notification digest drawer reuses the Mail drawer layout contract", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.mail-detail-drawer,\s*\.notification-detail-drawer\s*\{/);
+  assert.match(css, /\.notification-drawer-list/);
+  assert.match(css, /\.notification-drawer-item:focus-visible/);
+  assert.doesNotMatch(css, /\.notification-digest-explorer/);
+  assert.doesNotMatch(css, /\.notification-digest-filters/);
+});
+
 test("DeepSeek balance card renders local token usage instead of unavailable placeholder", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const codexContent = renderer.slice(
