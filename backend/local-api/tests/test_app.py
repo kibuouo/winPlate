@@ -575,7 +575,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(main.qweather_usage(datetime(2026, 7, 1))["used"], 0)
         main.DATABASE_PATH = original_path
 
-    def test_qweather_official_stats_sums_all_api_hours(self):
+    def test_qweather_official_stats_requests_account_summary(self):
         payload = {
             "asOf": "2026-06-13T10:00:00Z",
             "data": [
@@ -600,7 +600,7 @@ class DatabaseTests(unittest.TestCase):
         ):
             result = main.qweather_official_stats()
         request = mock_urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "https://example.com/metrics/v1/stats?credential=credential")
+        self.assertEqual(request.full_url, "https://example.com/metrics/v1/stats")
         self.assertEqual(request.headers["Accept-encoding"], "gzip")
         self.assertEqual(result, {
             "total": 12,

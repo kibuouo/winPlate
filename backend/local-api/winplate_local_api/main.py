@@ -1484,8 +1484,7 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
 
 
 def qweather_official_stats() -> dict:
-    credential_id = environment_setting("QWEATHER_CREDENTIAL_ID")
-    payload = qweather_jwt_request("/metrics/v1/stats", {"credential": credential_id})
+    payload = qweather_jwt_request("/metrics/v1/stats")
 
     success = _sum_named_metric(payload, "success")
     errors = _sum_named_metric(payload, "errors")
