@@ -209,8 +209,9 @@ function extractNamedFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
+function createNotificationDrawerHarness({ detailResponses = [], markReadSummary = null, refreshedDigest = null } = {}) {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const digestApi = loadNotificationDigestComponent();
   const closeDrawerSource = renderer.includes("function closeNotificationDrawer(")
     ? extractNamedFunction(renderer, "closeNotificationDrawer")
     : "function closeNotificationDrawer() {}";
@@ -230,7 +231,7 @@ function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
   }
   const digestTrigger = new HarnessElement("[data-notification-digest-open]");
   let drawer = null;
-  const calls = { detail: [] };
+  const calls = { detail: [], markRead: [], digestRefresh: 0 };
   const responses = [...detailResponses];
   const context = {
     Element: HarnessElement,
@@ -250,7 +251,8 @@ function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
     window: {
       WinPlateNotificationDigest: {
         normalizeDigest: (value) => value,
-        renderDigestDrawerList: (_digest, items) => items.map((item) => item.title).join(" ")
+        selectDigestItems: digestApi.selectDigestItems,
+        renderDigestDrawerList: (digest, items) => digestApi.selectDigestItems(digest, items).map((item) => item.title).join(" ")
       },
       winplate: {
         async getNotificationDetail(id) {
@@ -258,10 +260,20 @@ function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
           const response = responses.shift();
           if (response instanceof Error) throw response;
           return response || { notification: { id, title: "通知详情", source: "system" }, detail: {}, actions: [] };
-        }
+        },
+        async markNotificationRead(id) {
+          calls.markRead.push(id);
+          return markReadSummary;
+        },
+        async navigateNotification() {}
       }
+    },
+    async getHarnessDigest() {
+      calls.digestRefresh += 1;
+      return refreshedDigest;
     }
   };
+  context.copyTextToClipboard = async () => {};
   const source = `
     let notificationSummary = { unreadCount: 1, items: [{ id: "n1", title: "通知 n1", unread: true }] };
     let notificationDigest = { headline: "通知", sourceIds: ["n1"], severity: "info" };
@@ -276,6 +288,8 @@ function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
     const absoluteTimeLabel = String;
     function notificationActionButton(action) { return "<button>" + escapeHtml(action?.label || "执行") + "</button>"; }
     function updateMainStatusDom() { renderHarnessDrawer(notificationDrawer()); }
+    async function copyTextToClipboard(value) { return globalCopyTextToClipboard(value); }
+    async function hydrateNotificationDigest() { notificationDigest = await getHarnessDigest() || notificationDigest; }
     ${extractNamedFunction(renderer, "notificationDetailValue")}
     ${extractNamedFunction(renderer, "notificationDrawer")}
     ${extractNamedFunction(renderer, "openNotificationDetail")}
@@ -284,11 +298,13 @@ function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
     ${extractNamedFunction(renderer, "showNotificationDrawerList")}
     ${extractNamedFunction(renderer, "closeNotificationDetail")}
     ${closeDrawerSource}
+    ${extractNamedFunction(renderer, "handleNotificationAction")}
     ${extractNamedFunction(renderer, "handleNotificationPageKeydown")}
     ${extractNamedFunction(renderer, "handleNotificationPageClick")}
     ${extractNamedFunction(renderer, "handleNotificationDocumentKeydown")}
     this.notificationHarness = { handleNotificationPageKeydown, handleNotificationPageClick, handleNotificationDocumentKeydown };
   `;
+  context.globalCopyTextToClipboard = context.copyTextToClipboard;
   context.renderHarnessDrawer = (html) => {
     if (!html) {
       drawer = null;
@@ -333,9 +349,11 @@ function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
     activeElement: () => context.document.activeElement,
     dispatchDigestKey: (key) => dispatch(digestTrigger, key),
     clickDrawerItem: (id) => click("[data-notification-drawer-item]", { notificationDrawerItem: id }),
-    click: (selector) => click(selector, selector === "[data-notification-detail-retry]"
-      ? { notificationDetailRetry: "n1" }
-      : {}),
+    click: (selector, value = null) => click(selector, selector === "[data-notification-detail-retry]"
+      ? { notificationDetailRetry: value || "n1" }
+      : selector === "[data-notification-action-id]"
+        ? { notificationActionId: value || "mark" }
+        : {}),
     dispatchDocument: async (type, event) => {
       assert.equal(type, "keydown");
       context.notificationHarness.handleNotificationDocumentKeydown({
@@ -1469,6 +1487,57 @@ test("notification drawer supports keyboard open, Escape close, focus restore, b
   await harness.dispatchDocument("keydown", { key: "Escape" });
   assert.equal(harness.drawer(), null);
   assert.equal(harness.activeElement(), harness.digestTrigger());
+});
+
+test("notification mark-read refresh keeps list mode only while represented items remain", async () => {
+  const detail = {
+    notification: { id: "n1", title: "通知详情", source: "system", unread: true },
+    detail: {},
+    actions: [{ id: "mark", type: "markRead", label: "标记已读", payload: { notificationId: "n1" } }]
+  };
+  const harness = createNotificationDrawerHarness({
+    detailResponses: [detail],
+    markReadSummary: {
+      unreadCount: 1,
+      items: [
+        { id: "n1", title: "通知 n1", unread: false },
+        { id: "n2", title: "通知 n2", unread: true }
+      ]
+    },
+    refreshedDigest: { headline: "新摘要", sourceIds: ["n2"], severity: "info" }
+  });
+
+  await harness.dispatchDigestKey("Enter");
+  await harness.clickDrawerItem("n1");
+  await harness.click("[data-notification-action-id]", "mark");
+
+  assert.deepEqual(harness.calls.markRead, ["n1"]);
+  assert.equal(harness.calls.digestRefresh, 1);
+  assert.match(harness.drawer().textContent, /通知 n2/);
+  assert.match(harness.drawer().textContent, /已标记为已读/);
+});
+
+test("notification mark-read refresh preserves detail when no represented items remain", async () => {
+  const harness = createNotificationDrawerHarness({
+    detailResponses: [{
+      notification: { id: "n1", title: "通知详情", source: "system", unread: true },
+      detail: {},
+      actions: [{ id: "mark", type: "markRead", label: "标记已读", payload: { notificationId: "n1" } }]
+    }],
+    markReadSummary: {
+      unreadCount: 0,
+      items: [{ id: "n1", title: "原始历史仍保留", unread: false }]
+    },
+    refreshedDigest: { headline: "无待办", sourceIds: ["missing"], severity: "info" }
+  });
+
+  await harness.dispatchDigestKey("Enter");
+  await harness.clickDrawerItem("n1");
+  await harness.click("[data-notification-action-id]", "mark");
+
+  assert.match(harness.drawer().textContent, /通知详情/);
+  assert.match(harness.drawer().textContent, /已标记为已读/);
+  assert.doesNotMatch(harness.drawer().textContent, /原始历史仍保留/);
 });
 
 test("external notification navigation loads the requested drawer detail", () => {

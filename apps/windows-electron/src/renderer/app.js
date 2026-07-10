@@ -3415,7 +3415,11 @@ async function handleNotificationAction(actionId) {
     }
     await hydrateNotificationDigest();
     notificationActionFeedback = "已标记为已读";
-    if (notificationItemsForDigest().length) {
+    const representedItems = window.WinPlateNotificationDigest.selectDigestItems(
+      notificationDigest,
+      notificationItemsForDigest()
+    );
+    if (representedItems.length) {
       showNotificationDrawerList();
     }
     updateMainStatusDom();
