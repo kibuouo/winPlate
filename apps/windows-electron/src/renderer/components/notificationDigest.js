@@ -67,7 +67,7 @@
     const value = normalizeDigest(digest);
     const iconKey = "sparkles";
     return `
-      <section class="notification-digest-card severity-${escapeHtml(value.severity)} ${compact ? "compact" : ""}" aria-label="智能通知摘要" ${compact ? "" : 'data-notification-digest-toggle="true"'}>
+      <section class="notification-digest-card severity-${escapeHtml(value.severity)} ${compact ? "compact" : ""}" aria-label="智能通知摘要" ${compact ? "" : 'role="button" tabindex="0" aria-expanded="false" aria-controls="notification-digest-drawer" data-notification-digest-open="true"'}>
         <div class="notification-digest-heading">
           <span class="notification-digest-kicker">${global.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}智能摘要</span>
           <span class="notification-digest-count">${value.unreadCount} 未读</span>

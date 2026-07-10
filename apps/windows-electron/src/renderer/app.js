@@ -76,8 +76,7 @@ let notificationDigest = {
 };
 let notificationActionInFlight = false;
 let notificationRawExpanded = false;
-let notificationDigestExpanded = false;
-let notificationDigestGroupKey = "all";
+let notificationDrawerState = { open: false, mode: "list", returnFocus: null };
 let notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
 let notificationActionFeedback = "";
 let networkSpeed = {
@@ -951,14 +950,7 @@ function absoluteTimeLabel(value) {
 }
 
 function notificationItemsForDigest() {
-  const summary = normalizedNotifications();
-  const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
-  if (!notificationDigestExpanded) return summary.items;
-  const group = notificationDigestGroupKey === "all"
-    ? null
-    : digest.groups.find((item) => item.key === notificationDigestGroupKey);
-  const ids = new Set(group?.sourceIds || digest.sourceIds || []);
-  return summary.items.filter((item) => (ids.size ? ids.has(item.id) : true));
+  return normalizedNotifications().items;
 }
 
 function notificationSourceLabel(source) {
@@ -2307,34 +2299,24 @@ function notificationActionButton(action = {}) {
   return `<button class="notification-detail-action type-${escapeHtml(action.type || "view")}" type="button" data-notification-action-id="${escapeHtml(action.id || "")}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>`;
 }
 
-function notificationDigestExplorer() {
-  if (!notificationDigestExpanded) return "";
-  const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
-  const groups = Array.isArray(digest.groups) ? digest.groups : [];
-  const activeKey = notificationDigestGroupKey || "all";
-  const filteredCount = notificationItemsForDigest().length;
-  return `
-    <section class="notification-digest-explorer">
-      <header>
-        <strong class="notification-digest-kicker notification-digest-explorer-kicker">
-          ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("sparkles")}
-          摘要详情
-        </strong>
-        <p>${escapeHtml(digest.summary || "当前没有需要关注的新通知。")}</p>
-      </header>
-      <div class="notification-digest-filters">
-        <button class="${activeKey === "all" ? "active" : ""}" type="button" data-notification-digest-group="all">全部 ${digest.sourceIds.length || 0}</button>
-        ${groups.map((group) => `
-          <button class="${activeKey === group.key ? "active" : ""}" type="button" data-notification-digest-group="${escapeHtml(group.key)}">
-            ${escapeHtml(group.label)} ${Math.max(0, Number(group.count) || 0)}
-          </button>`).join("")}
-      </div>
-      <small>当前显示 ${filteredCount} 条通知</small>
-    </section>`;
-}
-
-function notificationDetailDrawer() {
-  if (!notificationDetail.open) return "";
+function notificationDrawer() {
+  if (!notificationDrawerState.open) return "";
+  if (notificationDrawerState.mode === "list") {
+    const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
+    const list = window.WinPlateNotificationDigest.renderDigestDrawerList(
+      digest,
+      notificationItemsForDigest(),
+      { sourceLabel: notificationSourceLabel, relativeTime: relativeUpdatedAt }
+    );
+    return `
+      <aside id="notification-digest-drawer" class="notification-detail-drawer" role="dialog" aria-modal="true" aria-label="通知摘要">
+        <header>
+          <div><span>智能摘要</span><h2>${escapeHtml(digest.headline)}</h2></div>
+          <button class="notification-detail-close" type="button" aria-label="关闭通知摘要">×</button>
+        </header>
+        <section class="notification-detail-content">${list}</section>
+      </aside>`;
+  }
   const payload = notificationDetail.data || {};
   const detail = payload.detail || {};
   const notification = payload.notification || {};
@@ -2351,8 +2333,9 @@ function notificationDetailDrawer() {
   const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
   const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
   return `
-    <aside class="notification-detail-drawer" aria-label="通知详情">
+    <aside id="notification-digest-drawer" class="notification-detail-drawer" role="dialog" aria-modal="true" aria-label="通知详情">
       <header>
+        <button class="notification-detail-back" type="button" aria-label="返回通知摘要">←</button>
         <div>
           <span>${escapeHtml(notificationSourceLabel(notification.source || "system"))}</span>
           <h2>${escapeHtml(title)}</h2>
@@ -2458,9 +2441,8 @@ function notificationContent() {
         </div>
       </div>
       ${digestCard}
-      ${notificationDigestExplorer()}
       ${rows}
-      ${notificationDetailDrawer()}
+      ${notificationDrawer()}
     </section>`;
 }
 
@@ -3352,6 +3334,7 @@ async function copyTextToClipboard(text) {
 async function openNotificationDetail(notificationId) {
   const id = String(notificationId || "").trim();
   if (!id) return;
+  notificationDrawerState = { ...notificationDrawerState, open: true, mode: "detail" };
   notificationDetail = { open: true, loading: true, id, data: null, error: "" };
   notificationActionFeedback = "";
   updateMainStatusDom();
@@ -3370,9 +3353,21 @@ async function openNotificationDetail(notificationId) {
   updateMainStatusDom();
 }
 
+function openNotificationDigestDrawer(trigger = null) {
+  notificationDrawerState = { open: true, mode: "list", returnFocus: trigger };
+  notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
+}
+
+function showNotificationDrawerList() {
+  notificationDrawerState = { ...notificationDrawerState, open: true, mode: "list" };
+}
+
 function closeNotificationDetail() {
+  const returnFocus = notificationDrawerState.returnFocus;
+  notificationDrawerState = { open: false, mode: "list", returnFocus: null };
   notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
   notificationActionFeedback = "";
+  requestAnimationFrame(() => returnFocus?.focus?.());
 }
 
 async function handleNotificationAction(actionId) {
@@ -3420,6 +3415,7 @@ function bindNotificationControls() {
   if (pageContent && !pageContent.dataset.notificationDelegationBound) {
     pageContent.dataset.notificationDelegationBound = "true";
     pageContent.addEventListener("click", handleNotificationPageClick);
+    pageContent.addEventListener("keydown", handleNotificationPageKeydown);
   }
   const rawSection = document.querySelector(".notification-raw-section");
   if (rawSection) {
@@ -3481,6 +3477,16 @@ function bindNotificationControls() {
   }
 }
 
+function handleNotificationPageKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const target = event.target instanceof Element ? event.target : null;
+  const trigger = target?.closest("[data-notification-digest-open]");
+  if (!trigger) return;
+  event.preventDefault();
+  openNotificationDigestDrawer(trigger);
+  updateMainStatusDom();
+}
+
 async function handleNotificationPageClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target || !target.closest(".notifications-page")) return;
@@ -3525,10 +3531,15 @@ async function handleNotificationPageClick(event) {
     return;
   }
 
-  const groupButton = target.closest("[data-notification-digest-group]");
-  if (groupButton) {
-    notificationDigestGroupKey = groupButton.dataset.notificationDigestGroup || "all";
+  if (target.closest(".notification-detail-back")) {
+    showNotificationDrawerList();
     updateMainStatusDom();
+    return;
+  }
+
+  const drawerItem = target.closest("[data-notification-drawer-item]");
+  if (drawerItem) {
+    if (!notificationActionInFlight) await openNotificationDetail(drawerItem.dataset.notificationDrawerItem);
     return;
   }
 
@@ -3538,9 +3549,9 @@ async function handleNotificationPageClick(event) {
     return;
   }
 
-  if (target.closest("[data-notification-digest-toggle]")) {
-    notificationDigestExpanded = !notificationDigestExpanded;
-    if (!notificationDigestExpanded) notificationDigestGroupKey = "all";
+  const digestTrigger = target.closest("[data-notification-digest-open]");
+  if (digestTrigger) {
+    openNotificationDigestDrawer(digestTrigger);
     updateMainStatusDom();
   }
 }
@@ -3833,7 +3844,7 @@ function applyNavigationPayload(value) {
     selectedWeatherAlertId = payload.sourceId;
   }
   if (payload.section === "Notifications" && payload.notificationId) {
-    notificationDigestExpanded = true;
+    notificationDrawerState = { open: true, mode: "detail", returnFocus: null };
   }
 }
 

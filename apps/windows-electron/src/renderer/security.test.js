@@ -1299,6 +1299,19 @@ test("digest drawer list escapes content and renders useful empty state", () => 
   assert.match(api.renderDigestDrawerList({}, []), /暂无需要处理的通知/);
 });
 
+test("notification digest opens a unified drawer instead of inline explorer", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
+  assert.match(component, /role="button"/);
+  assert.match(component, /aria-controls="notification-digest-drawer"/);
+  assert.match(renderer, /function openNotificationDigestDrawer/);
+  assert.match(renderer, /function showNotificationDrawerList/);
+  assert.match(renderer, /data-notification-drawer-item/);
+  assert.doesNotMatch(renderer, /function notificationDigestExplorer/);
+  assert.doesNotMatch(renderer, /notificationDigestExpanded/);
+  assert.doesNotMatch(renderer, /notificationDigestGroupKey/);
+});
+
 test("notification capsule and panel consume the digest instead of a raw title", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
@@ -1352,7 +1365,7 @@ test("notifications expose a clear action through preload and renderer controls"
   assert.match(renderer, /window\.winplate\.copyNotificationText\(value\)/);
   assert.match(renderer, /pageContent\.addEventListener\("click", handleNotificationPageClick\)/);
   assert.match(renderer, /event\.stopPropagation\(\)/);
-  assert.match(component, /data-notification-digest-toggle="true"/);
+  assert.match(component, /data-notification-digest-open="true"/);
 });
 
 test("notification detail titles stay within the drawer header", () => {
