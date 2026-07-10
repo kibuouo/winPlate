@@ -298,6 +298,7 @@ function createNotificationDrawerHarness({ detailResponses = [], markReadSummary
     ${extractNamedFunction(renderer, "showNotificationDrawerList")}
     ${extractNamedFunction(renderer, "closeNotificationDetail")}
     ${closeDrawerSource}
+    ${extractNamedFunction(renderer, "markNotificationRead")}
     ${extractNamedFunction(renderer, "handleNotificationAction")}
     ${extractNamedFunction(renderer, "handleNotificationPageKeydown")}
     ${extractNamedFunction(renderer, "handleNotificationPageClick")}
@@ -1489,9 +1490,31 @@ test("notification drawer supports keyboard open, Escape close, focus restore, b
   assert.equal(harness.activeElement(), harness.digestTrigger());
 });
 
+test("opening an unread notification automatically marks it read", async () => {
+  const harness = createNotificationDrawerHarness({
+    detailResponses: [{
+      notification: { id: "n1", title: "通知详情", source: "system", unread: true },
+      detail: {},
+      actions: [{ id: "mark", type: "markRead", label: "标记已读", payload: { notificationId: "n1" } }]
+    }],
+    markReadSummary: {
+      unreadCount: 0,
+      items: [{ id: "n1", title: "通知 n1", unread: false }]
+    },
+    refreshedDigest: { headline: "无待办", sourceIds: [], severity: "info" }
+  });
+
+  await harness.dispatchDigestKey("Enter");
+  await harness.clickDrawerItem("n1");
+
+  assert.deepEqual(harness.calls.markRead, ["n1"]);
+  assert.equal(harness.calls.digestRefresh, 1);
+  assert.match(harness.drawer().textContent, /已标记为已读/);
+});
+
 test("notification mark-read refresh keeps list mode only while represented items remain", async () => {
   const detail = {
-    notification: { id: "n1", title: "通知详情", source: "system", unread: true },
+    notification: { id: "n1", title: "通知详情", source: "system", unread: false },
     detail: {},
     actions: [{ id: "mark", type: "markRead", label: "标记已读", payload: { notificationId: "n1" } }]
   };
@@ -1520,7 +1543,7 @@ test("notification mark-read refresh keeps list mode only while represented item
 test("notification mark-read refresh preserves detail when no represented items remain", async () => {
   const harness = createNotificationDrawerHarness({
     detailResponses: [{
-      notification: { id: "n1", title: "通知详情", source: "system", unread: true },
+      notification: { id: "n1", title: "通知详情", source: "system", unread: false },
       detail: {},
       actions: [{ id: "mark", type: "markRead", label: "标记已读", payload: { notificationId: "n1" } }]
     }],

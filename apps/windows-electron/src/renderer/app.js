@@ -3344,6 +3344,14 @@ async function openNotificationDetail(notificationId) {
   try {
     const payload = await window.winplate.getNotificationDetail(id);
     notificationDetail = { open: true, loading: false, id, data: payload, error: "" };
+    if (payload?.notification?.unread) {
+      try {
+        await markNotificationRead(id, { feedback: "已标记为已读" });
+      } catch (error) {
+        console.warn("Failed to mark opened notification read:", error);
+        notificationActionFeedback = "已查看，但标记已读失败";
+      }
+    }
   } catch (error) {
     notificationDetail = {
       open: true,
@@ -3383,6 +3391,41 @@ function closeNotificationDetail() {
   closeNotificationDrawer();
 }
 
+async function markNotificationRead(notificationId, options = null) {
+  const { returnToList = false, feedback = "已标记为已读" } = options || {};
+  const id = String(notificationId || "").trim();
+  if (!id) return;
+  notificationSummary = await window.winplate.markNotificationRead(id);
+  if (notificationDetail.data?.notification?.id === id) {
+    notificationDetail = {
+      ...notificationDetail,
+      data: {
+        ...notificationDetail.data,
+        notification: {
+          ...notificationDetail.data.notification,
+          unread: false
+        },
+        actions: notificationDetail.data.actions.map((entry) => (
+          entry.type === "markRead"
+            ? { ...entry, label: "已读" }
+            : entry
+        ))
+      }
+    };
+  }
+  await hydrateNotificationDigest();
+  notificationActionFeedback = feedback;
+  const representedItems = window.WinPlateNotificationDigest.selectDigestItems(
+    notificationDigest,
+    notificationItemsForDigest()
+  );
+  if (returnToList && representedItems.length) {
+    showNotificationDrawerList();
+  }
+  updateMainStatusDom();
+  if (notificationDrawerState.mode === "list") focusNotificationDrawerControl(".notification-detail-close");
+}
+
 async function handleNotificationAction(actionId) {
   const actions = Array.isArray(notificationDetail.data?.actions) ? notificationDetail.data.actions : [];
   const action = actions.find((entry) => entry.id === actionId);
@@ -3393,37 +3436,10 @@ async function handleNotificationAction(actionId) {
     return;
   }
   if (action.type === "markRead") {
-    notificationSummary = await window.winplate.markNotificationRead(
-      action.payload?.notificationId || notificationDetail.id
+    await markNotificationRead(
+      action.payload?.notificationId || notificationDetail.id,
+      { returnToList: true }
     );
-    if (notificationDetail.data?.notification) {
-      notificationDetail = {
-        ...notificationDetail,
-        data: {
-          ...notificationDetail.data,
-          notification: {
-            ...notificationDetail.data.notification,
-            unread: false
-          },
-          actions: notificationDetail.data.actions.map((entry) => (
-            entry.type === "markRead"
-              ? { ...entry, label: "已读" }
-              : entry
-          ))
-        }
-      };
-    }
-    await hydrateNotificationDigest();
-    notificationActionFeedback = "已标记为已读";
-    const representedItems = window.WinPlateNotificationDigest.selectDigestItems(
-      notificationDigest,
-      notificationItemsForDigest()
-    );
-    if (representedItems.length) {
-      showNotificationDrawerList();
-    }
-    updateMainStatusDom();
-    if (notificationDrawerState.mode === "list") focusNotificationDrawerControl(".notification-detail-close");
     return;
   }
   if (action.type === "navigate") {
