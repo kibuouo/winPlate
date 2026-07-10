@@ -1237,19 +1237,21 @@ function githubContent() {
     : "";
   return `
     <section class="github-dashboard" data-module-id="github" ${moduleHealthAttributes("github")}>
-      <div class="github-profile-column">
+      <div class="github-profile-bar">
         ${avatarMarkup(github, "github-profile-avatar")}
         <div class="github-profile-copy">
           <h1>${github.name}</h1>
           <p>${github.username}</p>
         </div>
-        <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
         <dl class="github-profile-metrics">
           <div><dt>${github.repos}</dt><dd>Repositories</dd></div>
           <div><dt>${github.followers}</dt><dd>Followers</dd></div>
           <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
         </dl>
-        <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
+        <div class="github-profile-actions">
+          <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
+          <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
+        </div>
       </div>
       <div class="github-main-column">
         ${stateNotice}
@@ -2791,8 +2793,7 @@ function renderMain() {
           </div>
         </aside>
         <main class="main-content">
-          <header>
-            <div><span class="live-dot"></span> LIVE STATUS</div>
+          <header class="main-content-header">
             <time class="system-clock" id="system-clock">
               <span class="system-date"></span>
               <span class="system-time"></span>

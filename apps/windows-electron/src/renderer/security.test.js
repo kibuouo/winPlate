@@ -1720,3 +1720,28 @@ test("floating capsule defines distinct light and dark theme tokens", () => {
   assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.notification-strip\.severity-info/);
   assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.network-speed-arrow/);
 });
+
+test("main content header keeps only the clock and removes LIVE STATUS", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const renderStart = renderer.indexOf("function renderMain()");
+  const renderEnd = renderer.indexOf("\nfunction updateMainStatusDom", renderStart);
+  const renderMain = renderer.slice(renderStart, renderEnd);
+
+  assert.doesNotMatch(renderMain, /LIVE STATUS/);
+  assert.doesNotMatch(renderMain, /class="live-dot"/);
+  assert.match(renderMain, /class="system-clock"/);
+});
+
+test("GitHub detail uses a compact profile bar and single-column dashboard", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const githubStart = renderer.indexOf("function githubContent()");
+  const githubEnd = renderer.indexOf("\nconst previewIcons", githubStart);
+  const github = renderer.slice(githubStart, githubEnd);
+
+  assert.match(github, /class="github-profile-bar"/);
+  assert.doesNotMatch(github, /class="github-profile-column"/);
+  assert.match(css, /\.github-dashboard\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  assert.match(css, /\.github-profile-avatar\s*\{[^}]*width:\s*88px;/);
+  assert.match(css, /\.github-profile-bar\s*\{[\s\S]*display:\s*flex/);
+});

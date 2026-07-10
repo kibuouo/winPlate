@@ -612,9 +612,8 @@ nav .qweather-nav-icon { width: 18px; height: 18px; fill: none; stroke: currentC
 .sidebar-settings .nav-label { font-size: 14px; font-weight: 650; line-height: 18px; }
 .sidebar-collapsed .sidebar-settings { width: 48px; height: 40px; min-height: 40px; justify-content: center; gap: 0; padding: 0; border-radius: 12px; }
 .main-content { overflow: auto; }
-.main-content header { height: 64px; padding: 0 34px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .12em; }
-.main-content header > div { display: flex; align-items: center; gap: 8px; }
-.main-content time { font-variant-numeric: tabular-nums; }
+.main-content-header { min-height: 42px; padding: 0 34px 8px; display: flex; align-items: center; justify-content: flex-end; color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .12em; }
+.main-content-header time { font-variant-numeric: tabular-nums; }
 .system-clock { display: grid; justify-items: end; gap: 3px; color: var(--text-soft); letter-spacing: .04em; line-height: 1; }
 .system-clock .system-date { font-size: 11px; font-weight: 700; }
 .system-clock .system-time { color: #71717a; font-size: 10px; font-weight: 650; }
@@ -1031,20 +1030,21 @@ html[data-theme="light"] .qweather-service-icon {
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
 .large-track { height: 8px; margin-top: auto; overflow: hidden; border-radius: 999px; background: #3f3f46; }
 
-.github-dashboard { display: grid; grid-template-columns: minmax(190px, 250px) minmax(0, 1fr); gap: 38px; max-width: 1120px; margin: 0 auto; }
-.github-profile-column { min-width: 0; align-self: start; }
-.github-profile-avatar { width: min(100%, 220px); aspect-ratio: 1; border: 1px solid var(--border); box-shadow: 0 18px 42px var(--shadow); }
-.github-profile-avatar .avatar-fallback { font-size: 56px; }
-.github-profile-copy { margin-top: 20px; }
-.github-profile-copy h1 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
-.github-profile-copy p { margin: 4px 0 0; color: var(--text-muted); font-size: 17px; }
-.github-profile-button { width: 100%; margin-top: 18px; padding: 10px 14px; color: var(--text); border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface); font-weight: 650; cursor: pointer; }
+.github-dashboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; max-width: 1120px; margin: 0 auto; }
+.github-profile-bar { min-width: 0; display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-card); box-shadow: 0 14px 32px var(--shadow); }
+.github-profile-avatar { width: 88px; height: 88px; flex: 0 0 88px; border: 1px solid var(--border); box-shadow: 0 12px 26px var(--shadow); }
+.github-profile-avatar .avatar-fallback { font-size: 28px; }
+.github-profile-copy { min-width: 150px; flex: 1 1 190px; margin-top: 0; }
+.github-profile-copy h1 { margin: 0; font-size: 22px; letter-spacing: -.035em; }
+.github-profile-copy p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.github-profile-button { width: auto; margin-top: 0; padding: 8px 12px; color: var(--text); border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface); font-size: 11px; font-weight: 650; cursor: pointer; }
 .github-profile-button:hover { background: var(--surface-raised); }
-.github-profile-metrics { display: grid; gap: 0; margin: 18px 0 0; border-top: 1px solid var(--border); }
-.github-profile-metrics div { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 2px; border-bottom: 1px solid var(--border); }
-.github-profile-metrics dt { font-size: 18px; font-weight: 750; }
-.github-profile-metrics dd { margin: 0; color: var(--text-muted); font-size: 11px; }
-.github-live-note { display: flex; align-items: center; gap: 9px; margin-top: 17px; padding: 12px; border-radius: 12px; background: var(--surface-card); }
+.github-profile-metrics { min-width: 250px; display: grid; grid-template-columns: repeat(3, minmax(72px, 1fr)); gap: 12px; margin: 0; border-top: 0; }
+.github-profile-metrics div { display: grid; gap: 2px; padding: 0; border-bottom: 0; }
+.github-profile-metrics dt { font-size: 17px; font-weight: 750; }
+.github-profile-metrics dd { margin: 0; color: var(--text-muted); font-size: 10px; }
+.github-profile-actions { display: grid; justify-items: end; gap: 8px; margin-left: auto; }
+.github-live-note { display: flex; align-items: center; gap: 9px; margin-top: 0; padding: 0; border-radius: 12px; background: transparent; }
 .github-live-note > span { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 10px rgba(52,211,153,.55); }
 .github-live-note div { display: grid; gap: 2px; }
 .github-live-note strong { font-size: 11px; }
@@ -1848,13 +1848,20 @@ html[data-theme="light"] .deepseek-row-track > span { background: linear-gradien
   .dashboard-codex-card { min-height: auto; }
   .usage-window-grid { grid-template-columns: 1fr; }
   #page-content { padding: 34px 28px; }
-  .github-dashboard { grid-template-columns: 180px minmax(0, 1fr); gap: 24px; }
+  .github-profile-bar { align-items: flex-start; flex-wrap: wrap; }
+  .github-profile-metrics { flex: 1 1 280px; }
+  .github-profile-actions { margin-left: 0; }
   .github-profile-copy h1 { font-size: 20px; }
   .github-page-heading { align-items: start; }
   .github-page-heading h2 { font-size: 27px; }
   .github-page-heading > div > span { display: none; }
 }
 @media (max-width: 560px) {
+  .github-profile-bar { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+  .github-profile-avatar { width: 64px; height: 64px; flex-basis: 64px; }
+  .github-profile-copy { min-width: 0; }
+  .github-profile-metrics { grid-column: 1 / -1; min-width: 0; }
+  .github-profile-actions { grid-column: 1 / -1; justify-items: stretch; }
   .github-dashboard-top { align-items: stretch; flex-direction: column; }
   .github-dashboard-live { align-self: flex-start; }
   .github-dashboard-stats { grid-template-columns: 1fr; }
