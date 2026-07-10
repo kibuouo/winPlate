@@ -22,6 +22,7 @@ function deepSeekSettingsResponse(settings, publicServiceSettings) {
 function registerSettingsIpc({
   ipcMain,
   ownsMainWindowSender,
+  ownsFloatingWindowSender = () => false,
   getAppPreferences,
   userDataPath,
   writeAppSettings,
@@ -45,7 +46,11 @@ function registerSettingsIpc({
   function requireUsageSender(event) {
     const appPreferences = getAppPreferences();
     const ownsMenuBarSender = Boolean(appPreferences?.ownsSender?.(event.sender));
-    if (!ownsMainWindowSender(event.sender) && !ownsMenuBarSender) {
+    if (
+      !ownsMainWindowSender(event.sender)
+      && !ownsFloatingWindowSender(event.sender)
+      && !ownsMenuBarSender
+    ) {
       throw new Error("Unauthorized usage sender");
     }
   }

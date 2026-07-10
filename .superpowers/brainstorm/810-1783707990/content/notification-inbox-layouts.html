@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    :root { color-scheme: dark; --bg:#111318; --panel:#191c23; --line:#313642; --text:#f4f6fb; --muted:#9da5b4; --blue:#4e8cff; --mint:#55d7b8; --amber:#ffc15c; --red:#ff7c82; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:34px; font-family: Inter, "Microsoft YaHei", sans-serif; color:var(--text); background:linear-gradient(145deg,#151922,#0e1015); }
+    h1 { margin:0 0 8px; font-size:30px; } .lead { margin:0 0 28px; color:var(--muted); line-height:1.6; }
+    .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; max-width:1500px; }
+    .concept { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:18px; background:#171a20; cursor:pointer; transition:.18s ease; }
+    .concept:hover,.concept.selected { transform:translateY(-3px); border-color:var(--blue); box-shadow:0 18px 50px #0007; }
+    .concept > header { padding:18px 19px 14px; border-bottom:1px solid var(--line); } .eyebrow{color:#7fa8ff;font-size:11px;font-weight:800;letter-spacing:.15em}.concept h2{margin:8px 0 4px;font-size:18px}.concept header p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+    .mock { height:360px; padding:13px; background:#101218; font-size:10px; } .app { height:100%; display:grid; border:1px solid #2a2e38; border-radius:11px; overflow:hidden; background:var(--bg); }
+    .bar { height:26px; display:flex; align-items:center; gap:5px; padding:0 9px; color:#8791a2; background:#1d2027; border-bottom:1px solid #292e38; } .dot{width:6px;height:6px;border-radius:50%;background:#444b5a}.brand{margin-left:5px;font-weight:800;color:#e7e9ef;font-size:9px}
+    .tag { padding:2px 6px; border-radius:99px; font-size:8px; font-weight:800; background:#28405c; color:#b7d5ff; } .tag.warn{background:#5c4825;color:#ffd995}.tag.mint{background:#1d4d45;color:#9df0da}.tag.red{background:#542c36;color:#ffb8bc}
+    .inbox { grid-template-columns:42% 58%; }.nav{padding:12px;border-right:1px solid #292e38}.title{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px;font-size:12px;font-weight:800}.item{padding:9px 7px;border-bottom:1px solid #242832}.item.active{background:#202a39;border-left:2px solid var(--blue);padding-left:5px}.item strong{display:block;font-size:10px;margin:4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.item p{margin:0;color:#8992a1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.reading{padding:17px}.reading h3{margin:14px 0 9px;font-size:16px}.reading p{color:#aeb5c1;line-height:1.7;font-size:11px}.actions{display:flex;gap:6px;margin-top:20px}.btn{padding:6px 9px;border:1px solid #3a4353;border-radius:7px;color:#dce7ff;background:#202633;font-size:9px}.btn.primary{background:#3d73dd;border-color:#5288ef}
+    .focus { grid-template-rows:1fr 50px; }.focus-main{display:grid;grid-template-columns:90px 1fr;}.rail{padding:9px;border-right:1px solid #292e38}.rail div{height:36px;margin-bottom:8px;border-radius:8px;background:#242936}.rail div:first-child{background:#3f6dc5}.story{padding:18px}.story h3{font-size:17px;margin:12px 0}.story p{font-size:11px;color:#adb5c0;line-height:1.75}.story-footer{display:flex;justify-content:space-between;align-items:center;padding:0 16px;border-top:1px solid #292e38;color:#8e97a7}.progress{height:4px;width:74px;border-radius:10px;background:#313846}.progress i{display:block;width:43%;height:100%;border-radius:inherit;background:var(--mint)}
+    .timeline { grid-template-columns:1fr; grid-template-rows:52px 1fr;}.timeline-top{display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #292e38}.timeline-list{padding:13px 18px;overflow:hidden}.day{color:#7f8999;font-weight:800;font-size:9px;margin:4px 0 7px}.event{position:relative;padding:0 0 13px 20px;border-left:1px solid #343a46}.event:before{content:"";position:absolute;left:-4px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--blue)}.event.warn:before{background:var(--amber)}.event.done:before{background:var(--mint)}.event strong{display:block;font-size:11px;margin-bottom:3px}.event p{margin:0;color:#9099a7;line-height:1.45}.event footer{display:flex;gap:5px;margin-top:6px}
+    .note{max-width:1500px;margin-top:20px;padding:14px 16px;border:1px solid #2c3440;border-radius:12px;color:#b4bdcb;background:#151922;font-size:13px;line-height:1.6}.note b{color:#fff}
+    @media(max-width:1000px){.grid{grid-template-columns:1fr}.mock{height:320px}}
+  </style>
+</head>
+<body>
+  <h1>让通知中心成为可处理的收件箱</h1>
+  <p class="lead">三种不使用右侧抽屉的查看方式。点击任一方案，把它设为本轮优先方向。</p>
+  <div class="grid">
+    <article class="concept" data-choice="reading-pane" onclick="toggleSelect(this)">
+      <header><div class="eyebrow">RECOMMENDED</div><h2>双栏阅读台</h2><p>左边持续队列，右边完整阅读；像邮件客户端一样连续处理。</p></header>
+      <div class="mock"><div class="app inbox"><div class="bar"><i class="dot"></i><i class="dot"></i><span class="brand">WinPlate · 通知</span></div><div class="nav"><div class="title">待处理 <span class="tag">10</span></div><div class="item active"><span class="tag warn">天气</span><strong>高温橙色预警</strong><p>湖北省气象台刚刚发布...</p></div><div class="item"><span class="tag mint">任务</span><strong>Codex 任务需要关注</strong><p>连接失败，等待处理</p></div><div class="item"><span class="tag">邮件</span><strong>发布前检查清单</strong><p>请确认最终版本</p></div></div><div class="reading"><span class="tag warn">天气预警 · 未读</span><h3>高温橙色预警，请注意防范</h3><p>预计今天白天，除神农架及大别山等高山以外，大部分地区最高气温将升至 35°C 以上。</p><p>摘要之外的完整内容自然留在主页面，不遮挡队列，也不要求再开一层。</p><div class="actions"><span class="btn primary">查看天气</span><span class="btn">标为已读</span></div></div></div></div>
+    </article>
+    <article class="concept" data-choice="focus-review" onclick="toggleSelect(this)">
+      <header><div class="eyebrow">CALM REVIEW</div><h2>专注处理页</h2><p>每次只呈现一条，把待处理量变成清晰的阅读节奏。</p></header>
+      <div class="mock"><div class="app focus"><div class="bar"><i class="dot"></i><i class="dot"></i><span class="brand">WinPlate · Review</span></div><div class="focus-main"><div class="rail"><div></div><div></div><div></div><div></div></div><div class="story"><span class="tag warn">第 1 条 / 10 条</span><h3>高温橙色预警，请注意防范</h3><p>今天大部分地区最高气温升至 35°C 以上。通知中心只保留阅读与行动，其他信息不与内容竞争。</p><div class="actions"><span class="btn primary">处理并继续</span><span class="btn">稍后处理</span></div></div></div><div class="story-footer"><span>← 上一条</span><span class="progress"><i></i></span><span>下一条 →</span></div></div></div>
+    </article>
+    <article class="concept" data-choice="activity-timeline" onclick="toggleSelect(this)">
+      <header><div class="eyebrow">ACTIVITY LOG</div><h2>事件时间线</h2><p>把通知视为发生过的事件，适合连续回顾、定位与追踪。</p></header>
+      <div class="mock"><div class="app timeline"><div class="bar"><i class="dot"></i><i class="dot"></i><span class="brand">WinPlate · 活动</span></div><div class="timeline-top"><strong>今天的通知</strong><span class="tag">10 条</span></div><div class="timeline-list"><div class="day">刚刚</div><div class="event warn"><strong>高温橙色预警</strong><p>湖北省气象台发布预警，预计 35°C 以上。</p><footer><span class="tag warn">需要关注</span><span class="tag">查看详情</span></footer></div><div class="event"><strong>Codex 连接异常</strong><p>重试任务未成功，需要检查连接。</p><footer><span class="tag red">待处理</span></footer></div><div class="day">更早</div><div class="event done"><strong>天气风险已降低</strong><p>预警已解除。</p></div></div></div></div>
+    </article>
+  </div>
+  <p class="note"><b>我的建议：</b>选“双栏阅读台”。它保留了邮件模块的连续阅读优势，同时把通知特有的优先级、来源与快速动作整合到一个稳定页面里，不再有遮挡内容的抽屉，也不把用户困在一次只看一条的流程中。</p>
+</body>
+</html>

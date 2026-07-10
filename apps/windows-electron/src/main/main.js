@@ -570,6 +570,7 @@ if (!gotLock) {
     registerSettingsIpc({
       ipcMain,
       ownsMainWindowSender,
+      ownsFloatingWindowSender,
       getAppPreferences: () => appPreferences,
       userDataPath,
       writeAppSettings,

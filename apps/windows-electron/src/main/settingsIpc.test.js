@@ -35,6 +35,7 @@ function createHarness({
   const persisted = [];
   const usageReads = [];
   const mainSender = { name: "main" };
+  const floatingSender = { name: "floating" };
   const menuSender = { name: "menu" };
   const foreignSender = { name: "foreign" };
   let appSettings = { menuBarEnabled: true, launchAtLogin: false };
@@ -75,6 +76,7 @@ function createHarness({
       }
     },
     ownsMainWindowSender: (sender) => sender === mainSender,
+    ownsFloatingWindowSender: (sender) => sender === floatingSender,
     getAppPreferences: () => appPreferences,
     userDataPath: "/user/data",
     writeAppSettings: async (userDataPath, settings) => {
@@ -109,6 +111,7 @@ function createHarness({
   return {
     applied,
     foreignSender,
+    floatingSender,
     handlers,
     invoke,
     mainSender,
@@ -408,11 +411,12 @@ test("DeepSeek usage accepts owned renderers and forces effective credentials", 
     }
   );
   await harness.invoke("deepseek:usage", harness.menuSender, {});
+  await harness.invoke("deepseek:usage", harness.floatingSender, {});
 
   assert.deepEqual(harness.usageReads[0], {
     apiKey: "deepseek-secret",
     baseUrl: DEFAULT_DEEPSEEK_BASE_URL,
     fetchImpl
   });
-  assert.equal(harness.usageReads.length, 2);
+  assert.equal(harness.usageReads.length, 3);
 });
