@@ -11,7 +11,7 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from winplate_local_api import main
 
@@ -655,6 +655,38 @@ class DatabaseTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "QWeather 私钥格式无效"):
                 main.qweather_jwt_request("/weatheralert/v1/current/22.32/114.17")
+
+    def test_qweather_jwt_request_preserves_http_400_detail(self):
+        settings = lambda name, default=None: {
+            "QWEATHER_PROJECT_ID": "project",
+            "QWEATHER_CREDENTIAL_ID": "credential",
+            "QWEATHER_PRIVATE_KEY": "private-key",
+            "QWEATHER_API_HOST": "example.com",
+        }.get(name, default)
+        error = HTTPError(
+            "https://example.com/metrics/v1/stats?credential=credential",
+            400,
+            "Bad Request",
+            {"Content-Encoding": ""},
+            BytesIO(json.dumps({
+                "error": {"detail": "credential traffic stats permission is disabled"},
+            }).encode()),
+        )
+        self.addCleanup(error.close)
+        with (
+            patch.object(main, "environment_setting", side_effect=settings),
+            patch.object(main.jwt, "encode", return_value="token"),
+            patch.object(main, "record_qweather_request"),
+            patch.object(main, "urlopen", side_effect=error),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "credential traffic stats permission is disabled",
+            ):
+                main.qweather_jwt_request(
+                    "/metrics/v1/stats",
+                    {"credential": "credential"},
+                )
 
     def test_named_metric_sum_supports_api_keyed_objects(self):
         payload = {

@@ -1471,7 +1471,12 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
             if detail:
                 message = f"{message}: {detail}"
             raise RuntimeError(message) from error
-        raise RuntimeError(f"QWeather 接口返回 HTTP {error.code}") from error
+        message = f"QWeather 接口返回 HTTP {error.code}"
+        if detail:
+            message = f"{message}: {detail}"
+        elif error.code == 400:
+            message = f"{message}，请检查该凭据的 Console API 请求量统计权限"
+        raise RuntimeError(message) from error
     except (URLError, TimeoutError) as error:
         raise RuntimeError(f"QWeather 接口不可用: {error}") from error
     except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
