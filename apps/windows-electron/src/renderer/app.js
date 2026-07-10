@@ -2315,6 +2315,7 @@ function notificationDrawer() {
           <button class="notification-detail-close" type="button" aria-label="关闭通知摘要">×</button>
         </header>
         <section class="notification-detail-content">${list}</section>
+        ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
       </aside>`;
   }
   const payload = notificationDetail.data || {};
@@ -2328,7 +2329,8 @@ function notificationDrawer() {
   const body = notificationDetail.loading
     ? `<div class="notification-detail-state">正在加载通知详情...</div>`
     : notificationDetail.error
-      ? `<div class="notification-detail-state error">${escapeHtml(notificationDetail.error)}</div>`
+      ? `<div class="notification-detail-state error">${escapeHtml(notificationDetail.error)}</div>
+         <button type="button" data-notification-detail-retry="${escapeHtml(notificationDetail.id || "")}">重试</button>`
       : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
   const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
   const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
@@ -3338,6 +3340,7 @@ async function openNotificationDetail(notificationId) {
   notificationDetail = { open: true, loading: true, id, data: null, error: "" };
   notificationActionFeedback = "";
   updateMainStatusDom();
+  focusNotificationDrawerControl(".notification-detail-back");
   try {
     const payload = await window.winplate.getNotificationDetail(id);
     notificationDetail = { open: true, loading: false, id, data: payload, error: "" };
@@ -3351,6 +3354,7 @@ async function openNotificationDetail(notificationId) {
     };
   }
   updateMainStatusDom();
+  focusNotificationDrawerControl(".notification-detail-back");
 }
 
 function openNotificationDigestDrawer(trigger = null) {
@@ -3358,16 +3362,25 @@ function openNotificationDigestDrawer(trigger = null) {
   notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
 }
 
+function focusNotificationDrawerControl(selector) {
+  queueMicrotask(() => document.querySelector(selector)?.focus?.());
+}
+
 function showNotificationDrawerList() {
   notificationDrawerState = { ...notificationDrawerState, open: true, mode: "list" };
 }
 
-function closeNotificationDetail() {
+function closeNotificationDrawer(options = null) {
+  const { restoreFocus = true } = options || {};
   const returnFocus = notificationDrawerState.returnFocus;
   notificationDrawerState = { open: false, mode: "list", returnFocus: null };
   notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
   notificationActionFeedback = "";
-  requestAnimationFrame(() => returnFocus?.focus?.());
+  if (restoreFocus) queueMicrotask(() => returnFocus?.focus?.());
+}
+
+function closeNotificationDetail() {
+  closeNotificationDrawer();
 }
 
 async function handleNotificationAction(actionId) {
@@ -3402,7 +3415,11 @@ async function handleNotificationAction(actionId) {
     }
     await hydrateNotificationDigest();
     notificationActionFeedback = "已标记为已读";
+    if (notificationItemsForDigest().length) {
+      showNotificationDrawerList();
+    }
     updateMainStatusDom();
+    if (notificationDrawerState.mode === "list") focusNotificationDrawerControl(".notification-detail-close");
     return;
   }
   if (action.type === "navigate") {
@@ -3485,6 +3502,7 @@ function handleNotificationPageKeydown(event) {
   event.preventDefault();
   openNotificationDigestDrawer(trigger);
   updateMainStatusDom();
+  focusNotificationDrawerControl(".notification-detail-close");
 }
 
 async function handleNotificationPageClick(event) {
@@ -3531,9 +3549,16 @@ async function handleNotificationPageClick(event) {
     return;
   }
 
+  const retryButton = target.closest("[data-notification-detail-retry]");
+  if (retryButton) {
+    if (!notificationActionInFlight) await openNotificationDetail(retryButton.dataset.notificationDetailRetry);
+    return;
+  }
+
   if (target.closest(".notification-detail-back")) {
     showNotificationDrawerList();
     updateMainStatusDom();
+    focusNotificationDrawerControl(".notification-detail-close");
     return;
   }
 
@@ -3553,7 +3578,15 @@ async function handleNotificationPageClick(event) {
   if (digestTrigger) {
     openNotificationDigestDrawer(digestTrigger);
     updateMainStatusDom();
+    focusNotificationDrawerControl(".notification-detail-close");
   }
+}
+
+function handleNotificationDocumentKeydown(event) {
+  if (event.key !== "Escape" || !notificationDrawerState.open) return;
+  event.preventDefault();
+  closeNotificationDrawer();
+  updateMainStatusDom();
 }
 
 async function hydrateQWeatherUsage() {
@@ -3847,6 +3880,7 @@ function applyNavigationPayload(value) {
 }
 
 registerRefreshTasks();
+document.addEventListener("keydown", handleNotificationDocumentKeydown);
 if (view === "main") renderMain();
 Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateAppSettings()]).then(async () => {
   if (view === "tooltip") return [];

@@ -209,6 +209,144 @@ function extractNamedFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function createNotificationDrawerHarness({ detailResponses = [] } = {}) {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const closeDrawerSource = renderer.includes("function closeNotificationDrawer(")
+    ? extractNamedFunction(renderer, "closeNotificationDrawer")
+    : "function closeNotificationDrawer() {}";
+  class HarnessElement {
+    constructor(selector = "") {
+      this.selector = selector;
+      this.disabled = false;
+      this.dataset = {};
+    }
+    closest(selector) {
+      if (selector === ".notifications-page") return this;
+      return selector === this.selector ? this : null;
+    }
+    focus() {
+      context.document.activeElement = this;
+    }
+  }
+  const digestTrigger = new HarnessElement("[data-notification-digest-open]");
+  let drawer = null;
+  const calls = { detail: [] };
+  const responses = [...detailResponses];
+  const context = {
+    Element: HarnessElement,
+    console,
+    queueMicrotask,
+    requestAnimationFrame: (callback) => callback(),
+    document: {
+      activeElement: null,
+      querySelector(selector) {
+        if (!drawer) return null;
+        if (selector === ".notification-detail-back" || selector === ".notification-detail-close") {
+          return drawer.control(selector);
+        }
+        return null;
+      }
+    },
+    window: {
+      WinPlateNotificationDigest: {
+        normalizeDigest: (value) => value,
+        renderDigestDrawerList: (_digest, items) => items.map((item) => item.title).join(" ")
+      },
+      winplate: {
+        async getNotificationDetail(id) {
+          calls.detail.push(id);
+          const response = responses.shift();
+          if (response instanceof Error) throw response;
+          return response || { notification: { id, title: "通知详情", source: "system" }, detail: {}, actions: [] };
+        }
+      }
+    }
+  };
+  const source = `
+    let notificationSummary = { unreadCount: 1, items: [{ id: "n1", title: "通知 n1", unread: true }] };
+    let notificationDigest = { headline: "通知", sourceIds: ["n1"], severity: "info" };
+    let notificationDrawerState = { open: false, mode: "list", returnFocus: null };
+    let notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
+    let notificationActionFeedback = "";
+    let notificationActionInFlight = false;
+    const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    const notificationItemsForDigest = () => notificationSummary.items;
+    const notificationSourceLabel = (value) => value;
+    const relativeUpdatedAt = () => "刚刚";
+    const absoluteTimeLabel = String;
+    function notificationActionButton(action) { return "<button>" + escapeHtml(action?.label || "执行") + "</button>"; }
+    function updateMainStatusDom() { renderHarnessDrawer(notificationDrawer()); }
+    ${extractNamedFunction(renderer, "notificationDetailValue")}
+    ${extractNamedFunction(renderer, "notificationDrawer")}
+    ${extractNamedFunction(renderer, "openNotificationDetail")}
+    ${extractNamedFunction(renderer, "openNotificationDigestDrawer")}
+    ${extractNamedFunction(renderer, "focusNotificationDrawerControl")}
+    ${extractNamedFunction(renderer, "showNotificationDrawerList")}
+    ${extractNamedFunction(renderer, "closeNotificationDetail")}
+    ${closeDrawerSource}
+    ${extractNamedFunction(renderer, "handleNotificationPageKeydown")}
+    ${extractNamedFunction(renderer, "handleNotificationPageClick")}
+    ${extractNamedFunction(renderer, "handleNotificationDocumentKeydown")}
+    this.notificationHarness = { handleNotificationPageKeydown, handleNotificationPageClick, handleNotificationDocumentKeydown };
+  `;
+  context.renderHarnessDrawer = (html) => {
+    if (!html) {
+      drawer = null;
+      return;
+    }
+    const controls = new Map();
+    drawer = {
+      getAttribute(name) {
+        return name === "role" ? /role="([^"]+)"/.exec(html)?.[1] || null : null;
+      },
+      textContent: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+      control(selector) {
+        if (!controls.has(selector)) controls.set(selector, new HarnessElement(selector));
+        return controls.get(selector);
+      }
+    };
+  };
+  vm.runInNewContext(source, context, { filename: "notification-drawer-harness.js" });
+  const dispatch = async (target, key) => {
+    let prevented = false;
+    await context.notificationHarness.handleNotificationPageKeydown({
+      key,
+      target,
+      preventDefault() { prevented = true; }
+    });
+    await Promise.resolve();
+    return prevented;
+  };
+  const click = async (selector, dataset = {}) => {
+    const target = new HarnessElement(selector);
+    target.dataset = dataset;
+    await context.notificationHarness.handleNotificationPageClick({
+      target,
+      stopPropagation() {}
+    });
+    await Promise.resolve();
+  };
+  return {
+    calls,
+    digestTrigger: () => digestTrigger,
+    drawer: () => drawer,
+    activeElement: () => context.document.activeElement,
+    dispatchDigestKey: (key) => dispatch(digestTrigger, key),
+    clickDrawerItem: (id) => click("[data-notification-drawer-item]", { notificationDrawerItem: id }),
+    click: (selector) => click(selector, selector === "[data-notification-detail-retry]"
+      ? { notificationDetailRetry: "n1" }
+      : {}),
+    dispatchDocument: async (type, event) => {
+      assert.equal(type, "keydown");
+      context.notificationHarness.handleNotificationDocumentKeydown({
+        ...event,
+        preventDefault() {}
+      });
+      await Promise.resolve();
+    }
+  };
+}
+
 const extractFunction = extractNamedFunction;
 
 function createAppSettingsHarness({ isMac = true, get, save } = {}) {
@@ -1310,6 +1448,27 @@ test("notification digest opens a unified drawer instead of inline explorer", ()
   assert.doesNotMatch(renderer, /function notificationDigestExplorer/);
   assert.doesNotMatch(renderer, /notificationDigestExpanded/);
   assert.doesNotMatch(renderer, /notificationDigestGroupKey/);
+});
+
+test("notification drawer supports keyboard open, Escape close, focus restore, back and retry", async () => {
+  const harness = createNotificationDrawerHarness({ detailResponses: [new Error("暂时不可用"), {
+    notification: { id: "n1", title: "通知详情", source: "system" }, detail: {}, actions: []
+  }] });
+
+  assert.equal(await harness.dispatchDigestKey("Enter"), true);
+  assert.equal(harness.drawer().getAttribute("role"), "dialog");
+  assert.equal(harness.activeElement(), harness.drawer().control(".notification-detail-close"));
+
+  await harness.clickDrawerItem("n1");
+  assert.match(harness.drawer().textContent, /暂时不可用/);
+  await harness.click("[data-notification-detail-retry]");
+  assert.deepEqual(harness.calls.detail, ["n1", "n1"]);
+
+  await harness.click(".notification-detail-back");
+  assert.match(harness.drawer().textContent, /通知/);
+  await harness.dispatchDocument("keydown", { key: "Escape" });
+  assert.equal(harness.drawer(), null);
+  assert.equal(harness.activeElement(), harness.digestTrigger());
 });
 
 test("external notification navigation loads the requested drawer detail", () => {
