@@ -46,7 +46,7 @@
     if (!list.length) return '<div class="notification-drawer-empty"><strong>暂无需要处理的通知</strong></div>';
     return `<div class="notification-drawer-list">${list.map((item) => `
       <button class="notification-drawer-item level-${escapeHtml(item.level || "info")}" type="button" data-notification-drawer-item="${escapeHtml(item.id)}">
-        <span>${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
+        <span><i class="notification-status-dot" aria-hidden="true"></i>${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
         <strong>${escapeHtml(item.title || "通知")}</strong>
         <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
         <small>${escapeHtml(relativeTime?.(item.createdAt) || "")}${item.unread ? " · 未读" : " · 已读"}</small>

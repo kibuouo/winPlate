@@ -1453,6 +1453,7 @@ test("digest drawer list escapes content and renders useful empty state", () => 
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /data-notification-drawer-item="n1"/);
+  assert.match(html, /<span><i class="notification-status-dot" aria-hidden="true"><\/i>local<\/span>/);
   assert.match(api.renderDigestDrawerList({}, []), /暂无需要处理的通知/);
 });
 
@@ -1645,10 +1646,15 @@ test("notification digest drawer reuses the Mail drawer layout contract", () => 
   assert.doesNotMatch(css, /\.notification-digest-filters/);
 });
 
-test("notification drawer preserves severity stripes and light-theme error contrast", () => {
+test("notification drawer uses severity status dots and preserves light-theme error contrast", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   assert.match(css, /html\[data-theme="light"\] \.notification-detail-state\.error \{[^}]*color: #b91c1c;[^}]*border-color: rgba\(185, 28, 28, \.3\);[^}]*background: rgba\(254, 226, 226, \.72\);[^}]*\}/);
   assert.match(css, /\.notification-drawer-item:hover \{[^}]*border-top-color:[^}]*border-right-color:[^}]*border-bottom-color:[^}]*\}/);
+  assert.doesNotMatch(css, /\.notification-drawer-item[^}]*border-left:\s*3px/);
+  assert.match(css, /\.notification-status-dot \{[^}]*width: 7px;[^}]*height: 7px;[^}]*border-radius: 999px;/);
+  assert.match(css, /\.notification-drawer-item\.level-success \.notification-status-dot \{[^}]*background: #4ade80;/);
+  assert.match(css, /\.notification-drawer-item\.level-warning \.notification-status-dot \{[^}]*background: #facc15;/);
+  assert.match(css, /\.notification-drawer-item\.level-(?:critical|danger)[^}]*\.notification-status-dot[^}]*background: #f87171;/);
 });
 
 test("DeepSeek balance card renders local token usage instead of unavailable placeholder", () => {

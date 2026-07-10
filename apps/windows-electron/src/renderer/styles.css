@@ -1554,7 +1554,6 @@ html[data-theme="light"] .mail-detail-frame {
   gap: 6px;
   color: var(--text);
   border: 1px solid var(--mail-glass-border);
-  border-left: 3px solid rgba(96, 165, 250, .72);
   border-radius: 16px;
   background: var(--mail-glass-panel);
   box-shadow: inset 0 1px 0 var(--mail-glass-highlight);
@@ -1562,10 +1561,6 @@ html[data-theme="light"] .mail-detail-frame {
   cursor: pointer;
   transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
 }
-.notification-drawer-item.level-critical,
-.notification-drawer-item.level-danger { border-left-color: #f87171; }
-.notification-drawer-item.level-warning { border-left-color: #facc15; }
-.notification-drawer-item.level-success { border-left-color: #4ade80; }
 .notification-drawer-item:hover {
   border-top-color: color-mix(in srgb, var(--mail-glass-border) 55%, var(--accent));
   border-right-color: color-mix(in srgb, var(--mail-glass-border) 55%, var(--accent));
@@ -1574,7 +1569,12 @@ html[data-theme="light"] .mail-detail-frame {
   transform: translateY(-1px);
 }
 .notification-drawer-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.notification-drawer-item span { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.notification-drawer-item span { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.notification-status-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 999px; background: #60a5fa; box-shadow: 0 0 10px rgba(96, 165, 250, .55); }
+.notification-drawer-item.level-success .notification-status-dot { background: #4ade80; box-shadow: 0 0 10px rgba(74, 222, 128, .55); }
+.notification-drawer-item.level-warning .notification-status-dot { background: #facc15; box-shadow: 0 0 10px rgba(250, 204, 21, .55); }
+.notification-drawer-item.level-critical .notification-status-dot,
+.notification-drawer-item.level-danger .notification-status-dot { background: #f87171; box-shadow: 0 0 10px rgba(248, 113, 113, .55); }
 .notification-drawer-item strong { overflow-wrap: anywhere; font-size: 14px; line-height: 1.35; }
 .notification-drawer-item p { margin: 0; display: -webkit-box; overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .notification-drawer-item small { color: var(--text-soft); font-size: 10px; }
