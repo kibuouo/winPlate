@@ -1622,6 +1622,12 @@ test("notification digest drawer reuses the Mail drawer layout contract", () => 
   assert.doesNotMatch(css, /\.notification-digest-filters/);
 });
 
+test("notification drawer preserves severity stripes and light-theme error contrast", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /html\[data-theme="light"\] \.notification-detail-state\.error \{[^}]*color: #b91c1c;[^}]*border-color: rgba\(185, 28, 28, \.3\);[^}]*background: rgba\(254, 226, 226, \.72\);[^}]*\}/);
+  assert.match(css, /\.notification-drawer-item:hover \{[^}]*border-top-color:[^}]*border-right-color:[^}]*border-bottom-color:[^}]*\}/);
+});
+
 test("DeepSeek balance card renders local token usage instead of unavailable placeholder", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const codexContent = renderer.slice(
