@@ -27,6 +27,32 @@
     };
   }
 
+  const LEVEL_RANK = { critical: 4, danger: 4, warning: 3, success: 2, info: 1 };
+
+  function selectDigestItems(digest = {}, items = []) {
+    const value = normalizeDigest(digest);
+    const ids = new Set(value.sourceIds.map(String));
+    const represented = ids.size
+      ? items.filter((item) => ids.has(String(item.sourceId || item.id)))
+      : items.filter((item) => item.unread);
+    return represented.slice().sort((left, right) =>
+      (LEVEL_RANK[right.level] || 0) - (LEVEL_RANK[left.level] || 0)
+        || Number(right.createdAt || 0) - Number(left.createdAt || 0)
+    );
+  }
+
+  function renderDigestDrawerList(digest, items, { sourceLabel, relativeTime } = {}) {
+    const list = selectDigestItems(digest, items);
+    if (!list.length) return '<div class="notification-drawer-empty"><strong>暂无需要处理的通知</strong></div>';
+    return `<div class="notification-drawer-list">${list.map((item) => `
+      <button class="notification-drawer-item level-${escapeHtml(item.level || "info")}" type="button" data-notification-drawer-item="${escapeHtml(item.id)}">
+        <span>${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
+        <strong>${escapeHtml(item.title || "通知")}</strong>
+        <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
+        <small>${escapeHtml(relativeTime?.(item.createdAt) || "")}${item.unread ? " · 未读" : " · 已读"}</small>
+      </button>`).join("")}</div>`;
+  }
+
   function renderGroups(digest) {
     const groups = normalizeDigest(digest).groups;
     if (!groups.length) return '<p class="notification-digest-groups-empty">没有待归类的通知</p>';
@@ -80,6 +106,8 @@
 
   global.WinPlateNotificationDigest = {
     normalizeDigest,
+    selectDigestItems,
+    renderDigestDrawerList,
     renderDigestCard,
     renderGroups,
     renderRawNotifications

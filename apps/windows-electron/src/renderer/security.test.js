@@ -12,6 +12,14 @@ function assertRendererSvgExists(relativeUrl, label) {
   assert.match(fs.readFileSync(absolutePath, "utf8"), /<svg\b/);
 }
 
+function loadNotificationDigestComponent() {
+  const source = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
+  const load = vm.runInThisContext(`(function (window) { ${source}\nreturn window.WinPlateNotificationDigest; })`, {
+    filename: "notificationDigest.js"
+  });
+  return load({});
+}
+
 function loadPreloadBridge() {
   const preload = fs.readFileSync(
     path.join(macMenuBarRoot, "preload", "menuBarPreload.js"),
@@ -1264,6 +1272,31 @@ test("notifications escape pushed titles and messages before rendering", () => {
   assert.match(component, /escapeHtml\(value\.headline\)/);
   assert.match(component, /escapeHtml\(value\.summary\)/);
   assert.match(component, /data-notification-open="\$\{escapeHtml\(item\.id\)\}"/);
+});
+
+test("digest drawer selects represented notifications by priority then recency", () => {
+  const api = loadNotificationDigestComponent();
+  const items = [
+    { id: "info", sourceId: "info", level: "info", createdAt: 30, unread: true },
+    { id: "warn-old", sourceId: "warn-old", level: "warning", createdAt: 10, unread: true },
+    { id: "warn-new", sourceId: "warn-new", level: "warning", createdAt: 20, unread: true },
+    { id: "excluded", sourceId: "excluded", level: "critical", createdAt: 40, unread: true }
+  ];
+  assert.deepEqual(
+    api.selectDigestItems({ sourceIds: ["info", "warn-old", "warn-new"] }, items).map((item) => item.id),
+    ["warn-new", "warn-old", "info"]
+  );
+});
+
+test("digest drawer list escapes content and renders useful empty state", () => {
+  const api = loadNotificationDigestComponent();
+  const html = api.renderDigestDrawerList({}, [{
+    id: "n1", title: "<script>alert(1)</script>", body: "full body", source: "local", unread: true
+  }]);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /data-notification-drawer-item="n1"/);
+  assert.match(api.renderDigestDrawerList({}, []), /暂无需要处理的通知/);
 });
 
 test("notification capsule and panel consume the digest instead of a raw title", () => {
