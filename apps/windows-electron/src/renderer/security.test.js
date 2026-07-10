@@ -1312,6 +1312,16 @@ test("notification digest opens a unified drawer instead of inline explorer", ()
   assert.doesNotMatch(renderer, /notificationDigestGroupKey/);
 });
 
+test("external notification navigation loads the requested drawer detail", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const navigation = renderer.slice(
+    renderer.indexOf("window.winplate.onNavigate"),
+    renderer.indexOf("window.winplate.onMaximizedChange")
+  );
+  assert.match(navigation, /openNotificationDetail\(navigation\.notificationId\)/);
+  assert.match(navigation, /openNotificationDigestDrawer\(\)/);
+});
+
 test("notification capsule and panel consume the digest instead of a raw title", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");

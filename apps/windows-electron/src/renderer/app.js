@@ -3843,9 +3843,7 @@ function applyNavigationPayload(value) {
   if (payload.moduleId === "weather" && payload.sourceId) {
     selectedWeatherAlertId = payload.sourceId;
   }
-  if (payload.section === "Notifications" && payload.notificationId) {
-    notificationDrawerState = { open: true, mode: "detail", returnFocus: null };
-  }
+  return payload;
 }
 
 registerRefreshTasks();
@@ -3885,10 +3883,18 @@ if (view !== "tooltip") {
   window.winplate.onTooltipUpdate(renderTooltip);
 }
 
-window.winplate.onNavigate((payload) => {
-  applyNavigationPayload(payload);
+window.winplate.onNavigate(async (payload) => {
+  const navigation = applyNavigationPayload(payload);
   if (view === "main") {
     renderMain();
+    if (navigation.section === "Notifications") {
+      if (navigation.notificationId) {
+        await openNotificationDetail(navigation.notificationId);
+      } else {
+        openNotificationDigestDrawer();
+        updateMainStatusDom();
+      }
+    }
   }
 });
 
