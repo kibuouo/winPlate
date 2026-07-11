@@ -1746,7 +1746,7 @@ test("GitHub detail uses a compact profile bar and single-column dashboard", () 
   assert.match(css, /\.github-profile-bar\s*\{[\s\S]*display:\s*flex/);
 });
 
-test("GitHub activity page keeps the clock out of flow and uses a compact heatmap overview", () => {
+test("GitHub activity page keeps the clock out of flow and uses a monthly calendar", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   const githubStart = renderer.indexOf("function githubContent()");
@@ -1755,11 +1755,11 @@ test("GitHub activity page keeps the clock out of flow and uses a compact heatma
 
   assert.match(css, /\.main-content\s*\{[^}]*position:\s*relative;/);
   assert.match(css, /\.main-content-header\s*\{[^}]*position:\s*absolute;/);
-  assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-auto-columns:\s*12px;/);
+  assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-template-columns:\s*repeat\(7,/);
   assert.match(github, /const monthSummary = githubMonthSummary\(selectedMonth\);/);
   assert.match(github, /<h2>GitHub activity<\/h2>/);
-  assert.match(github, /class="github-activity-overview"/);
-  assert.match(github, /class="github-month-summary-card"/);
+  assert.match(github, /class="github-calendar-stats"/);
+  assert.doesNotMatch(github, /class="github-month-summary-card"/);
   assert.ok(github.indexOf("github-page-heading") < github.indexOf("github-profile-bar"));
 });
 
@@ -1773,4 +1773,21 @@ test("GitHub month summary derives active days and peak from contribution counts
     peakDaily: 4
   });
   assert.deepEqual(summary({}), { contributions: 0, activeDays: 0, peakDaily: 0 });
+});
+
+test("GitHub contribution view is a full monthly calendar with in-card summary stats", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const calendar = extractNamedFunction(renderer, "githubContributionCalendar");
+  const githubStart = renderer.indexOf("function githubContent()");
+  const githubEnd = renderer.indexOf("\nconst previewIcons", githubStart);
+  const github = renderer.slice(githubStart, githubEnd);
+
+  assert.match(calendar, /github-calendar-weekdays/);
+  assert.match(calendar, /github-calendar-day/);
+  assert.match(github, /class="github-calendar-stats"/);
+  assert.doesNotMatch(github, /class="github-month-summary-card"/);
+  assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-template-columns:\s*repeat\(7,/);
+  assert.match(css, /grid-auto-rows:\s*clamp\(28px,\s*5\.5vw,\s*36px\)/);
+  assert.match(css, /\.github-calendar-stats\s*\{[^}]*grid-template-columns:\s*repeat\(4,/);
 });

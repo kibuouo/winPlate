@@ -1192,8 +1192,8 @@ function githubContributionCalendar(month) {
   const cells = Array.from({ length: cellCount }, (_, index) => {
     const sourceIndex = index - mondayOffset;
     const active = sourceIndex >= 0 && sourceIndex < values.length;
-    const level = active ? Math.max(0, Math.min(4, Number(values[sourceIndex]) || 0)) : 0;
     if (!active) return `<span class="github-calendar-cell level-0 outside-month"></span>`;
+    const level = Math.max(0, Math.min(4, Number(values[sourceIndex]) || 0));
     const count = Math.max(0, Number(counts[sourceIndex]) || 0);
     const date = new Date(`${month.key}-${String(sourceIndex + 1).padStart(2, "0")}T00:00:00`);
     const dateLabel = new Intl.DateTimeFormat("en-US", {
@@ -1201,15 +1201,12 @@ function githubContributionCalendar(month) {
       day: "numeric"
     }).format(date);
     const contributionLabel = `${count} contribution${count === 1 ? "" : "s"} on ${dateLabel}.`;
-    return `<span class="github-calendar-cell level-${level}" tabindex="0" aria-label="${contributionLabel}" data-tooltip="${contributionLabel}"></span>`;
+    return `<span class="github-calendar-cell github-calendar-day level-${level}" tabindex="0" aria-label="${contributionLabel}" data-tooltip="${contributionLabel}"><b>${sourceIndex + 1}</b></span>`;
   }).join("");
   return `
     <div class="github-calendar-shell">
-      <div class="github-calendar-labels" aria-hidden="true"><span>Mon</span><span>Wed</span><span>Fri</span></div>
-      <div class="github-calendar">
-        <div class="github-calendar-months"><span>Monthly activity</span><span>${month.label}</span></div>
-        <div class="github-calendar-grid" aria-label="GitHub contributions for ${month.label}">${cells}</div>
-      </div>
+      <div class="github-calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+      <div class="github-calendar-grid" aria-label="GitHub contributions for ${month.label}">${cells}</div>
     </div>`;
 }
 
@@ -1279,10 +1276,9 @@ function githubContent() {
             <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
           </div>
         </div>
-        <div class="github-activity-overview">
-          <article class="github-contribution-card">
+        <article class="github-contribution-card">
             <div class="github-card-heading">
-              <span>${monthSummary.contributions} contributions in ${selectedMonth.label}</span>
+              <div><span>Activity calendar</span><small>${monthSummary.contributions} contributions in ${selectedMonth.label}</small></div>
               <div class="github-month-navigation">
                 <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
                 <strong>${selectedMonth.label}</strong>
@@ -1290,18 +1286,13 @@ function githubContent() {
               </div>
             </div>
             ${githubContributionCalendar(selectedMonth)}
-            <div class="github-calendar-legend"><span>Less</span>${[0, 1, 2, 3, 4].map((level) => `<i class="github-calendar-cell level-${level}"></i>`).join("")}<span>More</span></div>
+            <div class="github-calendar-stats">
+              <div><strong>${monthSummary.contributions}</strong><span>contributions</span></div>
+              <div><strong>${monthSummary.activeDays}</strong><span>active days</span></div>
+              <div><strong>${monthSummary.peakDaily}</strong><span>best day</span></div>
+              <div><strong>${github.streakDays}</strong><span>day streak</span></div>
+            </div>
           </article>
-          <article class="github-month-summary-card">
-            <span class="github-summary-label">MONTHLY SUMMARY</span>
-            <strong>${monthSummary.contributions}</strong><small>contributions this month</small>
-            <dl>
-              <div><dt>${monthSummary.activeDays}</dt><dd>active days</dd></div>
-              <div><dt>${monthSummary.peakDaily}</dt><dd>best day</dd></div>
-              <div><dt>${github.streakDays}</dt><dd>day streak</dd></div>
-            </dl>
-          </article>
-        </div>
         <div class="github-detail-grid">
           <article class="github-pinned-card">
             <div class="github-card-heading"><span>Pinned repository</span><small>Public</small></div>
