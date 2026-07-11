@@ -1741,7 +1741,36 @@ test("GitHub detail uses a compact profile bar and single-column dashboard", () 
 
   assert.match(github, /class="github-profile-bar"/);
   assert.doesNotMatch(github, /class="github-profile-column"/);
-  assert.match(css, /\.github-dashboard\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
-  assert.match(css, /\.github-profile-avatar\s*\{[^}]*width:\s*88px;/);
+  assert.match(css, /\.github-dashboard,\s*\.github-main-column\s*\{[^}]*display:\s*grid/);
+  assert.match(css, /\.github-profile-avatar\s*\{[^}]*width:\s*72px;/);
   assert.match(css, /\.github-profile-bar\s*\{[\s\S]*display:\s*flex/);
+});
+
+test("GitHub activity page keeps the clock out of flow and uses a compact heatmap overview", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const githubStart = renderer.indexOf("function githubContent()");
+  const githubEnd = renderer.indexOf("\nconst previewIcons", githubStart);
+  const github = renderer.slice(githubStart, githubEnd);
+
+  assert.match(css, /\.main-content\s*\{[^}]*position:\s*relative;/);
+  assert.match(css, /\.main-content-header\s*\{[^}]*position:\s*absolute;/);
+  assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-auto-columns:\s*12px;/);
+  assert.match(github, /const monthSummary = githubMonthSummary\(selectedMonth\);/);
+  assert.match(github, /<h2>GitHub activity<\/h2>/);
+  assert.match(github, /class="github-activity-overview"/);
+  assert.match(github, /class="github-month-summary-card"/);
+  assert.ok(github.indexOf("github-page-heading") < github.indexOf("github-profile-bar"));
+});
+
+test("GitHub month summary derives active days and peak from contribution counts", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const summary = Function(`"use strict"; ${extractNamedFunction(renderer, "githubMonthSummary")}; return githubMonthSummary;`)();
+
+  assert.deepEqual(summary({ commits: 11, counts: [0, 4, -2, "3", null] }), {
+    contributions: 11,
+    activeDays: 2,
+    peakDaily: 4
+  });
+  assert.deepEqual(summary({}), { contributions: 0, activeDays: 0, peakDaily: 0 });
 });

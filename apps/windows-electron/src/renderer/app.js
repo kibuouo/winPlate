@@ -1224,6 +1224,16 @@ function githubContributionMonths(github) {
       }];
 }
 
+function githubMonthSummary(month) {
+  const counts = Array.isArray(month?.counts) ? month.counts : [];
+  const normalizedCounts = counts.map((value) => Math.max(0, Number(value) || 0));
+  return {
+    contributions: Math.max(0, Number(month?.commits) || 0),
+    activeDays: normalizedCounts.filter((count) => count > 0).length,
+    peakDaily: normalizedCounts.length ? Math.max(...normalizedCounts) : 0
+  };
+}
+
 function githubContent() {
   const github = normalizeGithub(statusData.github);
   const months = githubContributionMonths(github);
@@ -1232,31 +1242,16 @@ function githubContent() {
   const selectedMonth = months[monthIndex];
   selectedContributionMonth = selectedMonth.key;
   const activityCount = selectedMonth.commits || 0;
+  const monthSummary = githubMonthSummary(selectedMonth);
   const stateNotice = github.stateMessage
     ? `<div class="github-state-notice state-${github.availability}" role="status">${github.stateMessage}</div>`
     : "";
   return `
     <section class="github-dashboard" data-module-id="github" ${moduleHealthAttributes("github")}>
-      <div class="github-profile-bar">
-        ${avatarMarkup(github, "github-profile-avatar")}
-        <div class="github-profile-copy">
-          <h1>${github.name}</h1>
-          <p>${github.username}</p>
-        </div>
-        <dl class="github-profile-metrics">
-          <div><dt>${github.repos}</dt><dd>Repositories</dd></div>
-          <div><dt>${github.followers}</dt><dd>Followers</dd></div>
-          <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
-        </dl>
-        <div class="github-profile-actions">
-          <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
-          <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
-        </div>
-      </div>
       <div class="github-main-column">
         ${stateNotice}
         <div class="github-page-heading">
-          <div><p>GITHUB</p><h2>Contribution overview</h2><span>Live profile and repository activity for ${github.username}.</span></div>
+          <div><p>GITHUB</p><h2>GitHub activity</h2><span>Monthly contribution rhythm and project activity for ${github.username}.</span></div>
           <button
             class="refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
             id="refresh-github"
@@ -1268,36 +1263,65 @@ function githubContent() {
             <span>${githubRefreshInFlight ? "刷新中" : "刷新"}</span>
           </button>
         </div>
-        <article class="github-pinned-card">
-          <div class="github-card-heading"><span>Pinned repository</span><small>Public</small></div>
-          <button type="button" data-open-github class="github-repo-link">${previewIcons.repository}<strong>${github.project}</strong></button>
-          <div class="github-repo-meta"><span><i></i>${github.language}</span><span>${previewIcons.star}${github.stars}</span></div>
-        </article>
-        <article class="github-contribution-card">
-          <div class="github-card-heading">
-            <span>${activityCount} contributions in ${selectedMonth.label}</span>
-            <div class="github-month-navigation">
-              <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
-              <strong>${selectedMonth.label}</strong>
-              <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
+        <div class="github-profile-bar">
+          ${avatarMarkup(github, "github-profile-avatar")}
+          <div class="github-profile-copy">
+            <h1>${github.name}</h1>
+            <p>${github.username}</p>
+          </div>
+          <dl class="github-profile-metrics">
+            <div><dt>${github.repos}</dt><dd>Repositories</dd></div>
+            <div><dt>${github.followers}</dt><dd>Followers</dd></div>
+            <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
+          </dl>
+          <div class="github-profile-actions">
+            <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
+            <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
+          </div>
+        </div>
+        <div class="github-activity-overview">
+          <article class="github-contribution-card">
+            <div class="github-card-heading">
+              <span>${monthSummary.contributions} contributions in ${selectedMonth.label}</span>
+              <div class="github-month-navigation">
+                <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
+                <strong>${selectedMonth.label}</strong>
+                <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
+              </div>
             </div>
-          </div>
-          ${githubContributionCalendar(selectedMonth)}
-          <div class="github-calendar-legend"><span>Less</span>${[0, 1, 2, 3, 4].map((level) => `<i class="github-calendar-cell level-${level}"></i>`).join("")}<span>More</span></div>
-        </article>
-        <article class="github-activity-card">
-          <div class="github-card-heading"><span>Contribution activity</span><small>${selectedMonth.label}</small></div>
-          <div class="github-activity-row">
-            <span class="github-activity-icon">${previewIcons.commits}</span>
-            <div><strong>Made ${activityCount} contributions</strong><small>GitHub contribution calendar activity</small></div>
-            <b>${activityCount}</b>
-          </div>
-          <div class="github-activity-row">
-            <span class="github-activity-icon">${previewIcons.repository}</span>
-            <div><strong>Recently updated ${github.project}</strong><small>${github.language} · ${github.stars} stars</small></div>
-            <span class="github-activity-status">Active</span>
-          </div>
-        </article>
+            ${githubContributionCalendar(selectedMonth)}
+            <div class="github-calendar-legend"><span>Less</span>${[0, 1, 2, 3, 4].map((level) => `<i class="github-calendar-cell level-${level}"></i>`).join("")}<span>More</span></div>
+          </article>
+          <article class="github-month-summary-card">
+            <span class="github-summary-label">MONTHLY SUMMARY</span>
+            <strong>${monthSummary.contributions}</strong><small>contributions this month</small>
+            <dl>
+              <div><dt>${monthSummary.activeDays}</dt><dd>active days</dd></div>
+              <div><dt>${monthSummary.peakDaily}</dt><dd>best day</dd></div>
+              <div><dt>${github.streakDays}</dt><dd>day streak</dd></div>
+            </dl>
+          </article>
+        </div>
+        <div class="github-detail-grid">
+          <article class="github-pinned-card">
+            <div class="github-card-heading"><span>Pinned repository</span><small>Public</small></div>
+            <button type="button" data-open-github class="github-repo-link">${previewIcons.repository}<strong>${github.project}</strong></button>
+            <div class="github-repo-meta"><span><i></i>${github.language}</span><span>${previewIcons.star}${github.stars}</span></div>
+          </article>
+          <article class="github-activity-card">
+            <div class="github-card-heading"><span>Contribution activity</span><small>${selectedMonth.label}</small></div>
+            <div class="github-activity-row">
+              <span class="github-activity-icon">${previewIcons.commits}</span>
+              <div><strong>Made ${activityCount} contributions</strong><small>GitHub contribution calendar activity</small></div>
+              <b>${activityCount}</b>
+            </div>
+            <div class="github-activity-row">
+              <span class="github-activity-icon">${previewIcons.repository}</span>
+              <div><strong>Recently updated ${github.project}</strong><small>${github.language} · ${github.stars} stars</small></div>
+              <span class="github-activity-status">Active</span>
+            </div>
+          </article>
+        </div>
       </div>
     </section>`;
 }
