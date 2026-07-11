@@ -653,6 +653,19 @@ if (!gotLock) {
       invalidateResponseCache("Status");
       return github;
     });
+    ipcMain.handle("github:get-contributions", async (event, range) => {
+      requireMainWindowSender(event);
+      const keys = range && typeof range === "object" ? Object.keys(range) : [];
+      const key = keys.length === 1 ? keys[0] : "";
+      const value = key ? range[key] : "";
+      const valid = (key === "date" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))
+        || (key === "month" && typeof value === "string" && /^\d{4}-\d{2}$/.test(value));
+      if (!valid) throw new Error("Invalid GitHub contribution range");
+      const query = new URLSearchParams({ [key]: value });
+      const response = await fetchWithTimeout(`http://127.0.0.1:8765/api/github/contributions?${query}`);
+      if (!response.ok) throw new Error(`GitHub contributions failed: HTTP ${response.status}`);
+      return readJsonWithTimeout(response, "GitHub contributions");
+    });
     ipcMain.handle("status:get", () => (
       fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
     ));

@@ -1,0 +1,45 @@
+<style>
+  .github-v2 { max-width:1160px; margin:0 auto; color:#172033; font-family:Inter,ui-sans-serif,system-ui,sans-serif; }
+  .github-v2 * { box-sizing:border-box; }
+  .v2-header { display:flex; justify-content:space-between; align-items:end; margin-bottom:18px; }
+  .v2-kicker { color:#0f9f78; font-size:11px; font-weight:850; letter-spacing:.18em; }
+  .v2-title { margin:5px 0 0; font-size:34px; line-height:1; letter-spacing:-.055em; }
+  .v2-time { color:#7f8a9b; font-size:11px; text-align:right; }
+  .v2-layout { display:grid; grid-template-columns:minmax(260px,31%) minmax(0,1fr); gap:18px; }
+  .left-rail, .right-stage { min-width:0; }
+  .panel { border:1px solid #dbe4e9; border-radius:17px; background:#fff; box-shadow:0 12px 30px rgba(15,23,42,.07); }
+  .identity { padding:21px; overflow:hidden; background:linear-gradient(135deg,#172033 0%,#253850 100%); color:#fff; }
+  .profile { display:flex; gap:13px; align-items:center; }
+  .portrait { width:64px; height:64px; flex:0 0 64px; border:2px solid rgba(255,255,255,.56); border-radius:50%; background:radial-gradient(circle at 35% 30%,#fff 0 7%,#141923 8% 24%,#d5d9e2 25% 26%,#111827 27% 100%); }
+  .profile-name { font-size:22px; font-weight:850; letter-spacing:-.045em; }.profile-handle { margin-top:3px; color:rgba(255,255,255,.65); font-size:12px; }
+  .presence { display:flex; align-items:center; gap:7px; margin-top:20px; color:rgba(255,255,255,.7); font-size:11px; }.presence i { width:8px; height:8px; border-radius:50%; background:#43ddb1; box-shadow:0 0 14px #43ddb1; }
+  .rail-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; margin:18px -21px -21px; border-top:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.12); }.rail-stats div { padding:14px 9px; text-align:center; }.rail-stats b { display:block; font-size:19px; }.rail-stats span { display:block; margin-top:3px; color:rgba(255,255,255,.6); font-size:9px; letter-spacing:.06em; }
+  .repo { margin-top:18px; padding:18px; }.small-label { color:#8591a3; font-size:10px; font-weight:800; letter-spacing:.13em; }.repo h3 { margin:11px 0 5px; color:#089d76; font-size:20px; letter-spacing:-.03em; }.repo p { margin:0; color:#7f8a9b; font-size:12px; line-height:1.5; }.repo-footer { display:flex; justify-content:space-between; margin-top:19px; color:#7f8a9b; font-size:11px; }.language i { display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:50%; background:#f1dd4b; }
+  .action { width:100%; margin-top:18px; padding:11px; border:1px solid #cfd9e0; border-radius:10px; color:#324052; background:#fff; font-size:12px; font-weight:700; }
+  .main-panel { padding:22px; }.stage-head { display:flex; justify-content:space-between; align-items:center; }.stage-head h3 { margin:0; font-size:16px; letter-spacing:-.025em; }.stage-head p { margin:4px 0 0; color:#8994a5; font-size:12px; }.month-control { padding:8px 10px; border:1px solid #dae2e8; border-radius:9px; color:#657386; font-size:11px; }
+  .big-number { display:flex; align-items:baseline; gap:10px; margin:28px 0 18px; }.big-number strong { font-size:58px; line-height:.8; letter-spacing:-.07em; }.big-number span { color:#7f8a9b; font-size:14px; }
+  .trend { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; align-items:end; min-height:145px; padding:13px 0 5px; border-bottom:1px solid #e7edf0; background:repeating-linear-gradient(to top,transparent 0,transparent 35px,#edf1f4 36px); }.week { display:grid; gap:7px; align-items:end; height:130px; text-align:center; }.week i { display:block; border-radius:8px 8px 2px 2px; background:linear-gradient(#47c99e,#0f8c6c); }.week b { color:#334155; font-size:13px; }.week span { color:#929cac; font-size:10px; }
+  .stage-foot { display:flex; justify-content:space-between; align-items:center; margin-top:14px; color:#8190a2; font-size:11px; }.legend { display:flex; gap:6px; align-items:center; }.legend i { width:8px; height:8px; border-radius:2px; background:#1da57e; }.legend i:nth-child(2) { background:#86dec2; }
+  .lower-grid { display:grid; grid-template-columns:1.2fr .8fr; gap:18px; margin-top:18px; }.summary, .recent { padding:18px; }.summary h4,.recent h4 { margin:0; font-size:13px; }.summary-row { display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding:10px 0; border-top:1px solid #edf1f3; color:#617083; font-size:12px; }.summary-row b { color:#172033; font-size:17px; }.recent-item { display:grid; grid-template-columns:8px minmax(0,1fr); gap:9px; margin-top:15px; color:#657386; font-size:11px; }.recent-item i { width:8px; height:8px; margin-top:4px; border-radius:50%; background:#18ae83; }.recent-item b { display:block; color:#253247; font-size:12px; }
+  .choice-note { margin-top:18px; padding:14px 16px; border-radius:12px; color:#4f5f70; background:#effaf6; font-size:13px; line-height:1.55; }
+  @media(max-width:760px){ .v2-layout,.lower-grid { grid-template-columns:1fr; }.v2-header { align-items:start; }.v2-time { display:none; } }
+</style>
+
+<h2>GitHub 页：左右布局草图</h2>
+<p class="subtitle">不再单列堆叠，左侧固定身份与项目摘要，右侧成为贡献与动态的主舞台。时钟直接并入标题行。</p>
+
+<div class="github-v2" data-choice="two-column-activity" onclick="toggleSelect(this)">
+  <div class="v2-header"><div><div class="v2-kicker">GITHUB</div><div class="v2-title">Developer activity</div></div><div class="v2-time">2026/07/11<br><b>11:42:47 · 星期六</b></div></div>
+  <div class="v2-layout">
+    <aside class="left-rail">
+      <section class="panel identity"><div class="profile"><div class="portrait"></div><div><div class="profile-name">kibuouo</div><div class="profile-handle">@kibuouo</div></div></div><div class="presence"><i></i>Live · 刚刚同步</div><div class="rail-stats"><div><b>4</b><span>REPOS</span></div><div><b>0</b><span>FOLLOWERS</span></div><div><b>2</b><span>DAY STREAK</span></div></div></section>
+      <section class="panel repo"><div class="small-label">PINNED REPOSITORY</div><h3>▣ winPlate</h3><p>本地状态中心与开发工具集合。</p><div class="repo-footer"><span class="language"><i></i>JavaScript</span><span>☆ 1</span></div></section>
+      <button class="action">↗ Open GitHub profile</button>
+    </aside>
+    <main class="right-stage">
+      <section class="panel main-panel"><div class="stage-head"><div><h3>Contribution rhythm</h3><p>本月的提交节奏，而不是空洞的日期格子</p></div><div class="month-control">‹　July 2026　›</div></div><div class="big-number"><strong>57</strong><span>contributions<br>in July</span></div><div class="trend"><div class="week"><i style="height:42%"></i><b>8</b><span>W1</span></div><div class="week"><i style="height:76%"></i><b>15</b><span>W2</span></div><div class="week"><i style="height:52%"></i><b>10</b><span>W3</span></div><div class="week"><i style="height:100%"></i><b>19</b><span>W4</span></div><div class="week"><i style="height:26%"></i><b>5</b><span>W5</span></div></div><div class="stage-foot"><span>每周贡献量 · 点击柱体可查看该周明细</span><span class="legend"><i></i>高活跃 <i></i>常规</span></div></section>
+      <div class="lower-grid"><section class="panel summary"><h4>Month snapshot</h4><div class="summary-row"><span>Active days</span><b>12 days</b></div><div class="summary-row"><span>Best week</span><b>19 contributions</b></div><div class="summary-row"><span>Current streak</span><b>2 days</b></div></section><section class="panel recent"><h4>Recent activity</h4><div class="recent-item"><i></i><div><b>Updated winPlate</b>JavaScript · 2 hours ago</div></div><div class="recent-item"><i></i><div><b>Made 6 contributions</b>July 11</div></div><div class="recent-item"><i></i><div><b>Repository synced</b>July 10</div></div></section></div>
+    </main>
+  </div>
+  <div class="choice-note">这版的主逻辑是「左侧是谁和做什么，右侧这个月做得怎么样」：首屏直接填满宽度，贡献数据以周趋势呈现，避免日历格子稀疏时的空白感。</div>
+</div>

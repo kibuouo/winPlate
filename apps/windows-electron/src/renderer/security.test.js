@@ -109,6 +109,7 @@ test("main preload bounds platform and exposes only exact application settings I
   assert.equal(unsupported.api.platform, "unsupported");
   assert.equal(typeof darwin.api.getAppSettings, "function");
   assert.equal(typeof darwin.api.saveAppSettings, "function");
+  assert.equal(typeof darwin.api.getGithubContributions, "function");
   assert.equal(darwin.api.ipcRenderer, undefined);
   assert.equal(darwin.api.require, undefined);
   assert.equal(darwin.api.send, undefined);
@@ -123,9 +124,11 @@ test("main preload bounds platform and exposes only exact application settings I
 
   await darwin.api.getAppSettings();
   await darwin.api.saveAppSettings({ menuBarEnabled: false, launchAtLogin: true });
+  await darwin.api.getGithubContributions({ date: "2026-07-11" });
   assert.deepEqual(darwin.calls.invoked, [
     ["app:get-settings"],
-    ["app:save-settings", { menuBarEnabled: false, launchAtLogin: true }]
+    ["app:save-settings", { menuBarEnabled: false, launchAtLogin: true }],
+    ["github:get-contributions", { date: "2026-07-11" }]
   ]);
 });
 
@@ -180,6 +183,64 @@ test("main renderer omits the custom titlebar only on macOS and tolerates absent
   assert.match(renderer, /button\.querySelector\("span"\)\?\.classList\.toggle/);
   assert.match(renderMain, /aria-label="\$\{mainWindowMaximized \? "还原" : "最大化"\}"/);
   assert.match(renderMain, /restore-icon/);
+});
+
+test("GitHub activity uses separated actions, compact month controls, and a titlebar clock", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const renderStart = renderer.indexOf("function renderMain()");
+  const renderEnd = renderer.indexOf("\nfunction updateMainStatusDom", renderStart);
+  const renderMain = renderer.slice(renderStart, renderEnd);
+
+  assert.match(renderer, /class="github-heading-actions"/);
+  assert.match(renderer, /class="github-profile-status"/);
+  assert.match(renderer, /class="github-profile-open"/);
+  assert.match(renderer, /class="github-calendar-title"/);
+  assert.match(renderer, /data-month-today/);
+  assert.match(renderMain, /class="titlebar-clock"[\s\S]*?id="system-clock"/);
+  assert.doesNotMatch(renderMain, /class="main-content-header"[\s\S]*?id="system-clock"/);
+});
+
+test("GitHub activity CSS keeps controls collision-free and calendar rows compact", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(css, /\.titlebar-clock\s*\{/);
+  assert.match(css, /\.github-heading-actions\s*\{/);
+  assert.match(css, /\.github-profile-status\s*\{/);
+  assert.match(css, /\.github-profile-open\s*\{/);
+  assert.match(css, /\.github-calendar-title\s*\{/);
+  assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-auto-rows:\s*32px/);
+  assert.doesNotMatch(css, /grid-auto-rows:\s*clamp\(28px,\s*5\.5vw,\s*36px\)/);
+});
+
+test("GitHub calendar drives a stale-safe contribution activity drilldown", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(renderer, /let selectedContributionDate = null/);
+  assert.match(renderer, /const githubContributionDetailCache = new Map\(\)/);
+  assert.match(renderer, /data-contribution-date=/);
+  assert.match(renderer, /aria-pressed=/);
+  assert.match(renderer, /id="github-contribution-activity"/);
+  assert.match(renderer, /async function loadGithubContributionActivity\(/);
+  assert.match(renderer, /requestId !== githubContributionRequestId/);
+  assert.match(renderer, /selectedContributionDate === contributionDate \? null : contributionDate/);
+});
+
+test("GitHub contribution activity uses a responsive left-calendar right-detail split", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.github-activity-split\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.1fr\)\s+minmax\(300px,\s*\.9fr\)/);
+  assert.match(css, /\.github-calendar-day\[aria-pressed="true"\]/);
+  assert.match(css, /\.github-contribution-activity\s*\{[^}]*border-left:/);
+  assert.match(css, /@media \(max-width: 900px\)[\s\S]*?\.github-activity-split\s*\{[^}]*grid-template-columns:\s*1fr/);
+});
+
+test("floating weather module opens the QWeather section", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const renderFloating = extractNamedFunction(renderer, "renderFloating");
+
+  assert.match(
+    renderFloating,
+    /weatherModule\.addEventListener\("click",\s*\(\)\s*=>\s*window\.winplate\.showMainWindow\("QWeather"\)\)/
+  );
 });
 
 test("macOS main-window CSS is scoped to a native material layout", () => {
@@ -1788,6 +1849,6 @@ test("GitHub contribution view is a full monthly calendar with in-card summary s
   assert.match(github, /class="github-calendar-stats"/);
   assert.doesNotMatch(github, /class="github-month-summary-card"/);
   assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-template-columns:\s*repeat\(7,/);
-  assert.match(css, /grid-auto-rows:\s*clamp\(28px,\s*5\.5vw,\s*36px\)/);
+  assert.match(css, /grid-auto-rows:\s*32px/);
   assert.match(css, /\.github-calendar-stats\s*\{[^}]*grid-template-columns:\s*repeat\(4,/);
 });

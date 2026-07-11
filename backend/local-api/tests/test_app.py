@@ -688,6 +688,51 @@ class DatabaseTests(unittest.TestCase):
                     {"credential": "credential"},
                 )
 
+    def test_github_contribution_detail_maps_repository_counts_for_a_day(self):
+        payload = {
+            "data": {"user": {"contributionsCollection": {
+                "totalCommitContributions": 5,
+                "commitContributionsByRepository": [
+                    {"repository": {"nameWithOwner": "octocat/two", "url": "https://github.com/octocat/two"}, "contributions": {"totalCount": 2}},
+                    {"repository": {"nameWithOwner": "octocat/one", "url": "https://github.com/octocat/one"}, "contributions": {"totalCount": 3}},
+                ],
+            }}}
+        }
+        with (
+            patch.object(main, "github_token", return_value="token"),
+            patch.object(main, "cached_github_status", return_value=None),
+            patch.object(main, "github_graphql_request", return_value=payload) as request,
+        ):
+            result = main.github_contribution_detail("octocat", date_text="2026-07-11")
+
+        self.assertEqual(result["rangeType"], "date")
+        self.assertEqual(result["totalCount"], 5)
+        self.assertEqual(result["repositoryCount"], 2)
+        self.assertEqual(result["repositories"][0]["nameWithOwner"], "octocat/one")
+        self.assertTrue(result["detailsAvailable"])
+        variables = request.call_args.args[1]
+        self.assertEqual(variables["from"], "2026-07-11T00:00:00Z")
+        self.assertEqual(variables["to"], "2026-07-12T00:00:00Z")
+
+    def test_github_contribution_detail_without_token_uses_cached_total_without_repository_guess(self):
+        cached = {
+            "username": "@octocat",
+            "contributionMonths": [{
+                "key": "2026-07", "label": "July 2026", "commits": 9,
+                "counts": [0] * 10 + [5] + [0] * 20,
+            }],
+        }
+        with (
+            patch.object(main, "github_token", return_value=None),
+            patch.object(main, "cached_github_status", return_value=cached),
+        ):
+            result = main.github_contribution_detail("octocat", date_text="2026-07-11")
+
+        self.assertEqual(result["totalCount"], 5)
+        self.assertEqual(result["repositories"], [])
+        self.assertFalse(result["detailsAvailable"])
+        self.assertIn("Token", result["message"])
+
     def test_named_metric_sum_supports_api_keyed_objects(self):
         payload = {
             "data": {

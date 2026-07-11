@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("winplate", {
   onNavigate: (callback) => ipcRenderer.on("main:navigate", (_event, payload) => callback(payload)),
   openGithubProfile: (url) => ipcRenderer.send("github:open-profile", url),
   refreshGithub: () => ipcRenderer.invoke("github:refresh"),
+  getGithubContributions: (range) => ipcRenderer.invoke("github:get-contributions", range),
   getStatus: () => ipcRenderer.invoke("status:get"),
   getNetworkSpeed: () => ipcRenderer.invoke("network:speed"),
   setWeatherLocation: (location) => ipcRenderer.invoke("weather:set-location", location),

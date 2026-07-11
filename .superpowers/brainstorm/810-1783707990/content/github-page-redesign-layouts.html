@@ -1,0 +1,76 @@
+<style>
+  .github-layouts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; }
+  .github-option { overflow:hidden; border:1px solid rgba(148,163,184,.38); border-radius:18px; background:#f8fafc; cursor:pointer; transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+  .github-option:hover, .github-option.selected { transform:translateY(-2px); border-color:#10b981; box-shadow:0 16px 32px rgba(15,23,42,.12); }
+  .github-option-head { display:flex; gap:10px; align-items:center; padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.28); background:#fff; }
+  .github-option-letter { width:26px; height:26px; display:grid; place-items:center; border-radius:8px; color:#fff; background:#10b981; font-weight:800; }
+  .github-option-head h3 { margin:0; font-size:15px; }
+  .github-option-head p { margin:2px 0 0; color:#64748b; font-size:12px; }
+  .github-preview { min-height:440px; padding:14px; color:#172033; background:linear-gradient(145deg,#f8fafc,#eef5f5); font-family:Inter,ui-sans-serif,system-ui,sans-serif; }
+  .preview-topline { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color:#64748b; font-size:10px; font-weight:700; letter-spacing:.12em; }
+  .preview-topline time { letter-spacing:0; font-weight:600; }
+  .profile-strip { display:grid; grid-template-columns:50px minmax(0,1fr) auto; gap:12px; align-items:center; padding:12px; border:1px solid #dbe4e9; border-radius:13px; background:#fff; }
+  .avatar { width:50px; height:50px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#fff 0 7%,#141923 8% 24%,#d5d9e2 25% 26%,#111827 27% 100%); }
+  .name { font-weight:800; font-size:17px; }
+  .handle { margin-top:2px; color:#8b95a8; font-size:11px; }
+  .mini-stats { display:flex; gap:15px; text-align:center; }
+  .mini-stats b { display:block; font-size:14px; }
+  .mini-stats span { color:#8b95a8; font-size:9px; }
+  .title-row { display:flex; justify-content:space-between; align-items:end; margin:16px 1px 10px; }
+  .eyebrow { color:#10a57a; font-size:9px; font-weight:800; letter-spacing:.18em; }
+  .page-title { margin-top:5px; font-size:23px; font-weight:850; letter-spacing:-.045em; }
+  .refresh { padding:7px 10px; border:1px solid #d6dee7; border-radius:9px; color:#526071; background:#fff; font-size:10px; }
+  .metric-row { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; }
+  .metric { padding:12px; border-radius:12px; background:#172033; color:#fff; }
+  .metric:nth-child(2) { background:#0f766e; }
+  .metric:nth-child(3) { background:#fff; color:#172033; border:1px solid #dbe4e9; }
+  .metric strong { display:block; font-size:21px; }
+  .metric span { color:inherit; opacity:.68; font-size:10px; }
+  .calendar-card, .repo-card { margin-top:10px; padding:13px; border:1px solid #dbe4e9; border-radius:13px; background:#fff; }
+  .card-title { display:flex; justify-content:space-between; align-items:center; font-size:11px; font-weight:800; }
+  .card-title small { color:#8b95a8; font-size:10px; font-weight:600; }
+  .activity-bars { display:grid; grid-template-columns:repeat(12,1fr); align-items:end; gap:5px; height:70px; margin-top:12px; }
+  .activity-bars i { display:block; border-radius:4px 4px 1px 1px; background:#b7e8d8; }
+  .activity-bars i:nth-child(2n) { background:#36bd94; }
+  .activity-bars i:nth-child(5n) { background:#12765e; }
+  .activity-bars i:nth-child(1) { height:21%; }.activity-bars i:nth-child(2) { height:55%; }.activity-bars i:nth-child(3) { height:32%; }.activity-bars i:nth-child(4) { height:81%; }.activity-bars i:nth-child(5) { height:44%; }.activity-bars i:nth-child(6) { height:92%; }.activity-bars i:nth-child(7) { height:58%; }.activity-bars i:nth-child(8) { height:36%; }.activity-bars i:nth-child(9) { height:68%; }.activity-bars i:nth-child(10) { height:25%; }.activity-bars i:nth-child(11) { height:76%; }.activity-bars i:nth-child(12) { height:49%; }
+  .week-line { display:flex; justify-content:space-between; margin-top:7px; color:#8b95a8; font-size:9px; }
+  .heatmap { display:grid; grid-template-columns:repeat(14,1fr); gap:4px; margin-top:12px; }
+  .heatmap i { aspect-ratio:1; border-radius:3px; background:#edf2f4; }
+  .heatmap i:nth-child(3n) { background:#b7e8d8; }.heatmap i:nth-child(5n) { background:#36bd94; }.heatmap i:nth-child(11n) { background:#12765e; }
+  .repo-card strong { display:block; margin-top:8px; color:#079d76; font-size:14px; }
+  .repo-card span { display:block; margin-top:5px; color:#8b95a8; font-size:10px; }
+  .option-description { padding:13px 16px 16px; color:#566276; font-size:12px; line-height:1.5; background:#fff; }
+  @media (max-width:800px) { .github-layouts { grid-template-columns:1fr; } }
+</style>
+
+<h2>GitHub 页重排方向</h2>
+<p class="subtitle">两种布局都取消时钟独占的一行，并缩短贡献区域。请选择更接近你想要的方向。</p>
+
+<div class="github-layouts">
+  <div class="github-option" data-choice="metrics-first" onclick="toggleSelect(this)">
+    <div class="github-option-head"><div class="github-option-letter">A</div><div><h3>数据概览优先</h3><p>把「这个月做了什么」放在第一屏</p></div></div>
+    <div class="github-preview">
+      <div class="preview-topline"><span>GITHUB / OVERVIEW</span><time>2026/07/11 · 11:42</time></div>
+      <div class="profile-strip"><div class="avatar"></div><div><div class="name">kibuouo</div><div class="handle">@kibuouo · Active now</div></div><div class="mini-stats"><div><b>4</b><span>REPOS</span></div><div><b>0</b><span>FOLLOWERS</span></div></div></div>
+      <div class="title-row"><div><div class="eyebrow">JULY 2026</div><div class="page-title">Activity at a glance</div></div><div class="refresh">↻ 刷新</div></div>
+      <div class="metric-row"><div class="metric"><strong>57</strong><span>contributions</span></div><div class="metric"><strong>12</strong><span>active days</span></div><div class="metric"><strong>2</strong><span>day streak</span></div></div>
+      <div class="calendar-card"><div class="card-title"><span>Contribution trend</span><small>按周汇总 · 7 月</small></div><div class="activity-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="week-line"><span>Jul 1</span><span>Jul 11</span><span>Jul 21</span><span>Jul 31</span></div></div>
+      <div class="repo-card"><div class="card-title"><span>PINNED REPOSITORY</span><small>JavaScript · ★ 1</small></div><strong>▣ winPlate</strong><span>桌面状态中心项目</span></div>
+    </div>
+    <div class="option-description">用三张关键指标卡建立阅读起点；贡献改为按周汇总的柱状趋势，避免月视图大量空格。</div>
+  </div>
+
+  <div class="github-option" data-choice="github-native" onclick="toggleSelect(this)">
+    <div class="github-option-head"><div class="github-option-letter">B</div><div><h3>紧凑 GitHub 风格</h3><p>保留热力图，但让它成为小而有效的细节</p></div></div>
+    <div class="github-preview">
+      <div class="preview-topline"><span>GITHUB / PROFILE</span><time>2026/07/11 · 11:42</time></div>
+      <div class="profile-strip"><div class="avatar"></div><div><div class="name">kibuouo</div><div class="handle">@kibuouo · Active now</div></div><div class="mini-stats"><div><b>4</b><span>REPOS</span></div><div><b>2</b><span>STREAK</span></div></div></div>
+      <div class="title-row"><div><div class="eyebrow">CONTRIBUTIONS</div><div class="page-title">Your coding rhythm</div></div><div class="refresh">↻ 刷新</div></div>
+      <div class="calendar-card"><div class="card-title"><span>57 contributions</span><small>July 2026 · ‹ ›</small></div><div class="heatmap"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="week-line"><span>活动分布</span><span>少　▦ ▦ ▦ ▦　多</span></div></div>
+      <div class="metric-row"><div class="metric"><strong>57</strong><span>this month</span></div><div class="metric"><strong>4</strong><span>repositories</span></div><div class="metric"><strong>2</strong><span>day streak</span></div></div>
+      <div class="repo-card"><div class="card-title"><span>PINNED REPOSITORY</span><small>JavaScript · ★ 1</small></div><strong>▣ winPlate</strong><span>桌面状态中心项目</span></div>
+    </div>
+    <div class="option-description">把热力图压缩到内容合适的高度；数据卡作为补充，仍然保留一眼能看出活跃分布的 GitHub 识别感。</div>
+  </div>
+</div>

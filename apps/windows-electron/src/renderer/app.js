@@ -45,6 +45,9 @@ let tooltipHideTimer = null;
 let mainWindowMaximized = false;
 let sidebarCollapsed = false;
 let selectedContributionMonth = null;
+let selectedContributionDate = null;
+const githubContributionDetailCache = new Map();
+let githubContributionRequestId = 0;
 let githubRefreshInFlight = false;
 let refreshNoticeTimer = null;
 let locationWeatherPromise = null;
@@ -1192,7 +1195,11 @@ function githubContributionCalendar(month) {
   const cells = Array.from({ length: cellCount }, (_, index) => {
     const sourceIndex = index - mondayOffset;
     const active = sourceIndex >= 0 && sourceIndex < values.length;
-    if (!active) return `<span class="github-calendar-cell level-0 outside-month"></span>`;
+    if (!active) {
+      const adjacentDate = new Date(`${month.key}-01T00:00:00`);
+      adjacentDate.setDate(sourceIndex + 1);
+      return `<span class="github-calendar-cell level-0 outside-month" aria-hidden="true"><b>${adjacentDate.getDate()}</b></span>`;
+    }
     const level = Math.max(0, Math.min(4, Number(values[sourceIndex]) || 0));
     const count = Math.max(0, Number(counts[sourceIndex]) || 0);
     const date = new Date(`${month.key}-${String(sourceIndex + 1).padStart(2, "0")}T00:00:00`);
@@ -1201,7 +1208,8 @@ function githubContributionCalendar(month) {
       day: "numeric"
     }).format(date);
     const contributionLabel = `${count} contribution${count === 1 ? "" : "s"} on ${dateLabel}.`;
-    return `<span class="github-calendar-cell github-calendar-day level-${level}" tabindex="0" aria-label="${contributionLabel}" data-tooltip="${contributionLabel}"><b>${sourceIndex + 1}</b></span>`;
+    const dateKey = `${month.key}-${String(sourceIndex + 1).padStart(2, "0")}`;
+    return `<button class="github-calendar-cell github-calendar-day level-${level}" type="button" data-contribution-date="${dateKey}" aria-pressed="${selectedContributionDate === dateKey}" aria-label="${contributionLabel}" data-tooltip="${contributionLabel}"><b>${sourceIndex + 1}</b></button>`;
   }).join("");
   return `
     <div class="github-calendar-shell">
@@ -1231,6 +1239,56 @@ function githubMonthSummary(month) {
   };
 }
 
+function githubContributionFallback(month, dateText = null) {
+  const dayIndex = dateText ? Number(dateText.slice(-2)) - 1 : -1;
+  const totalCount = dateText
+    ? Math.max(0, Number(month.counts?.[dayIndex]) || 0)
+    : Math.max(0, Number(month.commits) || 0);
+  const label = dateText
+    ? new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${dateText}T00:00:00`))
+    : month.label;
+  return { rangeType: dateText ? "date" : "month", rangeKey: dateText || month.key, label, totalCount, repositories: [], detailsAvailable: false, message: "" };
+}
+
+function renderGithubContributionActivity(detail, { loading = false, error = "" } = {}) {
+  const total = Math.max(0, Number(detail?.totalCount) || 0);
+  const repositories = Array.isArray(detail?.repositories) ? detail.repositories : [];
+  const heading = detail?.rangeType === "date" ? detail.label : detail?.label || "Contribution activity";
+  const rows = repositories.map((repository) => `
+    <div class="github-contribution-repository">
+      <a href="${escapeHtml(repository.url)}" data-external-link>${escapeHtml(repository.nameWithOwner)}</a>
+      <span>${Math.max(0, Number(repository.count) || 0)} commits</span>
+    </div>`).join("");
+  const message = error || detail?.message || (loading ? "Loading repository details…" : total === 0 ? "No contributions in this range." : "");
+  return `
+    <div class="github-contribution-activity-head"><span>Contribution activity</span><small>${escapeHtml(heading)}</small></div>
+    <div class="github-contribution-timeline">
+      <span class="github-contribution-marker">${previewIcons.commits}</span>
+      <div><strong>Created ${total} commits in ${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}</strong>${rows || `<p>${escapeHtml(message)}</p>`}</div>
+    </div>`;
+}
+
+async function loadGithubContributionActivity(range, fallback) {
+  const key = `${range.date ? "date" : "month"}:${range.date || range.month}`;
+  const panel = document.querySelector("#github-contribution-activity");
+  if (!panel) return;
+  if (githubContributionDetailCache.has(key)) {
+    panel.innerHTML = renderGithubContributionActivity(githubContributionDetailCache.get(key));
+    return;
+  }
+  const requestId = ++githubContributionRequestId;
+  panel.innerHTML = renderGithubContributionActivity(fallback, { loading: true });
+  try {
+    const detail = await window.winplate.getGithubContributions(range);
+    if (requestId !== githubContributionRequestId) return;
+    githubContributionDetailCache.set(key, detail);
+    panel.innerHTML = renderGithubContributionActivity(detail);
+  } catch (error) {
+    if (requestId !== githubContributionRequestId) return;
+    panel.innerHTML = renderGithubContributionActivity(fallback, { error: error.message || "Contribution details are unavailable." });
+  }
+}
+
 function githubContent() {
   const github = normalizeGithub(statusData.github);
   const months = githubContributionMonths(github);
@@ -1240,6 +1298,10 @@ function githubContent() {
   selectedContributionMonth = selectedMonth.key;
   const activityCount = selectedMonth.commits || 0;
   const monthSummary = githubMonthSummary(selectedMonth);
+  const contributionFallback = githubContributionFallback(selectedMonth, selectedContributionDate);
+  const calendarDate = new Date(`${selectedMonth.key}-01T00:00:00`);
+  const calendarMonth = new Intl.DateTimeFormat("en-US", { month: "short" }).format(calendarDate);
+  const calendarYear = calendarDate.getFullYear();
   const stateNotice = github.stateMessage
     ? `<div class="github-state-notice state-${github.availability}" role="status">${github.stateMessage}</div>`
     : "";
@@ -1249,16 +1311,18 @@ function githubContent() {
         ${stateNotice}
         <div class="github-page-heading">
           <div><p>GITHUB</p><h2>GitHub activity</h2><span>Monthly contribution rhythm and project activity for ${github.username}.</span></div>
-          <button
-            class="refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
-            id="refresh-github"
-            type="button"
-            aria-label="刷新 GitHub 数据"
-            ${githubRefreshInFlight ? "disabled" : ""}
-          >
-            ${refreshIcon}
-            <span>${githubRefreshInFlight ? "刷新中" : "刷新"}</span>
-          </button>
+          <div class="github-heading-actions">
+            <button
+              class="refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
+              id="refresh-github"
+              type="button"
+              aria-label="刷新 GitHub 数据"
+              ${githubRefreshInFlight ? "disabled" : ""}
+            >
+              ${refreshIcon}
+              <span>${githubRefreshInFlight ? "刷新中" : "刷新"}</span>
+            </button>
+          </div>
         </div>
         <div class="github-profile-bar">
           ${avatarMarkup(github, "github-profile-avatar")}
@@ -1272,17 +1336,20 @@ function githubContent() {
             <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
           </dl>
           <div class="github-profile-actions">
-            <div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div>
-            <button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button>
+            <div class="github-profile-status"><div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div></div>
+            <div class="github-profile-open"><button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button></div>
           </div>
         </div>
-        <article class="github-contribution-card">
+        <article class="github-contribution-card"><div class="github-activity-split"><div class="github-calendar-pane">
             <div class="github-card-heading">
               <div><span>Activity calendar</span><small>${monthSummary.contributions} contributions in ${selectedMonth.label}</small></div>
-              <div class="github-month-navigation">
+              <div class="github-calendar-title">
+                <div class="github-calendar-period"><strong>${calendarMonth}</strong><b>${calendarYear}</b></div>
+                <div class="github-month-navigation">
                 <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
-                <strong>${selectedMonth.label}</strong>
+                <button type="button" data-month-today>TODAY</button>
                 <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
+                </div>
               </div>
             </div>
             ${githubContributionCalendar(selectedMonth)}
@@ -1292,25 +1359,12 @@ function githubContent() {
               <div><strong>${monthSummary.peakDaily}</strong><span>best day</span></div>
               <div><strong>${github.streakDays}</strong><span>day streak</span></div>
             </div>
-          </article>
+          </div><aside class="github-contribution-activity" id="github-contribution-activity">${renderGithubContributionActivity(contributionFallback, { loading: true })}</aside></div></article>
         <div class="github-detail-grid">
           <article class="github-pinned-card">
             <div class="github-card-heading"><span>Pinned repository</span><small>Public</small></div>
             <button type="button" data-open-github class="github-repo-link">${previewIcons.repository}<strong>${github.project}</strong></button>
             <div class="github-repo-meta"><span><i></i>${github.language}</span><span>${previewIcons.star}${github.stars}</span></div>
-          </article>
-          <article class="github-activity-card">
-            <div class="github-card-heading"><span>Contribution activity</span><small>${selectedMonth.label}</small></div>
-            <div class="github-activity-row">
-              <span class="github-activity-icon">${previewIcons.commits}</span>
-              <div><strong>Made ${activityCount} contributions</strong><small>GitHub contribution calendar activity</small></div>
-              <b>${activityCount}</b>
-            </div>
-            <div class="github-activity-row">
-              <span class="github-activity-icon">${previewIcons.repository}</span>
-              <div><strong>Recently updated ${github.project}</strong><small>${github.language} · ${github.stars} stars</small></div>
-              <span class="github-activity-status">Active</span>
-            </div>
           </article>
         </div>
       </div>
@@ -1659,6 +1713,7 @@ function renderFloating() {
     tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
   });
 
+  weatherModule.addEventListener("click", () => window.winplate.showMainWindow("QWeather"));
   bindSystemTooltip(weatherModule, () => {
     const currentWeather = statusData.weather || mockStatus.weather;
     const { time, date: fullDate } = weatherDateTime();
@@ -2780,6 +2835,12 @@ function renderMain() {
       ${isMac ? "" : `<header class="app-titlebar">
         <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""></div>
         <div class="titlebar-drag-region" aria-hidden="true"></div>
+        <div class="titlebar-clock">
+          <time class="system-clock" id="system-clock">
+            <span class="system-date"></span>
+            <span class="system-time"></span>
+          </time>
+        </div>
         <div class="window-controls">
           <button id="window-minimize" aria-label="最小化"><span></span></button>
           <button id="window-maximize" aria-label="${mainWindowMaximized ? "还原" : "最大化"}"><span class="${mainWindowMaximized ? "restore-icon" : ""}"></span></button>
@@ -2808,12 +2869,6 @@ function renderMain() {
           </div>
         </aside>
         <main class="main-content">
-          <header class="main-content-header">
-            <time class="system-clock" id="system-clock">
-              <span class="system-date"></span>
-              <span class="system-time"></span>
-            </time>
-          </header>
           <section id="page-content">${dashboardContent(currentSection)}</section>
         </main>
       </div>
@@ -2844,6 +2899,22 @@ function renderMain() {
   });
   const pageContent = document.querySelector("#page-content");
   pageContent.onclick = (event) => {
+    const contributionButton = event.target.closest("[data-contribution-date]");
+    if (contributionButton && pageContent.contains(contributionButton)) {
+      const contributionDate = contributionButton.dataset.contributionDate;
+      selectedContributionDate = selectedContributionDate === contributionDate ? null : contributionDate;
+      updateMainStatusDom("github");
+      return;
+    }
+    const todayButton = event.target.closest("[data-month-today]");
+    if (todayButton && pageContent.contains(todayButton)) {
+      const months = githubContributionMonths(normalizeGithub(statusData.github));
+      selectedContributionMonth = months.at(-1)?.key || null;
+      selectedContributionDate = null;
+      pageContent.innerHTML = dashboardContent(currentSection);
+      bindGithubControls();
+      return;
+    }
     const monthButton = event.target.closest("[data-month-direction]");
     if (!monthButton || !pageContent.contains(monthButton) || monthButton.disabled) return;
     changeGithubContributionMonth(Number(monthButton.dataset.monthDirection));
@@ -3721,6 +3792,8 @@ function changeGithubContributionMonth(direction) {
   const nextIndex = Math.max(0, Math.min(months.length - 1, safeIndex + direction));
   if (nextIndex === safeIndex) return;
   selectedContributionMonth = months[nextIndex].key;
+  selectedContributionDate = null;
+  githubContributionRequestId += 1;
   updateMainStatusDom();
 }
 
@@ -3728,10 +3801,20 @@ function bindGithubControls() {
   document.querySelectorAll("[data-open-github]").forEach((button) => {
     button.onclick = () => window.winplate.openGithubProfile(statusData.github.profileUrl);
   });
+  const months = githubContributionMonths(normalizeGithub(statusData.github));
+  const selectedMonth = months.find((month) => month.key === selectedContributionMonth) || months.at(-1);
+  if (selectedMonth) {
+    const fallback = githubContributionFallback(selectedMonth, selectedContributionDate);
+    const range = selectedContributionDate ? { date: selectedContributionDate } : { month: selectedMonth.key };
+    loadGithubContributionActivity(range, fallback);
+  }
   const refreshButton = document.querySelector("#refresh-github");
   if (!refreshButton) return;
   refreshButton.onclick = async () => {
     if (githubRefreshInFlight) return;
+    selectedContributionDate = null;
+    githubContributionRequestId += 1;
+    githubContributionDetailCache.clear();
     githubRefreshInFlight = true;
     try {
       updateMainStatusDom();

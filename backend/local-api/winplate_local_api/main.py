@@ -13,7 +13,7 @@ from copy import deepcopy
 from contextlib import closing
 from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email import message_from_bytes, policy
 from email.header import decode_header, make_header
 from email.message import Message
@@ -2093,6 +2093,112 @@ def cached_github_contribution_summary(username: str) -> dict | None:
     }
 
 
+def github_cached_range_total(username: str, range_type: str, range_key: str) -> int:
+    cached = cached_github_status()
+    if not cached or cached.get("username") != f"@{username}":
+        return 0
+    months = cached.get("contributionMonths")
+    if not isinstance(months, list):
+        return 0
+    month_key_text = range_key[:7]
+    month = next((item for item in months if isinstance(item, dict) and item.get("key") == month_key_text), None)
+    if not month:
+        return 0
+    if range_type == "month":
+        return max(0, int(month.get("commits") or 0))
+    try:
+        day_index = datetime.strptime(range_key, "%Y-%m-%d").day - 1
+        counts = month.get("counts")
+        return max(0, int(counts[day_index] or 0)) if isinstance(counts, list) and day_index < len(counts) else 0
+    except (TypeError, ValueError, IndexError):
+        return 0
+
+
+def github_contribution_detail(
+    username: str,
+    *,
+    date_text: str | None = None,
+    month_text: str | None = None,
+) -> dict:
+    if bool(date_text) == bool(month_text):
+        raise ValueError("exactly one contribution range is required")
+    try:
+        if date_text:
+            start = datetime.strptime(date_text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+            range_type, range_key = "date", date_text
+            label = start.strftime("%B %-d, %Y") if os.name != "nt" else start.strftime("%B %#d, %Y")
+        else:
+            start = datetime.strptime(month_text, "%Y-%m").replace(tzinfo=timezone.utc)
+            next_year, next_month = (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+            end = datetime(next_year, next_month, 1, tzinfo=timezone.utc)
+            range_type, range_key = "month", month_text or ""
+            label = start.strftime("%B %Y")
+    except ValueError as error:
+        raise ValueError("invalid contribution range") from error
+
+    fallback_total = github_cached_range_total(username, range_type, range_key)
+    base = {
+        "rangeType": range_type,
+        "rangeKey": range_key,
+        "label": label,
+        "totalCount": fallback_total,
+        "repositoryCount": 0,
+        "repositories": [],
+        "detailsAvailable": False,
+    }
+    if not github_token():
+        return {**base, "message": "Repository details require a GitHub Token."}
+
+    query = """
+    query($login: String!, $from: DateTime!, $to: DateTime!) {
+      user(login: $login) {
+        contributionsCollection(from: $from, to: $to) {
+          totalCommitContributions
+          commitContributionsByRepository(maxRepositories: 100) {
+            repository { nameWithOwner url }
+            contributions { totalCount }
+          }
+        }
+      }
+    }
+    """
+    variables = {
+        "login": username,
+        "from": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "to": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    try:
+        payload = github_graphql_request(query, variables)
+        user = payload.get("data", {}).get("user") if isinstance(payload, dict) else None
+        collection = user.get("contributionsCollection") if isinstance(user, dict) else None
+        if not isinstance(collection, dict):
+            raise RuntimeError("GitHub contribution detail is unavailable")
+        repositories = []
+        for item in collection.get("commitContributionsByRepository", []):
+            repository = item.get("repository") if isinstance(item, dict) else None
+            contributions = item.get("contributions") if isinstance(item, dict) else None
+            if not isinstance(repository, dict) or not isinstance(contributions, dict):
+                continue
+            name = repository.get("nameWithOwner")
+            url = repository.get("url")
+            count = contributions.get("totalCount")
+            if isinstance(name, str) and isinstance(url, str) and isinstance(count, int) and count >= 0:
+                repositories.append({"nameWithOwner": name, "url": url, "count": count})
+        repositories.sort(key=lambda item: (-item["count"], item["nameWithOwner"].lower()))
+        total = collection.get("totalCommitContributions")
+        return {
+            **base,
+            "totalCount": max(0, total) if isinstance(total, int) else sum(item["count"] for item in repositories),
+            "repositoryCount": len(repositories),
+            "repositories": repositories,
+            "detailsAvailable": True,
+            "message": "",
+        }
+    except RuntimeError:
+        return {**base, "message": "Repository details are temporarily unavailable."}
+
+
 def build_github_status(username: str) -> dict:
     encoded_username = quote(username, safe="")
     paths = {
@@ -2280,6 +2386,18 @@ def status() -> dict[str, dict]:
 @api.post("/api/github/refresh")
 def refresh_github() -> dict:
     return github_status(force=True)
+
+
+@api.get("/api/github/contributions")
+def github_contributions(date: str | None = None, month: str | None = None) -> dict:
+    try:
+        return github_contribution_detail(
+            github_username(),
+            date_text=date,
+            month_text=month,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @api.post("/api/weather/refresh")

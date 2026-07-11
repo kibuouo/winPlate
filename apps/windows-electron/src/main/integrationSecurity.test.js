@@ -105,6 +105,7 @@ test("sensitive business IPC handlers require the live main-window sender", () =
     "settings:save",
     "appearance:save-settings",
     "weather:set-location",
+    "github:get-contributions",
     "weather:set-manual-location",
     "weather:refresh-official-usage",
     "mail:save-settings",
