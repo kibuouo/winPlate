@@ -200,6 +200,24 @@ test("GitHub activity uses separated actions, compact month controls, and a titl
   assert.doesNotMatch(renderMain, /class="main-content-header"[\s\S]*?id="system-clock"/);
 });
 
+test("titlebar compact weather renders beside the date and refreshes with weather data", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const renderStart = renderer.indexOf("function renderMain()");
+  const renderEnd = renderer.indexOf("\nfunction updateMainStatusDom", renderStart);
+  const renderMain = renderer.slice(renderStart, renderEnd);
+
+  assert.match(renderMain, /id="titlebar-weather"[\s\S]*?class="titlebar-clock"/);
+  assert.match(renderer, /function titlebarWeatherContent\(\)[\s\S]*?titlebar-weather-icon[\s\S]*?titlebar-weather-temperature[\s\S]*?titlebar-weather-condition/);
+  assert.match(renderer, /function updateTitlebarWeather\(\)/);
+  assert.match(renderer, /requested\.includes\("weather"\)\) updateTitlebarWeather\(\);/);
+  assert.match(css, /\.titlebar-weather\s*\{/);
+  assert.match(css, /\.titlebar-weather-icon\s*\{/);
+  assert.match(css, /html:not\(\[data-theme="light"\]\) \.titlebar-weather-icon\s*\{[^}]*filter:\s*brightness\(0\) invert\(1\)/);
+  assert.match(css, /html\[data-theme="light"\] \.titlebar-weather-icon\s*\{[^}]*filter:\s*drop-shadow/);
+  assert.match(css, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.titlebar-weather-condition\s*\{\s*display:\s*none;/);
+});
+
 test("GitHub activity CSS keeps controls collision-free and calendar rows compact", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
 
@@ -223,6 +241,13 @@ test("GitHub calendar drives a stale-safe contribution activity drilldown", () =
   assert.match(renderer, /async function loadGithubContributionActivity\(/);
   assert.match(renderer, /requestId !== githubContributionRequestId/);
   assert.match(renderer, /selectedContributionDate === contributionDate \? null : contributionDate/);
+});
+
+test("GitHub contribution activity does not claim zero repositories while details load", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(renderer, /loading\s*\?\s*`Created \$\{total\} commits`/);
+  assert.match(renderer, /Created \$\{total\} commits in \$\{repositories\.length\}/);
 });
 
 test("GitHub contribution activity uses a responsive left-calendar right-detail split", () => {
@@ -1341,6 +1366,20 @@ test("github month navigation uses stable page-level delegation across rerenders
   assert.match(githubControls, /\.onclick = \(\) => window\.winplate\.openGithubProfile/);
   assert.match(githubControls, /refreshButton\.onclick = async \(\) => \{/);
   assert.doesNotMatch(githubControls, /\.addEventListener\("click"/);
+});
+
+test("capsule GitHub opens the main GitHub section instead of an external profile", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const start = renderer.indexOf('const githubModule = document.querySelector(".github-module");');
+  const capsuleGithubControls = renderer.slice(
+    start,
+    renderer.indexOf('githubModule.addEventListener("mouseenter"', start)
+  );
+
+  assert.equal((renderer.match(/aria-label="Open GitHub section"/g) || []).length, 2);
+  assert.match(capsuleGithubControls, /githubModule\.addEventListener\("click", \(\) => window\.winplate\.showMainWindow\("GitHub"\)\);/);
+  assert.match(capsuleGithubControls, /event\.preventDefault\(\);\s*window\.winplate\.showMainWindow\("GitHub"\);/);
+  assert.doesNotMatch(capsuleGithubControls, /openGithubProfile/);
 });
 
 test("weather location changes update every window without an implicit location rewrite", () => {

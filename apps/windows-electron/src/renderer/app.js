@@ -805,6 +805,20 @@ function systemClockParts(now = new Date()) {
   return { date, time, weekday };
 }
 
+function titlebarWeatherContent() {
+  const weather = statusData.weather || mockStatus.weather;
+  const temperature = weather.temperature ?? "--";
+  const condition = weather.condition || "天气未知";
+  return `${weatherIconMarkup(weather.icon, "titlebar-weather-icon")}<span class="titlebar-weather-temperature">${escapeHtml(temperature)}°</span><span class="titlebar-weather-condition">${escapeHtml(condition)}</span>`;
+}
+
+function updateTitlebarWeather() {
+  const container = document.querySelector("#titlebar-weather");
+  if (!container) return;
+  container.innerHTML = titlebarWeatherContent();
+  bindWeatherIconFallbacks(container);
+}
+
 function updateSystemClock() {
   const clock = document.querySelector("#system-clock");
   if (!clock) return;
@@ -1254,6 +1268,9 @@ function renderGithubContributionActivity(detail, { loading = false, error = "" 
   const total = Math.max(0, Number(detail?.totalCount) || 0);
   const repositories = Array.isArray(detail?.repositories) ? detail.repositories : [];
   const heading = detail?.rangeType === "date" ? detail.label : detail?.label || "Contribution activity";
+  const summary = loading
+    ? `Created ${total} commits`
+    : `Created ${total} commits in ${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`;
   const rows = repositories.map((repository) => `
     <div class="github-contribution-repository">
       <a href="${escapeHtml(repository.url)}" data-external-link>${escapeHtml(repository.nameWithOwner)}</a>
@@ -1264,7 +1281,7 @@ function renderGithubContributionActivity(detail, { loading = false, error = "" 
     <div class="github-contribution-activity-head"><span>Contribution activity</span><small>${escapeHtml(heading)}</small></div>
     <div class="github-contribution-timeline">
       <span class="github-contribution-marker">${previewIcons.commits}</span>
-      <div><strong>Created ${total} commits in ${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}</strong>${rows || `<p>${escapeHtml(message)}</p>`}</div>
+      <div><strong>${summary}</strong>${rows || `<p>${escapeHtml(message)}</p>`}</div>
     </div>`;
 }
 
@@ -1424,7 +1441,7 @@ function weatherIconMarkup(iconCode, className = "weather-icon") {
 }
 
 function bindWeatherIconFallbacks(root = document) {
-  root.querySelectorAll("img.weather-icon, img.weather-detail-icon").forEach((image) => {
+  root.querySelectorAll("img.weather-icon, img.weather-detail-icon, img.titlebar-weather-icon").forEach((image) => {
     const showFallback = () => {
       if (image.dataset.fallbackApplied === "true") return;
       image.dataset.fallbackApplied = "true";
@@ -1573,7 +1590,7 @@ function renderFloating() {
       <section class="status-capsule">
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module interactive-module github-module no-drag" id="github-module" data-module-id="github" ${moduleHealthAttributes("github")} ${moduleEnabled("github") ? "" : "hidden"} role="link" tabindex="0" aria-label="Open GitHub profile">
+            <div class="module interactive-module github-module no-drag" id="github-module" data-module-id="github" ${moduleHealthAttributes("github")} ${moduleEnabled("github") ? "" : "hidden"} role="link" tabindex="0" aria-label="Open GitHub section">
               <span class="github-avatar-button" aria-hidden="true">
                 ${avatarMarkup(statusData.github, "github-avatar-bar")}
               </span>
@@ -1658,11 +1675,11 @@ function renderFloating() {
     });
   }
 
-  githubModule.addEventListener("click", () => window.winplate.openGithubProfile(statusData.github.profileUrl));
+  githubModule.addEventListener("click", () => window.winplate.showMainWindow("GitHub"));
   githubModule.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      window.winplate.openGithubProfile(statusData.github.profileUrl);
+      window.winplate.showMainWindow("GitHub");
     }
   });
 
@@ -2835,6 +2852,7 @@ function renderMain() {
       ${isMac ? "" : `<header class="app-titlebar">
         <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""></div>
         <div class="titlebar-drag-region" aria-hidden="true"></div>
+        <div class="titlebar-weather" id="titlebar-weather">${titlebarWeatherContent()}</div>
         <div class="titlebar-clock">
           <time class="system-clock" id="system-clock">
             <span class="system-date"></span>
@@ -2874,6 +2892,7 @@ function renderMain() {
       </div>
       <div class="refresh-notice-region" id="refresh-notice-region" aria-live="polite" aria-atomic="true"></div>`;
   updateProgressBars(appRoot);
+  bindWeatherIconFallbacks(appRoot);
   if (previousScrollPosition) {
     document.querySelector(".main-content").scrollTo(previousScrollPosition);
   }
@@ -2969,6 +2988,8 @@ function updateModuleHealthDom(moduleIds) {
 }
 
 function updateMainStatusDom(moduleIds = null) {
+  const requested = moduleIds ? (Array.isArray(moduleIds) ? moduleIds : [moduleIds]) : [];
+  if (requested.includes("weather")) updateTitlebarWeather();
   const pageContent = document.querySelector("#page-content");
   if (!pageContent) {
     renderMain();
@@ -2981,7 +3002,6 @@ function updateMainStatusDom(moduleIds = null) {
   const currentChildren = Array.from(pageContent.childNodes);
 
   if (moduleIds) {
-    const requested = Array.isArray(moduleIds) ? moduleIds : [moduleIds];
     const structureChanged = syncRequestedModuleNodes(pageContent, template.content, requested);
     if (structureChanged) {
       bindAvatarFallbacks(pageContent);
@@ -3048,7 +3068,7 @@ function updateFloatingStatusDom(moduleIds = null) {
       <section class="status-capsule">
         <div class="status-layout">
           <div class="status-group app-status">
-            <div class="module interactive-module github-module no-drag" id="github-module" data-module-id="github" ${moduleHealthAttributes("github")} ${moduleEnabled("github") ? "" : "hidden"} role="link" tabindex="0" aria-label="Open GitHub profile">
+            <div class="module interactive-module github-module no-drag" id="github-module" data-module-id="github" ${moduleHealthAttributes("github")} ${moduleEnabled("github") ? "" : "hidden"} role="link" tabindex="0" aria-label="Open GitHub section">
               <span class="github-avatar-button" aria-hidden="true">${avatarMarkup(statusData.github, "github-avatar-bar")}</span>
               <span class="github-summary">GitHub</span>
             </div>

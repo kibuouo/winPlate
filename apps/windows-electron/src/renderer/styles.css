@@ -494,6 +494,12 @@ html[data-theme="light"] .status-capsule .network-speed-arrow { color: #0284c7; 
 .titlebar-brand { display: flex; align-items: center; padding-left: 14px; }
 .titlebar-brand img { width: 22px; height: 22px; display: block; border-radius: 6px; object-fit: cover; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .titlebar-drag-region { flex: 1 1 auto; min-width: 0; }
+.titlebar-weather { min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding-left: 10px; color: var(--text-soft); -webkit-app-region: no-drag; }
+.titlebar-weather-icon { width: 16px; height: 16px; flex: 0 0 auto; object-fit: contain; }
+.titlebar-weather-temperature { font-size: 11px; font-weight: 700; white-space: nowrap; }
+.titlebar-weather-condition { max-width: 88px; overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+html:not([data-theme="light"]) .titlebar-weather-icon { filter: brightness(0) invert(1) drop-shadow(0 3px 10px rgba(15, 23, 42, .28)); }
+html[data-theme="light"] .titlebar-weather-icon { filter: drop-shadow(0 3px 8px rgba(15, 23, 42, .16)); }
 .titlebar-clock { height: 100%; padding: 0 16px; display: flex; align-items: center; -webkit-app-region: no-drag; }
 .titlebar-clock .system-clock { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .titlebar-clock .system-date { font-size: 10px; }
@@ -509,6 +515,9 @@ html[data-theme="light"] .status-capsule .network-speed-arrow { color: #0284c7; 
 #window-close span::before, #window-close span::after { content: ""; position: absolute; width: 12px; height: 1px; top: 22px; left: 17px; background: currentColor; }
 #window-close span::before { transform: rotate(45deg); }
 #window-close span::after { transform: rotate(-45deg); }
+@media (max-width: 760px) {
+  .titlebar-weather-condition { display: none; }
+}
 .main-body.platform-darwin { background: transparent; }
 .main-body.platform-darwin .main-window-shell {
   grid-template-rows: minmax(0, 1fr);
