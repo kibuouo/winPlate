@@ -1685,6 +1685,15 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-detail-empty > span { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .15em; }
 .notification-detail-empty h2, .notification-detail-empty p { max-width: 540px; margin: 0; }
 .notification-detail-empty p, .notification-detail-empty small { color: var(--text-muted); line-height: 1.65; }
+.notification-acknowledgement-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(9, 12, 20, .62); backdrop-filter: blur(7px); }
+.notification-acknowledgement-modal { position: relative; display: grid; gap: 16px; width: min(100%, 520px); padding: 32px; color: #fff7f7; border: 1px solid rgba(252, 165, 165, .6); border-radius: 20px; background: linear-gradient(145deg, #7f1d1d, #240d11); box-shadow: 0 28px 80px rgba(0, 0, 0, .48), 0 0 0 1px rgba(239, 68, 68, .18); }
+.notification-acknowledgement-modal > p:first-of-type { margin: 0; color: #fecaca; font-size: 11px; font-weight: 850; letter-spacing: .14em; }
+.notification-acknowledgement-modal h2 { margin: 0; overflow-wrap: anywhere; font-size: 28px; line-height: 1.25; }
+.notification-acknowledgement-modal #notification-ack-body { margin: 0; color: #fee2e2; line-height: 1.7; white-space: pre-wrap; }
+.notification-acknowledgement-close { position: absolute; top: 14px; right: 14px; width: 36px; height: 36px; color: #fee2e2; border: 1px solid rgba(254, 202, 202, .3); border-radius: 999px; background: rgba(69, 10, 10, .35); font-size: 22px; cursor: pointer; }
+.notification-acknowledgement-confirm { justify-self: start; padding: 11px 18px; color: #450a0a; border: 0; border-radius: 10px; background: #fee2e2; font: inherit; font-weight: 850; cursor: pointer; }
+.notification-acknowledgement-close:focus-visible, .notification-acknowledgement-confirm:focus-visible { outline: 3px solid #fef08a; outline-offset: 3px; }
+html[data-theme="light"] .notification-acknowledgement-backdrop { background: rgba(15, 23, 42, .44); }
 @media (max-width: 760px) {
   .notification-workspace { grid-template-columns: 1fr; min-height: 0; }
   .notification-master-pane { border-right: 0; border-bottom: 1px solid var(--border); }

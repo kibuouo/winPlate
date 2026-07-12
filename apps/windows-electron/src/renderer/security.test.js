@@ -1541,6 +1541,17 @@ test("notification center renders a filterable master-detail workspace instead o
   assert.match(renderer, /async function selectNotification\(id\)/);
 });
 
+test("only active red QWeather notifications require acknowledgement", () => {
+  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
+  const context = { window: { WinPlateSmartNotificationIcons: { renderSmartNotificationIcon: () => "" } } };
+  vm.runInNewContext(component, context, { filename: "notificationDigest.js" });
+  const { isAcknowledgementRequired } = context.window.WinPlateNotificationDigest;
+  assert.equal(isAcknowledgementRequired({ source: "qweather", unread: true, metadata: { severity: "red", lifecycle: "issued" } }), true);
+  assert.equal(isAcknowledgementRequired({ source: "qweather", unread: true, metadata: { severity: "red", lifecycle: "resolved" } }), false);
+  assert.equal(isAcknowledgementRequired({ source: "github", unread: true, level: "critical", metadata: { severity: "red", lifecycle: "issued" } }), false);
+  assert.equal(isAcknowledgementRequired({ source: "qweather", unread: true, level: "critical", metadata: { severity: "extreme", lifecycle: "issued" } }), false);
+});
+
 test("digest drawer selects represented notifications by priority then recency", () => {
   const api = loadNotificationDigestComponent();
   const items = [

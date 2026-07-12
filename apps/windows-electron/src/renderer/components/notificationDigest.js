@@ -113,6 +113,14 @@
     ));
   }
 
+  function isAcknowledgementRequired(item = {}) {
+    const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+    return item.source === "qweather"
+      && item.unread === true
+      && metadata.severity === "red"
+      && !["resolved", "cancelled", "ended"].includes(metadata.lifecycle);
+  }
+
   function renderNotificationList(items, { selectedId = null, sourceLabel, levelLabel, relativeTime } = {}) {
     const list = Array.isArray(items) ? items : [];
     if (!list.length) {
@@ -139,6 +147,7 @@
     renderGroups,
     renderRawNotifications,
     filterNotificationItems,
-    renderNotificationList
+    renderNotificationList,
+    isAcknowledgementRequired
   };
 })(window);

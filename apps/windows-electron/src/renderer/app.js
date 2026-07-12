@@ -84,6 +84,8 @@ let notificationDetail = { open: false, loading: false, id: null, data: null, er
 let notificationActionFeedback = "";
 let notificationFilters = { source: "all", state: "all" };
 let notificationSelection = { id: null, loading: false, data: null, error: "" };
+let notificationAcknowledgement = { id: null, returnFocus: null };
+const dismissedNotificationAcknowledgements = new Set();
 let networkSpeed = {
   downloadBytesPerSecond: 0,
   uploadBytesPerSecond: 0,
@@ -2574,6 +2576,32 @@ function notificationCenterDetail() {
   </section>`;
 }
 
+function updateNotificationAcknowledgement() {
+  const current = notificationItemsForDigest().find((item) => String(item.id) === String(notificationAcknowledgement.id));
+  if (current && window.WinPlateNotificationDigest.isAcknowledgementRequired(current)) return;
+  const candidate = notificationItemsForDigest()
+    .filter((item) => window.WinPlateNotificationDigest.isAcknowledgementRequired(item))
+    .filter((item) => !dismissedNotificationAcknowledgements.has(String(item.id)))
+    .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))[0];
+  notificationAcknowledgement = candidate
+    ? { id: String(candidate.id), returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null }
+    : { id: null, returnFocus: null };
+}
+
+function notificationAcknowledgementModal() {
+  const item = notificationItemsForDigest().find((entry) => String(entry.id) === String(notificationAcknowledgement.id));
+  if (!item) return "";
+  return `<div class="notification-acknowledgement-backdrop" data-notification-ack-backdrop>
+    <section class="notification-acknowledgement-modal" role="dialog" aria-modal="true" aria-labelledby="notification-ack-title" aria-describedby="notification-ack-body">
+      <button class="notification-acknowledgement-close" type="button" data-notification-ack-dismiss aria-label="暂不确认">×</button>
+      <p>QWEATHER · 红色预警</p>
+      <h2 id="notification-ack-title">${escapeHtml(item.title)}</h2>
+      <p id="notification-ack-body">${escapeHtml(item.message || "请关注最新天气预警信息。")}</p>
+      <button class="notification-acknowledgement-confirm" type="button" data-notification-acknowledge="${escapeHtml(item.id)}">我已知悉</button>
+    </section>
+  </div>`;
+}
+
 function dashboardContent(section) {
   const failures = qweatherOfficialStats?.errors ?? 0;
   const official = qweatherOfficialStats
@@ -2927,9 +2955,13 @@ function renderMain() {
           <section id="page-content">${dashboardContent(currentSection)}</section>
         </main>
       </div>
-      <div class="refresh-notice-region" id="refresh-notice-region" aria-live="polite" aria-atomic="true"></div>`;
+      <div class="refresh-notice-region" id="refresh-notice-region" aria-live="polite" aria-atomic="true"></div>
+      ${notificationAcknowledgementModal()}`;
   updateProgressBars(appRoot);
   bindWeatherIconFallbacks(appRoot);
+  if (notificationAcknowledgement.id) {
+    queueMicrotask(() => document.querySelector("[data-notification-acknowledge]")?.focus?.());
+  }
   if (previousScrollPosition) {
     document.querySelector(".main-content").scrollTo(previousScrollPosition);
   }
@@ -3556,6 +3588,7 @@ async function markNotificationRead(notificationId, options = null) {
   const id = String(notificationId || "").trim();
   if (!id) return;
   notificationSummary = await window.winplate.markNotificationRead(id);
+  if (typeof updateNotificationAcknowledgement === "function") updateNotificationAcknowledgement();
   if (notificationDetail.data?.notification?.id === id) {
     notificationDetail = {
       ...notificationDetail,
@@ -3791,10 +3824,49 @@ async function handleNotificationPageClick(event) {
 }
 
 function handleNotificationDocumentKeydown(event) {
-  if (event.key !== "Escape" || !notificationDrawerState.open) return;
-  event.preventDefault();
-  closeNotificationDrawer();
+  if (event.key === "Escape" && typeof notificationAcknowledgement !== "undefined" && notificationAcknowledgement.id) {
+    event.preventDefault();
+    const returnFocus = notificationAcknowledgement.returnFocus;
+    dismissedNotificationAcknowledgements.add(String(notificationAcknowledgement.id));
+    notificationAcknowledgement = { id: null, returnFocus: null };
+    updateNotificationAcknowledgement();
+    updateMainStatusDom();
+    queueMicrotask(() => returnFocus?.focus?.());
+    return;
+  }
+  if (event.key === "Escape" && notificationDrawerState.open) {
+    event.preventDefault();
+    closeNotificationDrawer();
+    updateMainStatusDom();
+  }
+}
+
+async function handleNotificationAcknowledgementClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !notificationAcknowledgement.id) return;
+  const acknowledge = target.closest("[data-notification-acknowledge]");
+  if (acknowledge) {
+    if (notificationActionInFlight) return;
+    notificationActionInFlight = true;
+    try {
+      await markNotificationRead(acknowledge.dataset.notificationAcknowledge, { feedback: "" });
+    } catch (error) {
+      console.error("Failed to acknowledge red weather alert:", error);
+    } finally {
+      notificationActionInFlight = false;
+      updateMainStatusDom();
+    }
+    return;
+  }
+  const dismissButton = target.closest("[data-notification-ack-dismiss]");
+  const backdrop = target.matches?.("[data-notification-ack-backdrop]") ? target : null;
+  if (!dismissButton && !backdrop) return;
+  const returnFocus = notificationAcknowledgement.returnFocus;
+  dismissedNotificationAcknowledgements.add(String(notificationAcknowledgement.id));
+  notificationAcknowledgement = { id: null, returnFocus: null };
+  updateNotificationAcknowledgement();
   updateMainStatusDom();
+  queueMicrotask(() => returnFocus?.focus?.());
 }
 
 async function hydrateQWeatherUsage() {
@@ -3809,6 +3881,7 @@ async function hydrateQWeatherUsage() {
 async function hydrateNotifications() {
   try {
     notificationSummary = await window.winplate.getNotifications();
+    updateNotificationAcknowledgement();
     await hydrateNotificationDigest();
   } catch (error) {
     notificationSummary = {
@@ -4101,6 +4174,7 @@ function applyNavigationPayload(value) {
 
 registerRefreshTasks();
 document.addEventListener("keydown", handleNotificationDocumentKeydown);
+document.addEventListener("click", handleNotificationAcknowledgementClick);
 if (view === "main") renderMain();
 Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateAppSettings()]).then(async () => {
   if (view === "tooltip") return [];
