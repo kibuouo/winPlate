@@ -1531,14 +1531,27 @@ test("notifications escape pushed titles and messages before rendering", () => {
   assert.match(component, /data-notification-open="\$\{escapeHtml\(item\.id\)\}"/);
 });
 
-test("notification center renders a filterable master-detail workspace instead of requiring a drawer", () => {
-  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
-  assert.match(component, /function filterNotificationItems/);
-  assert.match(component, /data-notification-select="\$\{escapeHtml\(item\.id\)\}"/);
-  assert.match(renderer, /class="notification-workspace"/);
-  assert.match(renderer, /notification-detail-empty/);
-  assert.match(renderer, /async function selectNotification\(id\)/);
+test("notification timeline groups source-filtered rows by date and escapes content", () => {
+  const api = loadNotificationDigestComponent();
+  const now = new Date("2026-07-12T12:00:00");
+  const items = [
+    { id: "today", source: "codex", title: "<script>", message: "safe", level: "info", unread: true, createdAt: Date.parse("2026-07-12T08:00:00") },
+    { id: "yesterday", source: "github", title: "Review", message: "ready", level: "warning", unread: false, createdAt: Date.parse("2026-07-11T08:00:00") }
+  ];
+  assert.deepEqual(api.notificationSourceCounts(items), [
+    { source: "codex", count: 1 }, { source: "github", count: 1 }
+  ]);
+  assert.deepEqual(api.groupNotificationItemsByDate(items, now).map((group) => group.label), ["今天 7月12日", "昨天 7月11日"]);
+  const html = api.renderNotificationTimeline(items, {
+    selectedId: "today", now, sourceLabel: (value) => value,
+    levelLabel: (value) => value, relativeTime: () => "刚刚"
+  });
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /class="notification-timeline"/);
+  assert.match(html, /data-notification-select="today"/);
+  assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /今天 7月12日/);
 });
 
 test("only active red QWeather notifications require acknowledgement", () => {

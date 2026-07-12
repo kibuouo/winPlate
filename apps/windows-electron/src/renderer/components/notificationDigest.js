@@ -113,6 +113,70 @@
     ));
   }
 
+  function notificationSourceCounts(items = []) {
+    const sourceOrder = ["codex", "github", "mail", "qweather"];
+    return [...(Array.isArray(items) ? items : []).reduce((counts, item) => {
+      const source = String(item?.source || "system");
+      counts.set(source, (counts.get(source) || 0) + 1);
+      return counts;
+    }, new Map()).entries()]
+      .map(([source, count]) => ({ source, count }))
+      .sort((left, right) => {
+        const leftIndex = sourceOrder.indexOf(left.source);
+        const rightIndex = sourceOrder.indexOf(right.source);
+        return (leftIndex < 0 ? sourceOrder.length : leftIndex) - (rightIndex < 0 ? sourceOrder.length : rightIndex)
+          || left.source.localeCompare(right.source);
+      });
+  }
+
+  function dateGroupLabel(date, now) {
+    const local = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const days = Math.round((today - local) / 86_400_000);
+    const suffix = `${date.getMonth() + 1}月${date.getDate()}日`;
+    return days === 0 ? `今天 ${suffix}` : days === 1 ? `昨天 ${suffix}` : suffix;
+  }
+
+  function groupNotificationItemsByDate(items = [], now = new Date()) {
+    const groups = new Map();
+    for (const item of [...(Array.isArray(items) ? items : [])].sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))) {
+      const date = new Date(Number(item.createdAt || 0));
+      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      if (!groups.has(key)) groups.set(key, { key, label: dateGroupLabel(date, now), items: [] });
+      groups.get(key).items.push(item);
+    }
+    return [...groups.values()];
+  }
+
+  function renderNotificationTimeline(items, {
+    selectedId = null, sourceLabel, sourceIcon, levelLabel, relativeTime,
+    inlineDetail = () => "", now = new Date()
+  } = {}) {
+    const groups = groupNotificationItemsByDate(items, now);
+    if (!groups.length) {
+      return '<div class="notification-timeline-empty"><strong>没有匹配的通知</strong><span>尝试调整筛选条件。</span></div>';
+    }
+    return `<div class="notification-timeline">${groups.map((group) => `
+      <section class="notification-date-group" aria-label="${escapeHtml(group.label)}">
+        <h2 class="notification-date-label">${escapeHtml(group.label)}</h2>
+        ${group.items.map((item) => {
+          const selected = String(item.id) === String(selectedId);
+          return `<article class="notification-timeline-entry level-${escapeHtml(item.level || "info")} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}">
+            <button class="notification-timeline-row" type="button" data-notification-select="${escapeHtml(item.id)}" aria-expanded="${selected}">
+              <i class="notification-timeline-dot" aria-hidden="true"></i>
+              <span class="notification-timeline-main">
+                <span class="notification-source">${sourceIcon?.(item.source) || ""}${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
+                <span class="notification-timeline-title"><strong>${escapeHtml(item.title || "通知")}</strong>${item.unread ? '<em class="unread-badge">未读</em>' : ""}</span>
+                <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
+              </span>
+              <span class="notification-timeline-meta"><time>${escapeHtml(relativeTime?.(item.createdAt) || "")}</time><span>${escapeHtml(levelLabel?.(item.level) || item.level || "信息")}</span></span>
+            </button>
+            ${selected ? inlineDetail(item) : ""}
+          </article>`;
+        }).join("")}
+      </section>`).join("")}</div>`;
+  }
+
   function isAcknowledgementRequired(item = {}) {
     const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
     return item.source === "qweather"
@@ -147,6 +211,9 @@
     renderGroups,
     renderRawNotifications,
     filterNotificationItems,
+    notificationSourceCounts,
+    groupNotificationItemsByDate,
+    renderNotificationTimeline,
     renderNotificationList,
     isAcknowledgementRequired
   };
