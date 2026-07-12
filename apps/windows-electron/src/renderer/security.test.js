@@ -1522,13 +1522,13 @@ test("notifications escape pushed titles and messages before rendering", () => {
     renderer.indexOf("const lines = Array.isArray(data.lines)")
   );
 
-  assert.match(notificationContent, /renderNotificationList/);
+  assert.match(notificationContent, /renderNotificationTimeline/);
   assert.match(notificationTooltip, /renderDigestCard/);
   assert.match(component, /escapeHtml\(item\.title\)/);
   assert.match(component, /escapeHtml\(item\.body \|\| item\.message\)/);
   assert.match(component, /escapeHtml\(value\.headline\)/);
   assert.match(component, /escapeHtml\(value\.summary\)/);
-  assert.match(component, /data-notification-open="\$\{escapeHtml\(item\.id\)\}"/);
+  assert.match(component, /data-notification-select="\$\{escapeHtml\(item\.id\)\}"/);
 });
 
 test("notification timeline groups source-filtered rows by date and escapes content", () => {
@@ -1771,16 +1771,17 @@ test("notification severity styles cover capsule, badge, and compact popup", () 
   }
 });
 
-test("notifications expose a clear action through preload and renderer controls", () => {
+test("notifications expose a clear-read action through preload and renderer controls", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
   const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   assert.match(preload, /clearNotifications: \(\) => ipcRenderer\.invoke\("notifications:clear"\)/);
+  assert.match(preload, /clearReadNotifications: \(\) => ipcRenderer\.invoke\("notifications:clear-read"\)/);
   assert.match(preload, /getNotificationDetail: \(id\) => ipcRenderer\.invoke\("notifications:get-detail", id\)/);
   assert.match(preload, /navigateNotification: \(action\) => ipcRenderer\.invoke\("notifications:navigate", action\)/);
   assert.match(preload, /copyNotificationText: \(text\) => ipcRenderer\.invoke\("notifications:copy", text\)/);
-  assert.match(renderer, /id="clear-notifications"/);
-  assert.match(renderer, /window\.winplate\.clearNotifications\(\)/);
+  assert.match(renderer, /id="clear-read-notifications"/);
+  assert.match(renderer, /window\.winplate\.clearReadNotifications\(\)/);
   assert.match(renderer, /window\.winplate\.getNotificationDetail\(id\)/);
   assert.match(renderer, /window\.winplate\.navigateNotification\(action\)/);
   assert.match(renderer, /window\.winplate\.copyNotificationText\(value\)/);
@@ -1807,7 +1808,8 @@ test("notification digest drawer reuses the Mail drawer layout contract", () => 
 
 test("notification timeline styles provide source chips, date rules, inline detail, and narrow layout", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
-  assert.match(css, /\.notification-source-chip\.active \{[^}]*background: var\(--accent\);/);
+  assert.match(css, /\.notification-source-chip\.active \{[^}]*background: #2563eb;/);
+  assert.match(css, /\.notifications-page \.notification-test-button \{[^}]*background: var\(--surface\);/);
   assert.match(css, /\.notification-date-group \{[^}]*border-top:/);
   assert.match(css, /\.notification-timeline::before \{[^}]*background: var\(--border\);/);
   assert.match(css, /\.notification-timeline-row:focus-visible \{[^}]*outline:/);
