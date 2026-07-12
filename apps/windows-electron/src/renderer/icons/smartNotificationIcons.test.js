@@ -8,7 +8,7 @@ const {
 } = require("./smartNotificationIcons");
 
 test("registers the complete local smart notification icon whitelist", () => {
-  assert.equal(ICON_KEYS.length, 31);
+  assert.equal(ICON_KEYS.length, 32);
   assert.deepEqual(new Set(Object.keys(SMART_NOTIFICATION_ICON_REGISTRY)), new Set(ICON_KEYS));
   for (const key of ICON_KEYS) {
     const svg = renderSmartNotificationIcon(key);
@@ -16,8 +16,13 @@ test("registers the complete local smart notification icon whitelist", () => {
     assert.match(svg, /fill="none"/);
     assert.match(svg, /stroke="currentColor"/);
     assert.match(svg, /stroke-width="2"/);
-    assert.doesNotMatch(svg, /(?:fill|stroke)="(?:#|rgb|red|blue|yellow)/i);
+    if (key !== "codex") assert.doesNotMatch(svg, /(?:fill|stroke)="(?:#|rgb|red|blue|yellow)/i);
   }
+  const codexSvg = renderSmartNotificationIcon("codex");
+  assert.match(codexSvg, /data-icon-key="codex"/);
+  assert.match(codexSvg, /<linearGradient id="codex-icon-gradient"/);
+  assert.match(codexSvg, /stop-color="#5b5ce2"/);
+  assert.match(codexSvg, /stroke="#fff"/);
 });
 
 test("resolves content rules before AI iconKey", () => {
@@ -39,7 +44,7 @@ test("uses whitelisted AI keys, then source defaults, then bell", () => {
   assert.equal(renderSmartNotificationIcon("sparkles"), renderSmartNotificationIcon("sparkles"));
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", iconKey: "tag" }), "tag");
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "chatgpt" }), "message-bot");
-  assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "codex" }), "terminal");
+  assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "codex" }), "codex");
   assert.equal(resolveSmartNotificationIcon({ title: "普通危险动态", severity: "danger", iconKey: "tag" }), "x-circle");
   assert.equal(resolveSmartNotificationIcon({ title: "普通预警动态", severity: "warning", iconKey: "tag" }), "bell");
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", iconKey: "<svg>", source: "mail" }), "mail");

@@ -21,6 +21,7 @@
     "x-circle": '<circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path>',
     loader: '<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"></path>',
     terminal: '<rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m7 9 3 3-3 3M13 15h4"></path>',
+    codex: '<defs><linearGradient id="codex-icon-gradient" x1="5" y1="4" x2="19" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#5b5ce2"></stop><stop offset=".55" stop-color="#4f8ff7"></stop><stop offset="1" stop-color="#8b5cf6"></stop></linearGradient></defs><path d="M7.5 18.5h9.25a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 8.1a3.75 3.75 0 0 0 1 7.4Z" fill="url(#codex-icon-gradient)" stroke="none"></path><path d="m8.9 10.6 2.2 1.9-2.2 1.9M13.2 14.4h2.8" fill="none" stroke="#fff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"></path>',
     "message-bot": '<path d="M21 12a8 8 0 0 1-8 8H6l-4 2 1.5-4A9 9 0 1 1 21 12Z"></path><path d="M9 9h6v6H9zM12 6v3M10.5 12h.01M13.5 12h.01"></path>',
     code: '<path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"></path>',
     bug: '<path d="M8 9h8v7a4 4 0 0 1-8 0Z"></path><path d="M9 5l1 2M15 5l-1 2M4 13h4M16 13h4M5 8l3 2M19 8l-3 2M5 18l3-2M19 18l-3-2"></path>',
@@ -64,10 +65,10 @@
     [/下载|download/i, "download"],
     [/上传|upload/i, "upload"],
     [/ChatGPT/i, "message-bot"],
-    [/Codex/i, "terminal"]
+    [/Codex/i, "codex"]
   ];
   const SOURCE_DEFAULTS = Object.freeze({
-    qweather: "bell", weather: "bell", mail: "mail", codex: "terminal", chatgpt: "message-bot",
+    qweather: "bell", weather: "bell", mail: "mail", codex: "codex", chatgpt: "message-bot",
     github: "github", system: "monitor", local: "monitor", external: "monitor"
   });
   const CATEGORY_DEFAULTS = Object.freeze({

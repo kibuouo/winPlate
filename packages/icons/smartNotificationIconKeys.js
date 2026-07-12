@@ -1,7 +1,7 @@
 const ICON_KEYS = Object.freeze([
   "bell", "cloud-rain-alert", "cloud-lightning", "wind", "thermometer-sun",
   "thermometer-snowflake", "mail", "mail-unread", "mail-warning", "paperclip",
-  "check-circle", "x-circle", "loader", "terminal", "message-bot", "code", "bug",
+  "check-circle", "x-circle", "loader", "terminal", "codex", "message-bot", "code", "bug",
   "monitor", "cpu", "memory-stick", "wifi", "download", "upload", "wallet", "plug",
   "github", "git-pull-request", "git-commit", "star", "tag", "sparkles"
 ]);
