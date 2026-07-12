@@ -384,6 +384,54 @@ function themeSelector() {
     </div>`;
 }
 
+function settingsSidebarContent() {
+  const items = [
+    ["settings-appearance", "外观"],
+    ["settings-general", "通用与模块"],
+    ["settings-weather", "天气"],
+    ["settings-deepseek", "DeepSeek"],
+    ["settings-mail", "QQ 邮箱"],
+    ["settings-application", "应用"]
+  ].filter(([id]) => isMac || id !== "settings-application");
+  return `
+    <div class="settings-sidebar-heading">
+      <button class="settings-back" data-section="Dashboard" type="button">← 返回应用</button>
+      <label class="settings-search">
+        <span aria-hidden="true">⌕</span>
+        <input id="settings-search" type="search" placeholder="搜索设置..." autocomplete="off">
+      </label>
+    </div>
+    <nav class="settings-nav" aria-label="设置分类">
+      <p>设置</p>
+      ${items.map(([id, label], index) => `<button class="${index === 0 ? "active" : ""}" data-settings-target="${id}" type="button">${label}</button>`).join("")}
+    </nav>`;
+}
+
+function bindSettingsNavigation() {
+  const search = document.querySelector("#settings-search");
+  const sections = [...document.querySelectorAll(".settings-page [data-settings-section]")];
+  const buttons = [...document.querySelectorAll("[data-settings-target]")];
+  if (!search || !sections.length) return;
+
+  const setActive = (target) => {
+    buttons.forEach((button) => button.classList.toggle("active", button.dataset.settingsTarget === target));
+  };
+  buttons.forEach((button) => {
+    button.onclick = () => {
+      const section = document.getElementById(button.dataset.settingsTarget);
+      if (!section) return;
+      setActive(button.dataset.settingsTarget);
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+  });
+  search.oninput = () => {
+    const query = search.value.trim().toLocaleLowerCase();
+    sections.forEach((section) => {
+      section.classList.toggle("is-filtered-out", Boolean(query) && !section.textContent.toLocaleLowerCase().includes(query));
+    });
+  };
+}
+
 function bindThemeControls() {
   document.querySelectorAll("[data-theme-choice]").forEach((button) => {
     button.classList.toggle("active", button.dataset.themeChoice === themePreference);
@@ -399,11 +447,7 @@ function productSettingsPanel() {
   return `
     <form class="settings-panel product-settings-panel" id="product-settings-form">
       <fieldset>
-        <legend><strong>界面密度</strong><small>透明度只影响 WinPlate 表面，不影响文字对比度</small></legend>
-        <label>
-          <span><strong>透明度</strong><small>允许范围 65%–100%</small></span>
-          <input id="window-opacity" type="number" min="0.65" max="1" step="0.01" value="${appSettings.appearance.opacity}">
-        </label>
+        <legend><strong>界面密度</strong><small>设置页面始终使用实体背景，避免内容与桌面叠色</small></legend>
         <label>
           <span><strong>布局密度</strong><small>紧凑模式减少卡片留白</small></span>
           <select id="window-density">
@@ -474,7 +518,7 @@ function bindProductSettings() {
       ...appSettings,
       appearance: {
         ...appSettings.appearance,
-        opacity: Number(form.querySelector("#window-opacity").value),
+        opacity: appSettings.appearance.opacity,
         density: form.querySelector("#window-density").value
       },
       modules: { enabled, order, refreshSeconds },
@@ -1165,6 +1209,11 @@ const githubCardIcon = `
 const codexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
     ${window.WinPlateSmartNotificationIcons.SMART_NOTIFICATION_ICON_REGISTRY.codex}
+  </svg>`;
+const sidebarCodexIcon = `
+  <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
+    <path d="m8.25 10.25 2.25 2.25-2.25 2.25M12.75 14.75h3"/>
   </svg>`;
 const refreshIcon = `
   <svg class="refresh-button-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -2046,7 +2095,7 @@ function qweatherServiceCard(official, failures) {
 }
 
 function macApplicationSettingsSection() {
-  return `<section class="settings-section application-settings-section">
+  return `<section class="settings-section application-settings-section" id="settings-application" data-settings-section>
     <h2>Application</h2>
     <div class="settings-panel application-settings-panel">
       <label>
@@ -2062,7 +2111,7 @@ function macApplicationSettingsSection() {
 }
 
 function windowsGeneralSettingsSection() {
-  return `<section class="settings-section">
+  return `<section class="settings-section" id="settings-application" data-settings-section>
     <h2>通用</h2>
     <div class="settings-panel">
       <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
@@ -2667,17 +2716,17 @@ function dashboardContent(section) {
     Notifications: notificationContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${heartCard()}`,
     QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
-    Settings: `<div class="settings-page"><div class="page-heading"><p>PREFERENCES</p><h1>Settings</h1><span>Configure your WinPlate experience.</span></div>
+    Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><p>设置</p><h1>设置</h1><span>管理 WinPlate 的外观、服务与模块。</span></div>
       ${isMac ? macApplicationSettingsSection() : ""}
-      <section class="settings-section">
+      <section class="settings-section" id="settings-appearance" data-settings-section>
         <h2>外观</h2>
         <div class="settings-panel appearance-panel">${themeSelector()}</div>
       </section>
-      <section class="settings-section">
+      <section class="settings-section" id="settings-general" data-settings-section>
         <h2>通用与模块</h2>
         ${productSettingsPanel()}
       </section>
-      <section class="settings-section">
+      <section class="settings-section" id="settings-weather" data-settings-section>
         <h2>天气</h2>
         <form class="settings-panel weather-settings-panel" id="weather-settings-form">
           <fieldset>
@@ -2716,7 +2765,7 @@ function dashboardContent(section) {
           </div>
         </form>
       </section>
-      <section class="settings-section">
+      <section class="settings-section" id="settings-deepseek" data-settings-section>
         <h2>DeepSeek</h2>
         <form class="settings-panel weather-settings-panel" id="deepseek-settings-form">
           <fieldset>
@@ -2741,7 +2790,7 @@ function dashboardContent(section) {
           </div>
         </form>
       </section>
-      <section class="settings-section">
+      <section class="settings-section" id="settings-mail" data-settings-section>
         <h2>QQ 邮箱</h2>
         <form class="settings-panel weather-settings-panel mail-settings-panel" id="mail-settings-form">
           <fieldset>
@@ -2776,7 +2825,7 @@ function dashboardContent(section) {
           </div>
         </form>
       </section>
-      ${isMac ? "" : windowsGeneralSettingsSection()}</div>`
+      ${isMac ? "" : windowsGeneralSettingsSection()}</div></div>`
   };
   return content[section];
 }
@@ -2943,8 +2992,9 @@ function renderMain() {
   if (currentSection !== "Dashboard" && currentSection !== "Settings" && !sections.includes(currentSection)) {
     currentSection = "Dashboard";
   }
+  const shellSidebarState = currentSection === "Settings" ? "settings" : sidebarCollapsed ? "collapsed" : "expanded";
   appRoot.innerHTML = `
-    <div class="main-window-shell">
+    <div class="main-window-shell shell-sidebar-${shellSidebarState}">
       ${isMac ? "" : `<header class="app-titlebar">
         <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""></div>
         <div class="titlebar-drag-region" aria-hidden="true"></div>
@@ -2961,9 +3011,9 @@ function renderMain() {
           <button id="window-close" class="close" aria-label="关闭"><span></span></button>
         </div>
       </header>`}
-      <div class="workspace ${sidebarCollapsed ? "sidebar-collapsed" : ""}">
+      <div class="workspace ${currentSection === "Settings" ? "settings-workspace" : ""} ${currentSection !== "Settings" && sidebarCollapsed ? "sidebar-collapsed" : ""}">
         <aside class="sidebar">
-          <div class="sidebar-top">
+          ${currentSection === "Settings" ? settingsSidebarContent() : `<div class="sidebar-top">
             <div class="sidebar-brand-row">
               <div class="sidebar-brand"><span>WinPlate</span></div>
               <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="${sidebarCollapsed ? "展开侧栏" : "关闭边栏"}" aria-expanded="${!sidebarCollapsed}" data-tooltip="${sidebarCollapsed ? "展开边栏" : "关闭边栏"}">
@@ -2974,13 +3024,13 @@ function renderMain() {
               </button>
             </div>
           </div>
-          <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? codexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i><span class="nav-label">${item}</span></button>`).join("")}</nav>
+          <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? sidebarCodexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i><span class="nav-label">${item}</span></button>`).join("")}</nav>
           <div class="sidebar-footer">
             <button class="sidebar-settings ${currentSection === "Settings" ? "active" : ""}" data-section="Settings" title="Settings" aria-label="设置">
               <i>${settingsNavIcon}</i>
               <span class="nav-label">设置</span>
             </button>
-          </div>
+          </div>`}
         </aside>
         <main class="main-content">
           <section id="page-content">${dashboardContent(currentSection)}</section>
@@ -2999,12 +3049,20 @@ function renderMain() {
 
   document.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
+      const nextSection = button.dataset.section;
+      const crossesSettingsWorkspace = (currentSection === "Settings") !== (nextSection === "Settings");
+      if (crossesSettingsWorkspace) {
+        currentSection = nextSection;
+        renderMain();
+        return;
+      }
       document.querySelectorAll("[data-section].active").forEach((activeButton) => activeButton.classList.remove("active"));
       button.classList.add("active");
-      currentSection = button.dataset.section;
-      document.querySelector("#page-content").innerHTML = dashboardContent(button.dataset.section);
+      currentSection = nextSection;
+      document.querySelector("#page-content").innerHTML = dashboardContent(nextSection);
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
+      bindSettingsNavigation();
       bindApplicationSettingsControls();
       bindProductSettings();
       bindWeatherSettings();
@@ -3040,6 +3098,7 @@ function renderMain() {
     changeGithubContributionMonth(Number(monthButton.dataset.monthDirection));
   };
   bindThemeControls();
+  bindSettingsNavigation();
   bindApplicationSettingsControls();
   bindProductSettings();
   bindWeatherSettings();
@@ -3054,7 +3113,10 @@ function renderMain() {
   document.querySelector("#sidebar-toggle")?.addEventListener("click", () => {
     sidebarCollapsed = !sidebarCollapsed;
     const workspace = document.querySelector(".workspace");
+    const shell = document.querySelector(".main-window-shell");
     workspace.classList.toggle("sidebar-collapsed", sidebarCollapsed);
+    shell.classList.toggle("shell-sidebar-collapsed", sidebarCollapsed);
+    shell.classList.toggle("shell-sidebar-expanded", !sidebarCollapsed);
     const toggle = document.querySelector("#sidebar-toggle");
     toggle.setAttribute("aria-label", sidebarCollapsed ? "展开侧栏" : "关闭边栏");
     toggle.setAttribute("aria-expanded", String(!sidebarCollapsed));

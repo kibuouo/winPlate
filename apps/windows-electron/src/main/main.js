@@ -495,7 +495,7 @@ if (!gotLock) {
         await restartPythonBackend();
       }
       currentSettings = await writeSettings(userDataPath, settings);
-      setAppWindowOpacity(currentSettings.appearance.opacity);
+      setAppWindowOpacity(1);
       invalidateResponseCache("Status");
       if (previousDigestEnabled !== currentSettings.notificationDigest.enabled) {
         clearNotificationCaches();
@@ -535,7 +535,7 @@ if (!gotLock) {
       };
     });
     createMainWindow(initialTheme);
-    setAppWindowOpacity(currentSettings.appearance.opacity);
+    setAppWindowOpacity(1);
     activationCoordinator.markReady();
     const policy = startupPolicy();
     const initialAppSettings = await readInitialAppSettings({

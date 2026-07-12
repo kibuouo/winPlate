@@ -185,6 +185,60 @@ test("main renderer omits the custom titlebar only on macOS and tolerates absent
   assert.match(renderMain, /restore-icon/);
 });
 
+test("Windows app shell shares the titlebar/sidebar seam across page types", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const renderStart = renderer.indexOf("function renderMain()");
+  const renderEnd = renderer.indexOf("\nfunction updateMainStatusDom", renderStart);
+  const renderMain = renderer.slice(renderStart, renderEnd);
+
+  assert.match(renderMain, /const shellSidebarState = currentSection === "Settings" \? "settings" : sidebarCollapsed \? "collapsed" : "expanded";/);
+  assert.match(renderMain, /class="main-window-shell shell-sidebar-\$\{shellSidebarState\}"/);
+  assert.match(renderer, /const sidebarCodexIcon = `\s*<svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">\s*<path d="M7\.25 18\.25h9\.5a4\.25 4\.25 0 0 0 \.64-8\.45A5\.75 5\.75 0 0 0 6\.5 7\.85a3\.75 3\.75 0 0 0 \.75 7\.42"\/>\s*<path d="m8\.25 10\.25 2\.25 2\.25-2\.25 2\.25M12\.75 14\.75h3"\/>\s*<\/svg>`;/);
+  assert.match(renderMain, /item === "Codex" \? sidebarCodexIcon : item === "Mail"/);
+  assert.match(renderer, /const codexIcon = `\s*<svg class="codex-icon"[\s\S]*?SMART_NOTIFICATION_ICON_REGISTRY\.codex/);
+  assert.match(
+    renderMain,
+    /class="workspace \$\{currentSection === "Settings" \? "settings-workspace" : ""\} \$\{currentSection !== "Settings" && sidebarCollapsed \? "sidebar-collapsed" : ""\}"/
+  );
+  assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\s*\{[^}]*--shell-sidebar-width:\s*224px[^}]*--shell-chrome-bg:\s*var\(--main-bg\)[^}]*--shell-content-bg:\s*#18181b/);
+  assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\.shell-sidebar-collapsed\s*\{[^}]*--shell-sidebar-width:\s*72px/);
+  assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\.shell-sidebar-settings\s*\{[^}]*--shell-sidebar-width:\s*286px/);
+  assert.match(css, /\.main-body\.platform-win32 \.app-titlebar\s*\{[^}]*background:\s*var\(--shell-chrome-bg\)/);
+  assert.match(css, /\.main-body\.platform-win32 \.workspace\s*\{[^}]*grid-template-columns:\s*var\(--shell-sidebar-width\) minmax\(0, 1fr\)[^}]*background:\s*var\(--shell-chrome-bg\)/);
+  assert.match(css, /\.main-body\.platform-win32 \.sidebar\s*\{[^}]*background:\s*var\(--shell-chrome-bg\)[^}]*border-right:\s*0[^}]*box-shadow:\s*none/);
+  assert.match(css, /\.main-body\.platform-win32 \.main-content\s*\{[^}]*border-top:[^}]*border-left:[^}]*border-radius:\s*20px 0 0 0[^}]*background:\s*var\(--shell-content-bg\)/);
+  assert.match(css, /\.main-body\.platform-win32 \.settings-page\s*\{[^}]*background:\s*var\(--shell-content-bg\)/);
+  assert.doesNotMatch(css, /\.settings-workspace \.main-content\s*\{[^}]*border-radius/);
+});
+
+test("Settings uses an opaque Codex-style settings workspace with anchored navigation", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+
+  assert.match(renderer, /function settingsSidebarContent\(\)/);
+  assert.doesNotMatch(renderer, /settings-window-shell/);
+  assert.match(renderer, /settings-workspace/);
+  assert.match(renderer, /\["settings-appearance", "外观"\]/);
+  assert.match(renderer, /data-settings-target="\$\{id\}"/);
+  assert.match(renderer, /id="settings-appearance"/);
+  assert.match(renderer, /id="settings-general"/);
+  assert.match(renderer, /function bindSettingsNavigation\(\)/);
+  assert.match(renderer, /bindSettingsNavigation\(\);/);
+  assert.match(renderer, /const crossesSettingsWorkspace = \(currentSection === "Settings"\) !== \(nextSection === "Settings"\)/);
+  assert.match(renderer, /if \(crossesSettingsWorkspace\) \{\s*currentSection = nextSection;\s*renderMain\(\);\s*return;/);
+  assert.match(css, /\.main-window-shell\s*\{[^}]*background:\s*var\(--main-bg\)/);
+  assert.match(css, /\.workspace\.settings-workspace\s*\{/);
+  assert.match(css, /\.settings-workspace \.main-content\s*\{[^}]*background:\s*var\(--main-bg\)/);
+  assert.doesNotMatch(css, /\.settings-workspace \.main-content\s*\{[^}]*border-radius/);
+  assert.match(css, /\.settings-workspace \.sidebar\s*\{[^}]*background:\s*var\(--sidebar-bg\)/);
+  assert.match(css, /\.settings-page\s*\{[^}]*background:\s*var\(--main-bg\)/);
+  assert.doesNotMatch(css, /\.settings-page[^}]*color-mix/);
+  assert.match(main, /setAppWindowOpacity\(1\)/);
+  assert.doesNotMatch(main, /setAppWindowOpacity\(currentSettings\.appearance\.opacity\)/);
+});
+
 test("GitHub activity uses separated actions, compact month controls, and a titlebar clock", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const renderStart = renderer.indexOf("function renderMain()");
