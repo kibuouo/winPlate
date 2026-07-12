@@ -1678,25 +1678,30 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-date-group:first-child { border-top: 0; }
 .notification-date-label { margin: 0; padding: 18px 0 10px; color: var(--text-soft); font-size: 13px; font-weight: 800; }
 .notification-timeline-entry { display: grid; gap: 0; }
-.notification-timeline-row { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; width: 100%; padding: 14px 0; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--border); background: transparent; font: inherit; cursor: pointer; }
+.notification-timeline-row { position: relative; display: grid; grid-template-columns: 22px 44px minmax(0, 1fr) auto; gap: 12px; width: 100%; padding: 14px 0; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--border); background: transparent; font: inherit; cursor: pointer; }
 .notification-timeline-row:hover, .notification-timeline-entry.selected .notification-timeline-row { background: color-mix(in srgb, #2563eb 5%, transparent); }
 .notification-timeline-dot { width: 12px; height: 12px; margin-top: 5px; border: 2px solid var(--surface); border-radius: 999px; background: #3b82f6; box-shadow: 0 0 0 1px color-mix(in srgb, #3b82f6 40%, transparent); }
 .notification-timeline-entry.level-success .notification-timeline-dot { background: #10b981; }
 .notification-timeline-entry.level-warning .notification-timeline-dot { background: #f59e0b; }
 .notification-timeline-entry.level-danger .notification-timeline-dot, .notification-timeline-entry.level-critical .notification-timeline-dot { background: #ef4444; }
+.notification-source-icon { width: 40px; height: 40px; display: grid; place-items: center; align-self: center; color: #2563eb; border-radius: 999px; background: rgba(37, 99, 235, .10); }
+.notification-source-icon .smart-notification-icon { width: 21px; height: 21px; }
+.notification-source-icon.source-codex { color: #2563eb; background: rgba(37, 99, 235, .10); }
+.notification-source-icon.source-github { color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent); }
+.notification-source-icon.source-mail { color: #64748b; background: rgba(100, 116, 139, .12); }
+.notification-source-icon.source-qweather { color: #059669; background: rgba(16, 185, 129, .12); }
+.notification-source-icon.source-system { color: var(--text-soft); background: var(--surface-muted); }
 .notification-timeline-main { display: grid; min-width: 0; gap: 5px; }
 .notification-timeline-main .notification-source { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 0; color: var(--text-soft); border: 0; border-radius: 0; background: transparent; font-size: 11px; }
-.notification-timeline-main .notification-source .smart-notification-icon { width: 15px; height: 15px; }
 .notification-timeline-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .notification-timeline-title strong { overflow-wrap: anywhere; font-size: 16px; }
 .notification-timeline-title .unread-badge { color: #2563eb; font-size: 11px; font-style: normal; font-weight: 800; }
 .notification-timeline-main p { margin: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .notification-timeline-meta { display: flex; align-items: center; justify-content: end; gap: 12px; color: var(--text-soft); font-size: 12px; white-space: nowrap; }
-.notification-inline-detail { display: grid; gap: 14px; margin: 0 0 14px 34px; padding: 18px 20px; border: 1px solid color-mix(in srgb, #2563eb 34%, var(--border)); border-radius: 12px; background: color-mix(in srgb, #2563eb 5%, var(--surface)); }
-.notification-inline-detail header { display: grid; gap: 6px; }
-.notification-inline-detail header > span { color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: .12em; }
-.notification-inline-detail header h2 { margin: 0; overflow-wrap: anywhere; font-size: clamp(20px, 2.4vw, 30px); }
-.notification-inline-detail footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.notification-inline-summary { max-width: min(100%, 760px); margin: 0 0 14px 66px; padding: 14px 16px; display: grid; gap: 12px; border: 1px solid rgba(59, 130, 246, .32); border-radius: 10px; background: color-mix(in srgb, #2563eb 5%, var(--surface)); }
+.notification-inline-summary-body { color: var(--text-muted); font-size: 13px; line-height: 1.65; }
+.notification-inline-summary-body .notification-detail-body p { margin: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notification-inline-summary-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .notification-timeline-empty { min-height: 240px; display: grid; place-content: center; gap: 8px; color: var(--text-muted); text-align: center; }
 .notifications-page .notification-test-button { color: var(--text); border: 1px solid var(--border-strong); background: var(--surface); box-shadow: none; }
 .notification-acknowledgement-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(9, 12, 20, .62); backdrop-filter: blur(7px); }
@@ -1721,9 +1726,11 @@ html[data-theme="light"] .notification-acknowledgement-backdrop { background: rg
   .notifications-page-heading { display: grid; }
   .notification-actions { justify-content: start; }
   .notification-source-filters { align-items: start; padding: 12px 0; }
-  .notification-timeline-row { grid-template-columns: 18px minmax(0, 1fr); }
+  .notification-timeline-row { grid-template-columns: 18px 40px minmax(0, 1fr); }
   .notification-timeline-meta { justify-content: start; flex-wrap: wrap; white-space: normal; }
-  .notification-inline-detail { margin-left: 0; }
+  .notification-source-icon { width: 36px; height: 36px; }
+  .notification-inline-summary { margin-left: 0; }
+  .notification-inline-summary-actions { justify-content: start; flex-wrap: wrap; }
 }
 .notification-test-button,
 .notification-clear-button,

@@ -1574,6 +1574,16 @@ test("notification page keeps external navigation and selected-row detail loadin
   assert.match(renderer, /window\.winplate\.clearReadNotifications\(\)/);
 });
 
+test("notification inline detail keeps only concise content and safe row actions", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const inline = renderer.slice(renderer.indexOf("function notificationInlineDetail"), renderer.indexOf("function updateNotificationAcknowledgement"));
+  assert.match(inline, /class="notification-inline-summary"/);
+  assert.match(inline, /action\.type === "navigate" \|\| action\.type === "markRead"/);
+  assert.match(inline, /action\.type === "navigate"\s*\?\s*"打开来源"/);
+  assert.doesNotMatch(inline, /notification-detail-meta/);
+  assert.doesNotMatch(inline, /<h2>/);
+});
+
 test("only active red QWeather notifications require acknowledgement", () => {
   const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   const context = { window: { WinPlateSmartNotificationIcons: { renderSmartNotificationIcon: () => "" } } };
@@ -1816,8 +1826,17 @@ test("notification timeline styles provide source chips, date rules, inline deta
   assert.match(css, /\.notification-date-group \{[^}]*border-top:/);
   assert.match(css, /\.notification-timeline::before \{[^}]*background: var\(--border\);/);
   assert.match(css, /\.notification-timeline-row:focus-visible \{[^}]*outline:/);
-  assert.match(css, /\.notification-inline-detail \{[^}]*border:/);
+  assert.match(css, /\.notification-inline-summary \{[^}]*border:/);
   assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*\.notification-timeline-meta/);
+});
+
+test("notification timeline styles identify each source with a circular icon", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  for (const source of ["codex", "github", "mail", "qweather", "system"]) {
+    assert.match(css, new RegExp(`\\.notification-source-icon\\.source-${source}`));
+  }
+  assert.match(css, /\.notification-inline-summary \{[^}]*max-width:/);
+  assert.match(css, /\.notification-inline-summary-actions \{[^}]*justify-content: flex-end;/);
 });
 
 test("notification drawer uses severity status dots and preserves light-theme error contrast", () => {

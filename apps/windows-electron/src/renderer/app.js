@@ -2586,20 +2586,25 @@ function notificationInlineDetail() {
   const payload = notificationSelection.data || {};
   const detail = payload.detail || {};
   const notification = payload.notification || {};
-  const title = notificationSelection.loading ? "正在读取通知..." : notificationSelection.error ? "通知读取失败" : detail.title || notification.title || "通知详情";
   const body = notificationSelection.loading
     ? '<div class="notification-detail-state">正在加载通知详情...</div>'
     : notificationSelection.error
       ? `<div class="notification-detail-state error">${escapeHtml(notificationSelection.error)}</div><button type="button" data-notification-detail-retry="${escapeHtml(notificationSelection.id)}">重试</button>`
       : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.message || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
-  const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
-  const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
-  return `<section class="notification-inline-detail" aria-label="通知详情">
-    <header><span>${escapeHtml(notificationSourceLabel(notification.source || "system"))}</span><h2>${escapeHtml(title)}</h2></header>
-    ${notificationSelection.loading || notificationSelection.error ? "" : `<dl class="notification-detail-meta">${metadata.map((entry) => `<div><dt>${escapeHtml(entry.label || "")}</dt><dd>${escapeHtml(notificationDetailValue(entry.value))}</dd></div>`).join("")}</dl>`}
-    <div class="notification-detail-content">${body}</div>
+  const actions = Array.isArray(payload.actions)
+    ? payload.actions
+      .filter((action) => action.type === "navigate" || action.type === "markRead")
+      .map((action) => ({
+        ...action,
+        label: action.type === "navigate"
+          ? "打开来源"
+          : notification.unread ? "标记已读" : "已读"
+      }))
+    : [];
+  return `<section class="notification-inline-summary" aria-label="通知摘要">
+    <div class="notification-inline-summary-body">${body}</div>
     ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
-    <footer>${actions.map(notificationActionButton).join("")}</footer>
+    ${actions.length ? `<footer class="notification-inline-summary-actions">${actions.map(notificationActionButton).join("")}</footer>` : ""}
   </section>`;
 }
 
