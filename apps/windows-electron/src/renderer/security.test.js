@@ -1805,6 +1805,16 @@ test("notification digest drawer reuses the Mail drawer layout contract", () => 
   assert.doesNotMatch(css, /\.notification-digest-filters/);
 });
 
+test("notification timeline styles provide source chips, date rules, inline detail, and narrow layout", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.notification-source-chip\.active \{[^}]*background: var\(--accent\);/);
+  assert.match(css, /\.notification-date-group \{[^}]*border-top:/);
+  assert.match(css, /\.notification-timeline::before \{[^}]*background: var\(--border\);/);
+  assert.match(css, /\.notification-timeline-row:focus-visible \{[^}]*outline:/);
+  assert.match(css, /\.notification-inline-detail \{[^}]*border:/);
+  assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*\.notification-timeline-meta/);
+});
+
 test("notification drawer uses severity status dots and preserves light-theme error contrast", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   assert.match(css, /html\[data-theme="light"\] \.notification-detail-state\.error \{[^}]*color: #b91c1c;[^}]*border-color: rgba\(185, 28, 28, \.3\);[^}]*background: rgba\(254, 226, 226, \.72\);[^}]*\}/);
