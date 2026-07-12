@@ -886,6 +886,13 @@ def clear_notifications() -> dict:
     return notification_summary()
 
 
+def clear_read_notifications() -> dict:
+    with closing(connect()) as connection:
+        connection.execute("DELETE FROM notifications WHERE unread = 0")
+        connection.commit()
+    return notification_summary()
+
+
 def push_notification(payload: NotificationPayload) -> dict:
     source = normalize_notification_source(payload.source)
     now = utc_epoch_seconds() * 1000
@@ -2584,6 +2591,11 @@ def mark_notification_as_read(notification_id: str) -> dict:
 @api.post("/api/notifications/read-all")
 def mark_notifications_as_read() -> dict:
     return mark_all_notifications_read()
+
+
+@api.delete("/api/notifications/read")
+def delete_read_notifications() -> dict:
+    return clear_read_notifications()
 
 
 @api.delete("/api/notifications")

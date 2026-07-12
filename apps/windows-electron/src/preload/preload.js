@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld("winplate", {
   markNotificationRead: (id) => ipcRenderer.invoke("notifications:mark-read", id),
   markAllNotificationsRead: () => ipcRenderer.invoke("notifications:mark-all-read"),
   clearNotifications: () => ipcRenderer.invoke("notifications:clear"),
+  clearReadNotifications: () => ipcRenderer.invoke("notifications:clear-read"),
   pushTestNotification: () => ipcRenderer.invoke("notifications:push-test"),
   getAppearanceSettings: () => ipcRenderer.invoke("appearance:get-settings"),
   saveAppearanceSettings: (settings) => ipcRenderer.invoke("appearance:save-settings", settings),

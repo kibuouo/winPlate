@@ -942,6 +942,17 @@ if (!gotLock) {
       scheduleNotificationDigestRefresh();
       return summary;
     });
+    ipcMain.handle("notifications:clear-read", async (event) => {
+      requireMainWindowSender(event);
+      const response = await fetch("http://127.0.0.1:8765/api/notifications/read", { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(`Notification clear-read failed: HTTP ${response.status}`);
+      }
+      const summary = await response.json();
+      clearNotificationCaches();
+      scheduleNotificationDigestRefresh();
+      return summary;
+    });
     ipcMain.handle("notifications:push-test", async (event) => {
       requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/notifications", {

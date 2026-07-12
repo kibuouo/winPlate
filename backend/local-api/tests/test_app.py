@@ -1027,6 +1027,32 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(summary["unreadCount"], 0)
         main.DATABASE_PATH = original_path
 
+    def test_clear_read_notifications_preserves_unread_items(self):
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                main.DATABASE_PATH = Path(directory) / "test.db"
+                main.initialize_database()
+                main.upsert_notification(
+                    notification_id="read", source="codex", title="Read",
+                    unread=False, created_at=1,
+                )
+                main.upsert_notification(
+                    notification_id="unread", source="github", title="Unread",
+                    unread=True, created_at=2,
+                )
+                summary = main.clear_read_notifications()
+                self.assertEqual([item["id"] for item in summary["items"]], ["unread"])
+                self.assertEqual(summary["unreadCount"], 1)
+        finally:
+            main.DATABASE_PATH = original_path
+
+    def test_delete_read_notifications_route_uses_clear_read_helper(self):
+        with patch.object(main, "clear_read_notifications", return_value={"items": []}) as clear:
+            response = main.delete_read_notifications()
+        self.assertEqual(response, {"items": []})
+        clear.assert_called_once_with()
+
     def test_notification_summary_imports_openai_windows_toasts(self):
         self.notification_sync_patch.stop()
         original_path = main.DATABASE_PATH

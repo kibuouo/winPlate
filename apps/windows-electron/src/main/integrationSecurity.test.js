@@ -114,6 +114,7 @@ test("sensitive business IPC handlers require the live main-window sender", () =
     "notifications:mark-read",
     "notifications:mark-all-read",
     "notifications:clear",
+    "notifications:clear-read",
     "notifications:push-test",
     "deepseek:test-chat"
   ];
