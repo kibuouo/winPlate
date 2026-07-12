@@ -1554,6 +1554,23 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   assert.match(html, /今天 7月12日/);
 });
 
+test("notification page uses source chips and an inline selected detail instead of a workspace", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const page = renderer.slice(renderer.indexOf("function notificationContent"), renderer.indexOf("function updateNotificationAcknowledgement"));
+  assert.match(page, /data-notification-source=/);
+  assert.match(page, /renderNotificationTimeline/);
+  assert.match(page, /notification-inline-detail/);
+  assert.match(page, /id="clear-read-notifications"/);
+  assert.doesNotMatch(page, /class="notification-workspace"/);
+});
+
+test("notification page keeps external navigation and selected-row detail loading", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  assert.match(renderer, /await selectNotification\(selectedNotification\.dataset\.notificationSelect\)/);
+  assert.match(renderer, /await selectNotification\(navigation\.notificationId\)/);
+  assert.match(renderer, /window\.winplate\.clearReadNotifications\(\)/);
+});
+
 test("only active red QWeather notifications require acknowledgement", () => {
   const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   const context = { window: { WinPlateSmartNotificationIcons: { renderSmartNotificationIcon: () => "" } } };

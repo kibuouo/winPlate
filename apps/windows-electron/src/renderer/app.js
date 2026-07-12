@@ -986,6 +986,10 @@ function notificationSourceLabel(source) {
   }[source] || source || "WinPlate";
 }
 
+function notificationSourceIconKey(source) {
+  return { codex: "code", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
+}
+
 function notificationLevelLabel(level) {
   return {
     info: "信息",
@@ -2543,44 +2547,42 @@ function mailContent() {
 function notificationContent() {
   const summary = normalizedNotifications();
   const items = notificationItemsForDigest();
-  const digestCard = window.WinPlateNotificationDigest.renderDigestCard(notificationDigest, { compact: true });
   const filteredItems = window.WinPlateNotificationDigest.filterNotificationItems(items, notificationFilters);
-  const sourceOptions = [...new Set(items.map((item) => String(item.source || "system")))].sort();
-  const rows = window.WinPlateNotificationDigest.renderNotificationList(filteredItems, {
+  const sourceCounts = window.WinPlateNotificationDigest.notificationSourceCounts(items);
+  const sourceChips = [{ source: "all", count: items.length }, ...sourceCounts].map(({ source, count }) => `
+    <button class="notification-source-chip ${notificationFilters.source === source ? "active" : ""}"
+      type="button" data-notification-source="${escapeHtml(source)}"
+      aria-pressed="${notificationFilters.source === source}">
+      <span>${source === "all" ? "" : window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source))}${escapeHtml(source === "all" ? "全部" : notificationSourceLabel(source))}</span><small>${count}</small>
+    </button>`).join("");
+  const timeline = window.WinPlateNotificationDigest.renderNotificationTimeline(filteredItems, {
     selectedId: notificationSelection.id,
     sourceLabel: notificationSourceLabel,
+    sourceIcon: (source) => window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source)),
     levelLabel: notificationLevelLabel,
-    relativeTime: relativeUpdatedAt
+    relativeTime: relativeUpdatedAt,
+    inlineDetail: () => notificationInlineDetail()
   });
-  const detail = notificationCenterDetail();
   return `
     <section class="notifications-page" data-module-id="notifications" ${moduleHealthAttributes("notifications")}>
       <div class="notifications-page-heading">
         <div><p>NOTIFICATIONS</p><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示。</span></div>
         <div class="notification-actions">
+          <strong class="notification-unread-count">${summary.unreadCount} 未读</strong>
+          <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${summary.unreadCount ? "" : "disabled"}>全部标记已读</button>
+          <button class="notification-clear-button" id="clear-read-notifications" type="button" ${items.some((item) => !item.unread) ? "" : "disabled"}>清空已读</button>
           <button class="notification-test-button" id="push-test-notification" type="button">测试通知</button>
-          <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${summary.unreadCount ? "" : "disabled"}>全部已读</button>
-          <button class="notification-clear-button" id="clear-notifications" type="button" ${items.length ? "" : "disabled"}>清空</button>
         </div>
       </div>
-      <div class="notification-center-toolbar">
-        ${digestCard}
-        <label>来源<select data-notification-filter="source"><option value="all">全部来源</option>${sourceOptions.map((source) => `<option value="${escapeHtml(source)}" ${notificationFilters.source === source ? "selected" : ""}>${escapeHtml(notificationSourceLabel(source))}</option>`).join("")}</select></label>
-        <label>状态<select data-notification-filter="state"><option value="all" ${notificationFilters.state === "all" ? "selected" : ""}>全部</option><option value="unread" ${notificationFilters.state === "unread" ? "selected" : ""}>未读</option><option value="read" ${notificationFilters.state === "read" ? "selected" : ""}>已读</option></select></label>
-        <strong class="notification-unread-count">${summary.unreadCount} 未读</strong>
+      <div class="notification-source-filters">
+        <div class="notification-source-chip-list">${sourceChips}</div>
+        <label class="notification-state-filter">状态<select data-notification-filter="state"><option value="all" ${notificationFilters.state === "all" ? "selected" : ""}>全部</option><option value="unread" ${notificationFilters.state === "unread" ? "selected" : ""}>未读</option><option value="read" ${notificationFilters.state === "read" ? "selected" : ""}>已读</option></select></label>
       </div>
-      <div class="notification-workspace">
-        <aside class="notification-master-pane" aria-label="原始通知列表">${rows}</aside>
-        ${detail}
-      </div>
+      ${timeline}
     </section>`;
 }
 
-function notificationCenterDetail() {
-  if (!notificationSelection.id) {
-    const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
-    return `<section class="notification-detail-pane notification-detail-empty" aria-label="通知详情"><span>今日摘要</span><h2>${escapeHtml(digest.headline)}</h2><p>${escapeHtml(digest.summary)}</p><small>从左侧选择一条通知查看详情。</small></section>`;
-  }
+function notificationInlineDetail() {
   const payload = notificationSelection.data || {};
   const detail = payload.detail || {};
   const notification = payload.notification || {};
@@ -2592,7 +2594,7 @@ function notificationCenterDetail() {
       : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.message || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
   const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
   const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
-  return `<section class="notification-detail-pane" aria-label="通知详情">
+  return `<section class="notification-inline-detail" aria-label="通知详情">
     <header><span>${escapeHtml(notificationSourceLabel(notification.source || "system"))}</span><h2>${escapeHtml(title)}</h2></header>
     ${notificationSelection.loading || notificationSelection.error ? "" : `<dl class="notification-detail-meta">${metadata.map((entry) => `<div><dt>${escapeHtml(entry.label || "")}</dt><dd>${escapeHtml(notificationDetailValue(entry.value))}</dd></div>`).join("")}</dl>`}
     <div class="notification-detail-content">${body}</div>
@@ -3717,17 +3719,20 @@ function bindNotificationControls() {
       }
     };
   }
-  const clearButton = document.querySelector("#clear-notifications");
+  const clearButton = document.querySelector("#clear-read-notifications");
   if (clearButton) {
     clearButton.onclick = async () => {
       if (notificationActionInFlight || clearButton.disabled) return;
       notificationActionInFlight = true;
       clearButton.disabled = true;
       try {
-        notificationSummary = await window.winplate.clearNotifications();
+        notificationSummary = await window.winplate.clearReadNotifications();
+        if (!notificationSummary.items.some((item) => String(item.id) === String(notificationSelection.id))) {
+          notificationSelection = { id: null, loading: false, data: null, error: "" };
+        }
         await hydrateNotificationDigest();
       } catch (error) {
-        console.error("Failed to clear notifications:", error);
+        console.error("Failed to clear read notifications:", error);
       } finally {
         notificationActionInFlight = false;
         updateMainStatusDom();
@@ -3820,6 +3825,13 @@ async function handleNotificationPageClick(event) {
   const selectedNotification = target.closest("[data-notification-select]");
   if (selectedNotification) {
     if (!notificationActionInFlight) await selectNotification(selectedNotification.dataset.notificationSelect);
+    return;
+  }
+
+  const sourceChip = target.closest("[data-notification-source]");
+  if (sourceChip) {
+    notificationFilters = { ...notificationFilters, source: sourceChip.dataset.notificationSource || "all" };
+    updateMainStatusDom();
     return;
   }
 
