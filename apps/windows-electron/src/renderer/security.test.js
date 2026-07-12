@@ -1562,7 +1562,7 @@ test("notification page uses source chips and an inline selected detail instead 
   const page = renderer.slice(renderer.indexOf("function notificationContent"), renderer.indexOf("function updateNotificationAcknowledgement"));
   assert.match(page, /data-notification-source=/);
   assert.match(page, /renderNotificationTimeline/);
-  assert.match(page, /notification-inline-detail/);
+  assert.match(page, /notification-inline-summary/);
   assert.match(page, /id="clear-read-notifications"/);
   assert.doesNotMatch(page, /class="notification-workspace"/);
 });

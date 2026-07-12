@@ -13,9 +13,16 @@
   visually secondary.
 - Pass — Timeline dots, source labels, relative time, semantic level text, and
   unread treatment are legible at the captured desktop width.
-- Pass — Selecting a timeline row expands the safe notification detail directly
-  below that row and updates the read count through the existing API.
-- Pass — The renderer contracts cover source grouping, HTML escaping, inline
-  selection, clear-read wiring, responsive rules, and focus styling.
+- Pass — Codex, GitHub, Mail, and QWeather each use a distinct, readable
+  circular source icon treatment; the live window was checked for Codex,
+  QWeather, and Mail.
+- Pass — Selecting a timeline row renders a compact, two-line inline summary
+  with source navigation and read-state actions, replacing the oversized
+  title, metadata, and long-body cards.
+- Pass — The renderer contracts cover source grouping, HTML escaping, compact
+  inline selection, clear-read wiring, responsive rules, and focus styling.
+- Note — The live window was already receiving user input during final QA, so
+  no additional click was injected; the selected-summary state is covered by
+  the automated renderer contract.
 
 **Final result:** passed
