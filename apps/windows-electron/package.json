@@ -1,7 +1,7 @@
 {
   "name": "@winplate/windows-electron",
   "productName": "WinPlate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A native status center for Windows and macOS built with Electron.",
   "main": "src/main/main.js",
@@ -27,9 +27,9 @@
     "win": { "icon": "assets/icon.ico" }
   },
   "dependencies": {
-    "@winplate/core": "0.1.0",
-    "@winplate/icons": "0.1.0",
-    "@winplate/macos-electron-menubar": "0.1.0",
+    "@winplate/core": "0.2.0",
+    "@winplate/icons": "0.2.0",
+    "@winplate/macos-electron-menubar": "0.2.0",
     "qweather-icons": "^1.8.0",
     "strip-ansi": "^6.0.1"
   },
