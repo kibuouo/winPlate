@@ -765,6 +765,34 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["alerts"][0]["title"], "大风蓝色预警")
         self.assertEqual(summary["latest"]["id"], "qweather:a1")
         self.assertEqual(summary["latest"]["level"], "warning")
+        self.assertEqual(summary["latest"]["metadata"], {
+            "severity": "moderate",
+            "lifecycle": "issued",
+            "riskDelta": "active",
+        })
+
+    def test_qweather_active_red_alert_persists_exact_acknowledgement_metadata(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            payload = {"alerts": [{
+                "id": "red-1",
+                "headline": "暴雨红色预警",
+                "description": "未来两小时有强降雨。",
+                "severity": "red",
+                "issuedTime": "2026-06-17T12:00:00+08:00",
+            }]}
+            with patch.object(main, "qweather_jwt_request", return_value=payload):
+                result = main.qweather_alerts(22.3193, 114.1694)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["alerts"][0]["level"], "critical")
+        self.assertEqual(summary["latest"]["metadata"], {
+            "severity": "red",
+            "lifecycle": "issued",
+            "riskDelta": "active",
+        })
 
     def test_qweather_alerts_use_stored_display_location_in_notifications(self):
         original_path = main.DATABASE_PATH
@@ -807,6 +835,11 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["alerts"][0]["riskDelta"], "decreased")
         self.assertEqual(summary["latest"]["level"], "success")
         self.assertIn("风险降低", summary["latest"]["message"])
+        self.assertEqual(summary["latest"]["metadata"], {
+            "severity": "extreme",
+            "lifecycle": "resolved",
+            "riskDelta": "decreased",
+        })
 
     def test_qweather_alert_detail_returns_single_alert_or_404_equivalent(self):
         with patch.object(main, "qweather_alerts", return_value={

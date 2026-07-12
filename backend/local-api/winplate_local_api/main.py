@@ -463,6 +463,10 @@ def normalize_notification_level(level: str) -> str:
 
 
 def notification_row_to_item(row: sqlite3.Row) -> dict:
+    try:
+        metadata = json.loads(row["metadata"] or "{}")
+    except (KeyError, TypeError, json.JSONDecodeError):
+        metadata = {}
     return {
         "id": row["id"],
         "source": row["source"],
@@ -473,6 +477,7 @@ def notification_row_to_item(row: sqlite3.Row) -> dict:
         "createdAt": int(row["created_at"]),
         "updatedAt": int(row["updated_at"]),
         "externalUrl": row["external_url"] or None,
+        "metadata": metadata if isinstance(metadata, dict) else {},
     }
 
 
@@ -588,12 +593,15 @@ def upsert_notification(
     level: str = "info",
     created_at: int | None = None,
     external_url: str | None = None,
+    metadata: dict | None = None,
     unread: bool | None = None,
 ) -> dict:
     normalized_source = normalize_notification_source(source)
     safe_title = clean_mail_text(title, limit=180) or "WinPlate 通知"
     safe_message = clean_mail_text(message, limit=360)
     safe_level = normalize_notification_level(level)
+    safe_metadata = metadata if isinstance(metadata, dict) else {}
+    metadata_json = json.dumps(safe_metadata, ensure_ascii=False, separators=(",", ":"))
     now = utc_epoch_seconds() * 1000
     created = int(created_at or now)
     insert_unread = 1 if unread is None else int(bool(unread))
@@ -602,15 +610,16 @@ def upsert_notification(
         connection.execute(
             f"""
             INSERT INTO notifications
-            (id, source, level, title, message, unread, created_at, updated_at, external_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, source, level, title, message, unread, created_at, updated_at, external_url, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 source = excluded.source,
                 level = excluded.level,
                 title = excluded.title,
                 message = excluded.message,
                 updated_at = excluded.updated_at,
-                external_url = excluded.external_url
+                external_url = excluded.external_url,
+                metadata = excluded.metadata
                 {unread_update_sql}
             """,
             (
@@ -623,11 +632,12 @@ def upsert_notification(
                 created,
                 now,
                 external_url,
+                metadata_json,
             ),
         )
         row = connection.execute(
             """
-            SELECT id, source, level, title, message, unread, created_at, updated_at, external_url
+            SELECT id, source, level, title, message, unread, created_at, updated_at, external_url, metadata
             FROM notifications
             WHERE id = ?
             """,
@@ -777,7 +787,7 @@ def notification_summary(limit: int = 20) -> dict:
     with closing(connect()) as connection:
         rows = connection.execute(
             """
-            SELECT id, source, level, title, message, unread, created_at, updated_at, external_url
+            SELECT id, source, level, title, message, unread, created_at, updated_at, external_url, metadata
             FROM notifications
             ORDER BY unread DESC, created_at DESC, updated_at DESC
             LIMIT ?
@@ -1157,9 +1167,13 @@ def initialize_database() -> None:
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 external_url TEXT
+                ,metadata TEXT NOT NULL DEFAULT '{}'
             )
             """
         )
+        notification_columns = {row["name"] for row in connection.execute("PRAGMA table_info(notifications)")}
+        if "metadata" not in notification_columns:
+            connection.execute("ALTER TABLE notifications ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_notifications_unread_created ON notifications (unread, created_at)"
         )
@@ -1899,6 +1913,11 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
                 title=title,
                 message=message,
                 created_at=created_at,
+                metadata={
+                    "severity": severity,
+                    "lifecycle": lifecycle,
+                    "riskDelta": normalized_alert["riskDelta"],
+                },
             )
     return {
         "source": "qweather",
