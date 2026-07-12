@@ -1544,6 +1544,7 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   assert.deepEqual(api.groupNotificationItemsByDate(items, now).map((group) => group.label), ["今天 7月12日", "昨天 7月11日"]);
   const html = api.renderNotificationTimeline(items, {
     selectedId: "today", now, sourceLabel: (value) => value,
+    sourceIcon: (source) => `<i data-icon="${source}"></i>`,
     levelLabel: (value) => value, relativeTime: () => "刚刚"
   });
   assert.doesNotMatch(html, /<script>/);
@@ -1552,6 +1553,8 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   assert.match(html, /data-notification-select="today"/);
   assert.match(html, /aria-expanded="true"/);
   assert.match(html, /今天 7月12日/);
+  assert.match(html, /class="notification-source-icon source-codex" aria-hidden="true"><i data-icon="codex"><\/i><\/span>/);
+  assert.match(html, /class="notification-source-icon source-github" aria-hidden="true"><i data-icon="github"><\/i><\/span>/);
 });
 
 test("notification page uses source chips and an inline selected detail instead of a workspace", () => {

@@ -164,8 +164,9 @@
           return `<article class="notification-timeline-entry level-${escapeHtml(item.level || "info")} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}">
             <button class="notification-timeline-row" type="button" data-notification-select="${escapeHtml(item.id)}" aria-expanded="${selected}">
               <i class="notification-timeline-dot" aria-hidden="true"></i>
+              <span class="notification-source-icon source-${escapeHtml(item.source || "system")}" aria-hidden="true">${sourceIcon?.(item.source) || ""}</span>
               <span class="notification-timeline-main">
-                <span class="notification-source">${sourceIcon?.(item.source) || ""}${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
+                <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
                 <span class="notification-timeline-title"><strong>${escapeHtml(item.title || "通知")}</strong>${item.unread ? '<em class="unread-badge">未读</em>' : ""}</span>
                 <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
               </span>
