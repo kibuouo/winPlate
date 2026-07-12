@@ -1698,9 +1698,9 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-timeline-title .unread-badge { color: #2563eb; font-size: 11px; font-style: normal; font-weight: 800; }
 .notification-timeline-main p { margin: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .notification-timeline-meta { display: flex; align-items: center; justify-content: end; gap: 12px; color: var(--text-soft); font-size: 12px; white-space: nowrap; }
-.notification-inline-summary { max-width: min(100%, 760px); margin: 0 0 14px 66px; padding: 14px 16px; display: grid; gap: 12px; border: 1px solid rgba(59, 130, 246, .32); border-radius: 10px; background: color-mix(in srgb, #2563eb 5%, var(--surface)); }
-.notification-inline-summary-body { color: var(--text-muted); font-size: 13px; line-height: 1.65; }
-.notification-inline-summary-body .notification-detail-body p { margin: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notification-inline-summary { justify-self: start; width: min(calc(100% - 66px), 760px); max-width: 760px; min-height: 0; box-sizing: border-box; margin: 0 0 14px 66px; padding: 14px 16px; display: grid; gap: 12px; border: 1px solid rgba(59, 130, 246, .32); border-radius: 10px; background: color-mix(in srgb, #2563eb 5%, var(--surface)); }
+.notification-inline-summary-body { min-height: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.65; }
+.notification-inline-summary-body .notification-detail-body p { max-height: 3.3em; margin: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .notification-inline-summary-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .notification-timeline-empty { min-height: 240px; display: grid; place-content: center; gap: 8px; color: var(--text-muted); text-align: center; }
 .notifications-page .notification-test-button { color: var(--text); border: 1px solid var(--border-strong); background: var(--surface); box-shadow: none; }

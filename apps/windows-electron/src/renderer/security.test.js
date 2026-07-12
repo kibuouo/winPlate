@@ -1839,6 +1839,12 @@ test("notification timeline styles identify each source with a circular icon", (
   assert.match(css, /\.notification-inline-summary-actions \{[^}]*justify-content: flex-end;/);
 });
 
+test("notification inline summaries keep multiline mail bodies within a compact row", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.notification-inline-summary \{[^}]*justify-self: start;[^}]*width: min\(calc\(100% - 66px\), 760px\);[^}]*box-sizing: border-box;/);
+  assert.match(css, /\.notification-inline-summary-body \{[^}]*min-height: 0;/);
+});
+
 test("notification drawer uses severity status dots and preserves light-theme error contrast", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   assert.match(css, /html\[data-theme="light"\] \.notification-detail-state\.error \{[^}]*color: #b91c1c;[^}]*border-color: rgba\(185, 28, 28, \.3\);[^}]*background: rgba\(254, 226, 226, \.72\);[^}]*\}/);
