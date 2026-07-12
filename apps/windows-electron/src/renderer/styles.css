@@ -1660,6 +1660,36 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notifications-page-heading h1 { margin: 0 0 8px; font-size: clamp(30px, 3.2vw, 46px); letter-spacing: 0; }
 .notifications-page-heading span { color: var(--text-muted); font-size: 14px; }
 .notification-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.notification-center-toolbar { display: flex; align-items: stretch; gap: 12px; flex-wrap: wrap; }
+.notification-center-toolbar .notification-digest-card { flex: 1 1 320px; min-width: 280px; }
+.notification-center-toolbar label { display: grid; gap: 5px; align-content: center; color: var(--text-soft); font-size: 11px; font-weight: 800; }
+.notification-center-toolbar select { min-width: 110px; padding: 8px 10px; color: var(--text); border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; }
+.notification-unread-count { display: grid; place-items: center; min-width: 74px; padding: 0 12px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 12px; }
+.notification-workspace { display: grid; grid-template-columns: minmax(280px, .82fr) minmax(0, 1.45fr); min-height: 560px; overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
+.notification-master-pane { min-width: 0; padding: 10px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-strong) 62%, transparent); }
+.notification-master-list { display: grid; gap: 8px; }
+.notification-master-row { display: grid; gap: 6px; width: 100%; padding: 13px; color: var(--text); text-align: left; border: 1px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; }
+.notification-master-row:hover { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.notification-master-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notification-master-row.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); box-shadow: inset 3px 0 0 var(--accent); }
+.notification-master-row.unread strong { font-weight: 850; }
+.notification-master-row strong, .notification-master-row p { overflow-wrap: anywhere; }
+.notification-master-row p { margin: 0; display: -webkit-box; overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notification-master-row small { color: var(--text-soft); font-size: 10px; }
+.notification-master-empty { display: grid; gap: 6px; place-content: center; min-height: 180px; color: var(--text-muted); text-align: center; }
+.notification-detail-pane { display: grid; align-content: start; gap: 18px; min-width: 0; padding: clamp(20px, 4vw, 38px); }
+.notification-detail-pane header { display: grid; gap: 6px; }
+.notification-detail-pane header > span { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.notification-detail-pane header h2 { margin: 0; overflow-wrap: anywhere; font-size: clamp(22px, 3vw, 34px); }
+.notification-detail-empty { place-content: center; min-height: 320px; text-align: center; }
+.notification-detail-empty > span { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .15em; }
+.notification-detail-empty h2, .notification-detail-empty p { max-width: 540px; margin: 0; }
+.notification-detail-empty p, .notification-detail-empty small { color: var(--text-muted); line-height: 1.65; }
+@media (max-width: 760px) {
+  .notification-workspace { grid-template-columns: 1fr; min-height: 0; }
+  .notification-master-pane { border-right: 0; border-bottom: 1px solid var(--border); }
+  .notification-detail-pane { min-height: 300px; }
+}
 .notification-test-button,
 .notification-clear-button,
 .notification-read-button {

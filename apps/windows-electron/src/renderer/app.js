@@ -82,6 +82,8 @@ let notificationRawExpanded = false;
 let notificationDrawerState = { open: false, mode: "list", returnFocus: null };
 let notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
 let notificationActionFeedback = "";
+let notificationFilters = { source: "all", state: "all" };
+let notificationSelection = { id: null, loading: false, data: null, error: "" };
 let networkSpeed = {
   downloadBytesPerSecond: 0,
   uploadBytesPerSecond: 0,
@@ -2514,13 +2516,16 @@ function mailContent() {
 function notificationContent() {
   const summary = normalizedNotifications();
   const items = notificationItemsForDigest();
-  const digestCard = window.WinPlateNotificationDigest.renderDigestCard(notificationDigest);
-  const rows = window.WinPlateNotificationDigest.renderRawNotifications(items, {
-    expanded: notificationRawExpanded,
+  const digestCard = window.WinPlateNotificationDigest.renderDigestCard(notificationDigest, { compact: true });
+  const filteredItems = window.WinPlateNotificationDigest.filterNotificationItems(items, notificationFilters);
+  const sourceOptions = [...new Set(items.map((item) => String(item.source || "system")))].sort();
+  const rows = window.WinPlateNotificationDigest.renderNotificationList(filteredItems, {
+    selectedId: notificationSelection.id,
     sourceLabel: notificationSourceLabel,
     levelLabel: notificationLevelLabel,
     relativeTime: relativeUpdatedAt
   });
+  const detail = notificationCenterDetail();
   return `
     <section class="notifications-page" data-module-id="notifications" ${moduleHealthAttributes("notifications")}>
       <div class="notifications-page-heading">
@@ -2531,10 +2536,42 @@ function notificationContent() {
           <button class="notification-clear-button" id="clear-notifications" type="button" ${items.length ? "" : "disabled"}>清空</button>
         </div>
       </div>
-      ${digestCard}
-      ${rows}
-      ${notificationDrawer()}
+      <div class="notification-center-toolbar">
+        ${digestCard}
+        <label>来源<select data-notification-filter="source"><option value="all">全部来源</option>${sourceOptions.map((source) => `<option value="${escapeHtml(source)}" ${notificationFilters.source === source ? "selected" : ""}>${escapeHtml(notificationSourceLabel(source))}</option>`).join("")}</select></label>
+        <label>状态<select data-notification-filter="state"><option value="all" ${notificationFilters.state === "all" ? "selected" : ""}>全部</option><option value="unread" ${notificationFilters.state === "unread" ? "selected" : ""}>未读</option><option value="read" ${notificationFilters.state === "read" ? "selected" : ""}>已读</option></select></label>
+        <strong class="notification-unread-count">${summary.unreadCount} 未读</strong>
+      </div>
+      <div class="notification-workspace">
+        <aside class="notification-master-pane" aria-label="原始通知列表">${rows}</aside>
+        ${detail}
+      </div>
     </section>`;
+}
+
+function notificationCenterDetail() {
+  if (!notificationSelection.id) {
+    const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
+    return `<section class="notification-detail-pane notification-detail-empty" aria-label="通知详情"><span>今日摘要</span><h2>${escapeHtml(digest.headline)}</h2><p>${escapeHtml(digest.summary)}</p><small>从左侧选择一条通知查看详情。</small></section>`;
+  }
+  const payload = notificationSelection.data || {};
+  const detail = payload.detail || {};
+  const notification = payload.notification || {};
+  const title = notificationSelection.loading ? "正在读取通知..." : notificationSelection.error ? "通知读取失败" : detail.title || notification.title || "通知详情";
+  const body = notificationSelection.loading
+    ? '<div class="notification-detail-state">正在加载通知详情...</div>'
+    : notificationSelection.error
+      ? `<div class="notification-detail-state error">${escapeHtml(notificationSelection.error)}</div><button type="button" data-notification-detail-retry="${escapeHtml(notificationSelection.id)}">重试</button>`
+      : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.message || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
+  const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
+  const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
+  return `<section class="notification-detail-pane" aria-label="通知详情">
+    <header><span>${escapeHtml(notificationSourceLabel(notification.source || "system"))}</span><h2>${escapeHtml(title)}</h2></header>
+    ${notificationSelection.loading || notificationSelection.error ? "" : `<dl class="notification-detail-meta">${metadata.map((entry) => `<div><dt>${escapeHtml(entry.label || "")}</dt><dd>${escapeHtml(notificationDetailValue(entry.value))}</dd></div>`).join("")}</dl>`}
+    <div class="notification-detail-content">${body}</div>
+    ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
+    <footer>${actions.map(notificationActionButton).join("")}</footer>
+  </section>`;
 }
 
 function dashboardContent(section) {
@@ -3472,6 +3509,22 @@ async function openNotificationDetail(notificationId) {
   focusNotificationDrawerControl(".notification-detail-back");
 }
 
+async function selectNotification(id) {
+  const safeId = String(id || "").trim();
+  if (!safeId) return;
+  notificationSelection = { id: safeId, loading: true, data: null, error: "" };
+  notificationActionFeedback = "";
+  updateMainStatusDom();
+  try {
+    const payload = await window.winplate.getNotificationDetail(safeId);
+    notificationSelection = { id: safeId, loading: false, data: payload, error: "" };
+    if (payload?.notification?.unread) await markNotificationRead(safeId, { feedback: "" });
+  } catch (error) {
+    notificationSelection = { id: safeId, loading: false, data: null, error: error.message || "通知详情加载失败" };
+  }
+  updateMainStatusDom();
+}
+
 function openNotificationDigestDrawer(trigger = null) {
   notificationDrawerState = { open: true, mode: "list", returnFocus: trigger };
   notificationDetail = { open: false, loading: false, id: null, data: null, error: "" };
@@ -3520,6 +3573,18 @@ async function markNotificationRead(notificationId, options = null) {
       }
     };
   }
+  if (typeof notificationSelection !== "undefined" && notificationSelection.data?.notification?.id === id) {
+    notificationSelection = {
+      ...notificationSelection,
+      data: {
+        ...notificationSelection.data,
+        notification: { ...notificationSelection.data.notification, unread: false },
+        actions: (notificationSelection.data.actions || []).map((entry) => (
+          entry.type === "markRead" ? { ...entry, label: "已读" } : entry
+        ))
+      }
+    };
+  }
   await hydrateNotificationDigest();
   notificationActionFeedback = feedback;
   const representedItems = window.WinPlateNotificationDigest.selectDigestItems(
@@ -3534,7 +3599,8 @@ async function markNotificationRead(notificationId, options = null) {
 }
 
 async function handleNotificationAction(actionId) {
-  const actions = Array.isArray(notificationDetail.data?.actions) ? notificationDetail.data.actions : [];
+  const activeDetail = (typeof notificationSelection !== "undefined" && notificationSelection.data) || notificationDetail.data;
+  const actions = Array.isArray(activeDetail?.actions) ? activeDetail.actions : [];
   const action = actions.find((entry) => entry.id === actionId);
   if (!action) return;
   if (action.type === "copy") {
@@ -3544,7 +3610,7 @@ async function handleNotificationAction(actionId) {
   }
   if (action.type === "markRead") {
     await markNotificationRead(
-      action.payload?.notificationId || notificationDetail.id,
+      action.payload?.notificationId || (typeof notificationSelection !== "undefined" ? notificationSelection.id : null) || notificationDetail.id,
       { returnToList: true }
     );
     return;
@@ -3568,6 +3634,12 @@ function bindNotificationControls() {
       notificationRawExpanded = rawSection.open;
     };
   }
+  document.querySelectorAll("[data-notification-filter]").forEach((control) => {
+    control.onchange = () => {
+      notificationFilters = { ...notificationFilters, [control.dataset.notificationFilter]: control.value };
+      updateMainStatusDom();
+    };
+  });
   const markAllButton = document.querySelector("#mark-all-notifications-read");
   if (markAllButton) {
     markAllButton.onclick = async () => {
@@ -3678,7 +3750,16 @@ async function handleNotificationPageClick(event) {
 
   const retryButton = target.closest("[data-notification-detail-retry]");
   if (retryButton) {
-    if (!notificationActionInFlight) await openNotificationDetail(retryButton.dataset.notificationDetailRetry);
+    if (!notificationActionInFlight) {
+      if (notificationDrawerState.open) await openNotificationDetail(retryButton.dataset.notificationDetailRetry);
+      else await selectNotification(retryButton.dataset.notificationDetailRetry);
+    }
+    return;
+  }
+
+  const selectedNotification = target.closest("[data-notification-select]");
+  if (selectedNotification) {
+    if (!notificationActionInFlight) await selectNotification(selectedNotification.dataset.notificationSelect);
     return;
   }
 
@@ -4062,9 +4143,9 @@ window.winplate.onNavigate(async (payload) => {
     renderMain();
     if (navigation.section === "Notifications") {
       if (navigation.notificationId) {
-        await openNotificationDetail(navigation.notificationId);
+        await selectNotification(navigation.notificationId);
       } else {
-        openNotificationDigestDrawer();
+        notificationSelection = { id: null, loading: false, data: null, error: "" };
         updateMainStatusDom();
       }
     }

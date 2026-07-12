@@ -104,12 +104,41 @@
       </details>`;
   }
 
+  function filterNotificationItems(items = [], filters = {}) {
+    const source = String(filters.source || "all");
+    const state = String(filters.state || "all");
+    return (Array.isArray(items) ? items : []).filter((item) => (
+      (source === "all" || String(item.source) === source)
+      && (state === "all" || (state === "unread" ? Boolean(item.unread) : !item.unread))
+    ));
+  }
+
+  function renderNotificationList(items, { selectedId = null, sourceLabel, levelLabel, relativeTime } = {}) {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+      return '<div class="notification-master-empty"><strong>没有匹配的通知</strong><span>尝试调整筛选条件。</span></div>';
+    }
+    return `<div class="notification-master-list">${list.map((item) => {
+      const selected = String(item.id) === String(selectedId);
+      return `
+        <button class="notification-master-row source-${escapeHtml(item.source)} level-${escapeHtml(item.level)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}"
+          type="button" aria-pressed="${selected}" data-notification-select="${escapeHtml(item.id)}">
+          <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
+          <strong>${escapeHtml(item.title || "通知")}</strong>
+          <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
+          <small>${escapeHtml(levelLabel?.(item.level) || item.level || "信息")} · ${escapeHtml(relativeTime?.(item.createdAt) || "")}${item.unread ? " · 未读" : ""}</small>
+        </button>`;
+    }).join("")}</div>`;
+  }
+
   global.WinPlateNotificationDigest = {
     normalizeDigest,
     selectDigestItems,
     renderDigestDrawerList,
     renderDigestCard,
     renderGroups,
-    renderRawNotifications
+    renderRawNotifications,
+    filterNotificationItems,
+    renderNotificationList
   };
 })(window);

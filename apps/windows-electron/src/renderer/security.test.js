@@ -1522,13 +1522,23 @@ test("notifications escape pushed titles and messages before rendering", () => {
     renderer.indexOf("const lines = Array.isArray(data.lines)")
   );
 
-  assert.match(notificationContent, /renderRawNotifications/);
+  assert.match(notificationContent, /renderNotificationList/);
   assert.match(notificationTooltip, /renderDigestCard/);
   assert.match(component, /escapeHtml\(item\.title\)/);
   assert.match(component, /escapeHtml\(item\.body \|\| item\.message\)/);
   assert.match(component, /escapeHtml\(value\.headline\)/);
   assert.match(component, /escapeHtml\(value\.summary\)/);
   assert.match(component, /data-notification-open="\$\{escapeHtml\(item\.id\)\}"/);
+});
+
+test("notification center renders a filterable master-detail workspace instead of requiring a drawer", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
+  assert.match(component, /function filterNotificationItems/);
+  assert.match(component, /data-notification-select="\$\{escapeHtml\(item\.id\)\}"/);
+  assert.match(renderer, /class="notification-workspace"/);
+  assert.match(renderer, /notification-detail-empty/);
+  assert.match(renderer, /async function selectNotification\(id\)/);
 });
 
 test("digest drawer selects represented notifications by priority then recency", () => {
@@ -1664,14 +1674,14 @@ test("notification mark-read refresh preserves detail when no represented items 
   assert.doesNotMatch(harness.drawer().textContent, /原始历史仍保留/);
 });
 
-test("external notification navigation loads the requested drawer detail", () => {
+test("external notification navigation selects the requested notification detail", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const navigation = renderer.slice(
     renderer.indexOf("window.winplate.onNavigate"),
     renderer.indexOf("window.winplate.onMaximizedChange")
   );
-  assert.match(navigation, /openNotificationDetail\(navigation\.notificationId\)/);
-  assert.match(navigation, /openNotificationDigestDrawer\(\)/);
+  assert.match(navigation, /selectNotification\(navigation\.notificationId\)/);
+  assert.match(navigation, /notificationSelection = \{ id: null, loading: false, data: null, error: "" \}/);
 });
 
 test("notification capsule and panel consume the digest instead of a raw title", () => {
