@@ -1539,6 +1539,28 @@ function weatherAlertsPanel() {
     </section>`;
 }
 
+function findPreviewableNotification(source, items = notificationSummary.items) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item.source === source && item.unread && ["warning", "critical"].includes(item.level))
+    .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))[0] || null;
+}
+
+function notificationPreviewCardAttributes(source) {
+  const item = findPreviewableNotification(source);
+  return item ? `data-notification-preview-id="${escapeHtml(item.id)}"` : "";
+}
+
+function notificationPreviewMarkup(source) {
+  const item = findPreviewableNotification(source);
+  if (!item) return "";
+  return `<div class="module-notification-preview" role="tooltip">
+    <span>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationLevelLabel(item.level))}</span>
+    <strong>${escapeHtml(item.title)}</strong>
+    <p>${escapeHtml(item.message || "暂无详细内容。")}</p>
+    <small>${escapeHtml(relativeUpdatedAt(item.createdAt))}</small>
+  </div>`;
+}
+
 function weatherDashboardCard() {
   const weather = statusData.weather || mockStatus.weather;
   const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 5) : [];
@@ -1554,7 +1576,8 @@ function weatherDashboardCard() {
     ["风力", [weather.windDirection, weather.windScale && `${weather.windScale}级`].filter(Boolean).join(" ") || "--"]
   ];
   return `
-    <article class="dashboard-card weather-dashboard-card" data-module-id="weather" ${moduleHealthAttributes("weather")}>
+    <article class="dashboard-card weather-dashboard-card" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
+      ${notificationPreviewMarkup("qweather")}
       <div class="weather-card-main">
         <div class="weather-card-heading">
           <div class="weather-location-stack">
@@ -1994,7 +2017,8 @@ function renderTooltip(data = {}) {
 
 function qweatherServiceCard(official, failures) {
   return `
-    <article class="dashboard-card qweather-card" data-module-id="weather" ${moduleHealthAttributes("weather")}>
+    <article class="dashboard-card qweather-card" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
+      ${notificationPreviewMarkup("qweather")}
       <div class="qweather-card-heading">
         <div class="card-icon">${weatherIconMarkup("100", "qweather-service-icon")}</div>
         <div class="card-actions">
@@ -2068,7 +2092,8 @@ function dashboardGithubCard() {
     { icon: previewIcons.streak, label: "Streak", value: github.streakDays, meta: "days" }
   ];
   return `
-    <article class="dashboard-card github-card github-dashboard-card" data-module-id="github" ${moduleHealthAttributes("github")}>
+    <article class="dashboard-card github-card github-dashboard-card" data-module-id="github" ${notificationPreviewCardAttributes("github")} ${moduleHealthAttributes("github")}>
+      ${notificationPreviewMarkup("github")}
       <div class="github-dashboard-top">
         <div class="github-dashboard-profile">
           <span class="github-dashboard-mark" aria-hidden="true">${githubCardIcon}</span>
@@ -2983,6 +3008,7 @@ function renderMain() {
       bindQWeatherUsageControls();
       bindMailControls();
       bindNotificationControls();
+      bindNotificationPreviewCards();
     });
   });
   const pageContent = document.querySelector("#page-content");
@@ -3017,6 +3043,7 @@ function renderMain() {
   bindQWeatherUsageControls();
   bindMailControls();
   bindNotificationControls();
+  bindNotificationPreviewCards();
   document.querySelector("#window-minimize")?.addEventListener("click", () => window.winplate.minimizeWindow());
   document.querySelector("#sidebar-toggle")?.addEventListener("click", () => {
     sidebarCollapsed = !sidebarCollapsed;
@@ -4009,6 +4036,29 @@ function bindGithubControls() {
       updateMainStatusDom("github");
     }
   };
+}
+
+function bindNotificationPreviewCards() {
+  document.querySelectorAll("[data-notification-preview-id]").forEach((card) => {
+    card.onclick = async (event) => {
+      if (event.target.closest("button, select, input, a")) return;
+      const previewId = card.dataset.notificationPreviewId;
+      if (!previewId) return;
+      currentSection = "Notifications";
+      renderMain();
+      await selectNotification(previewId);
+    };
+    card.tabIndex = 0;
+    card.onkeydown = async (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      const previewId = card.dataset.notificationPreviewId;
+      if (!previewId) return;
+      currentSection = "Notifications";
+      renderMain();
+      await selectNotification(previewId);
+    };
+  });
 }
 
 function updateMaximizeButton() {

@@ -1552,6 +1552,14 @@ test("only active red QWeather notifications require acknowledgement", () => {
   assert.equal(isAcknowledgementRequired({ source: "qweather", unread: true, level: "critical", metadata: { severity: "extreme", lifecycle: "issued" } }), false);
 });
 
+test("Dashboard, QWeather, and GitHub cards expose unread anomaly previews that navigate to Notifications", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  assert.match(renderer, /function findPreviewableNotification\(source/);
+  assert.match(renderer, /data-notification-preview-id=/);
+  assert.match(renderer, /currentSection = "Notifications"/);
+  assert.match(renderer, /await selectNotification\(previewId\)/);
+});
+
 test("digest drawer selects represented notifications by priority then recency", () => {
   const api = loadNotificationDigestComponent();
   const items = [

@@ -1694,6 +1694,15 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-acknowledgement-confirm { justify-self: start; padding: 11px 18px; color: #450a0a; border: 0; border-radius: 10px; background: #fee2e2; font: inherit; font-weight: 850; cursor: pointer; }
 .notification-acknowledgement-close:focus-visible, .notification-acknowledgement-confirm:focus-visible { outline: 3px solid #fef08a; outline-offset: 3px; }
 html[data-theme="light"] .notification-acknowledgement-backdrop { background: rgba(15, 23, 42, .44); }
+.dashboard-card[data-notification-preview-id] { position: relative; cursor: pointer; }
+.module-notification-preview { position: absolute; z-index: 8; right: 12px; bottom: 12px; left: 12px; display: grid; gap: 5px; padding: 12px; color: #f8fafc; border: 1px solid rgba(96, 165, 250, .46); border-radius: 12px; background: rgba(15, 23, 42, .96); box-shadow: 0 14px 30px rgba(2, 6, 23, .35); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .16s ease, transform .16s ease; }
+.module-notification-preview span { color: #93c5fd; font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.module-notification-preview strong { overflow-wrap: anywhere; font-size: 13px; }
+.module-notification-preview p { margin: 0; display: -webkit-box; overflow: hidden; color: #cbd5e1; font-size: 12px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.module-notification-preview small { color: #94a3b8; font-size: 10px; }
+.dashboard-card[data-notification-preview-id]:hover .module-notification-preview,
+.dashboard-card[data-notification-preview-id]:focus-visible .module-notification-preview { opacity: 1; transform: translateY(0); }
+.dashboard-card[data-notification-preview-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 760px) {
   .notification-workspace { grid-template-columns: 1fr; min-height: 0; }
   .notification-master-pane { border-right: 0; border-bottom: 1px solid var(--border); }
