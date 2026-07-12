@@ -1584,6 +1584,13 @@ test("notification inline detail keeps only concise content and safe row actions
   assert.doesNotMatch(inline, /<h2>/);
 });
 
+test("Codex surfaces use the shared official icon body", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  assert.match(renderer, /codex:\s*"codex"/);
+  assert.match(renderer, /const codexIcon = `\s*<svg class="codex-icon"[^>]*>\s*\$\{window\.WinPlateSmartNotificationIcons\.SMART_NOTIFICATION_ICON_REGISTRY\.codex\}/);
+  assert.doesNotMatch(renderer, /const codexIcon = `[^`]*m8\.25 10\.25/i);
+});
+
 test("only active red QWeather notifications require acknowledgement", () => {
   const component = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
   const context = { window: { WinPlateSmartNotificationIcons: { renderSmartNotificationIcon: () => "" } } };

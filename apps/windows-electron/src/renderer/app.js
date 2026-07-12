@@ -987,7 +987,7 @@ function notificationSourceLabel(source) {
 }
 
 function notificationSourceIconKey(source) {
-  return { codex: "code", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
+  return { codex: "codex", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
 }
 
 function notificationLevelLabel(level) {
@@ -1164,8 +1164,7 @@ const githubCardIcon = `
   </span>`;
 const codexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
-    <path d="m8.25 10.25 2.25 2.25-2.25 2.25M12.75 14.75h3"/>
+    ${window.WinPlateSmartNotificationIcons.SMART_NOTIFICATION_ICON_REGISTRY.codex}
   </svg>`;
 const refreshIcon = `
   <svg class="refresh-button-icon" viewBox="0 0 24 24" aria-hidden="true">
