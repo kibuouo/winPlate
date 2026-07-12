@@ -16,7 +16,7 @@ const packageRoot = __dirname;
 
 test("semantic smart notification icon keys are platform-neutral", () => {
   assert.equal(ICON_KEYS, semanticKeys.ICON_KEYS);
-  assert.equal(semanticKeys.ICON_KEYS.length, 31);
+  assert.equal(semanticKeys.ICON_KEYS.length, 32);
   assert.equal(semanticKeys.isSmartNotificationIconKey("sparkles"), true);
   assert.equal(semanticKeys.isSmartNotificationIconKey("<svg>"), false);
 
