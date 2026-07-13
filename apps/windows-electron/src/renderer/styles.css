@@ -1752,17 +1752,19 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-state-filter { display: inline-flex; align-items: center; gap: 7px; color: var(--text-soft); font-size: 12px; font-weight: 750; }
 .notification-state-filter select { min-height: 36px; padding: 0 10px; color: var(--text); border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; }
 .notification-timeline { position: relative; display: grid; gap: 0; padding: 10px 0 28px; }
-.notification-timeline::before { position: absolute; top: 66px; bottom: 28px; left: 8px; width: 1px; background: var(--border); content: ""; }
-.notification-date-group { display: grid; gap: 0; border-top: 1px solid var(--border); }
+.notification-date-group { position: relative; display: grid; gap: 0; border-top: 1px solid var(--border); }
+.notification-date-group::before { position: absolute; top: 70px; right: auto; bottom: 25px; left: 10px; width: 1px; background: var(--border); content: ""; }
 .notification-date-group:first-child { border-top: 0; }
 .notification-date-label { margin: 0; padding: 18px 0 10px; color: var(--text-soft); font-size: 13px; font-weight: 800; }
 .notification-timeline-entry { display: grid; gap: 0; }
-.notification-timeline-row { position: relative; display: grid; grid-template-columns: 22px 44px minmax(0, 1fr) auto; gap: 12px; width: 100%; padding: 14px 0; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--border); background: transparent; font: inherit; cursor: pointer; }
+.notification-timeline-row { position: relative; display: grid; grid-template-columns: 28px 44px minmax(0, 1fr) auto; gap: 12px; width: 100%; padding: 14px 0; color: var(--text); text-align: left; border: 0; border-bottom: 1px solid var(--border); background: transparent; font: inherit; cursor: pointer; }
 .notification-timeline-row:hover, .notification-timeline-entry.selected .notification-timeline-row { background: color-mix(in srgb, #2563eb 5%, transparent); }
-.notification-timeline-dot { width: 12px; height: 12px; margin-top: 5px; border: 2px solid var(--surface); border-radius: 999px; background: #3b82f6; box-shadow: 0 0 0 1px color-mix(in srgb, #3b82f6 40%, transparent); }
+.notification-timeline-dot { z-index: 1; width: 12px; height: 12px; margin: 5px 0 0 4px; border: 2px solid var(--surface); border-radius: 999px; background: #3b82f6; box-shadow: 0 0 0 1px color-mix(in srgb, #3b82f6 40%, transparent); }
 .notification-timeline-entry.level-success .notification-timeline-dot { background: #10b981; }
 .notification-timeline-entry.level-warning .notification-timeline-dot { background: #f59e0b; }
 .notification-timeline-entry.level-danger .notification-timeline-dot, .notification-timeline-entry.level-critical .notification-timeline-dot { background: #ef4444; }
+.notification-timeline-entry.level-warning .notification-timeline-row { background: linear-gradient(90deg, color-mix(in srgb, #f59e0b 12%, transparent), transparent 58%); box-shadow: inset 3px 0 0 #f59e0b; }
+.notification-timeline-entry.level-danger .notification-timeline-row, .notification-timeline-entry.level-critical .notification-timeline-row { background: linear-gradient(90deg, color-mix(in srgb, #ef4444 12%, transparent), transparent 58%); box-shadow: inset 3px 0 0 #ef4444; }
 .notification-source-icon { width: 40px; height: 40px; display: grid; place-items: center; align-self: center; color: #2563eb; border-radius: 999px; background: rgba(37, 99, 235, .10); }
 .notification-source-icon .smart-notification-icon { width: 21px; height: 21px; }
 .notification-source-icon.source-codex { color: #2563eb; background: rgba(37, 99, 235, .10); }
@@ -1778,6 +1780,9 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-timeline-title .notification-update-count { padding: 2px 6px; color: var(--text-soft); border-radius: 999px; background: var(--surface-muted); font-size: 11px; font-style: normal; font-weight: 750; white-space: nowrap; }
 .notification-timeline-main p { margin: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .notification-timeline-meta { display: flex; align-items: center; justify-content: end; gap: 12px; color: var(--text-soft); font-size: 12px; white-space: nowrap; }
+.notification-timeline-meta > span { padding: 3px 6px; border-radius: 999px; font-weight: 800; }
+.notification-timeline-entry.level-warning .notification-timeline-meta > span { color: #b45309; background: color-mix(in srgb, #f59e0b 16%, transparent); }
+.notification-timeline-entry.level-danger .notification-timeline-meta > span, .notification-timeline-entry.level-critical .notification-timeline-meta > span { color: #dc2626; background: color-mix(in srgb, #ef4444 16%, transparent); }
 .notification-inline-summary { justify-self: start; width: min(calc(100% - 66px), 760px); max-width: 760px; min-height: 0; box-sizing: border-box; margin: 0 0 14px 66px; padding: 14px 16px; display: grid; gap: 12px; border: 1px solid rgba(59, 130, 246, .32); border-radius: 10px; background: color-mix(in srgb, #2563eb 5%, var(--surface)); }
 .notification-inline-summary-body { min-height: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.65; }
 .notification-inline-summary-body .notification-detail-body p { max-height: 3.3em; margin: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -1812,7 +1817,7 @@ html[data-theme="light"] .notification-acknowledgement-backdrop { background: rg
   .notifications-page-heading { display: grid; }
   .notification-actions { justify-content: start; }
   .notification-source-filters { align-items: start; padding: 12px 0; }
-  .notification-timeline-row { grid-template-columns: 18px 40px minmax(0, 1fr); }
+  .notification-timeline-row { grid-template-columns: 28px 40px minmax(0, 1fr); }
   .notification-timeline-meta { justify-content: start; flex-wrap: wrap; white-space: normal; }
   .notification-source-icon { width: 36px; height: 36px; }
   .notification-inline-summary { margin-left: 0; }

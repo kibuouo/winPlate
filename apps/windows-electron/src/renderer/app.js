@@ -1612,6 +1612,7 @@ function weatherAlertsPanel() {
 }
 
 function findPreviewableNotification(source, items = notificationSummary.items) {
+  if (source === "qweather") return null;
   return (Array.isArray(items) ? items : [])
     .filter((item) => item.source === source && item.unread && ["warning", "critical"].includes(item.level))
     .sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0))[0] || null;

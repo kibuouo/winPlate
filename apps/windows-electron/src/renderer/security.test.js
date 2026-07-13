@@ -1760,9 +1760,10 @@ test("only active red QWeather notifications require acknowledgement", () => {
   assert.equal(isAcknowledgementRequired({ source: "qweather", unread: true, level: "critical", metadata: { severity: "extreme", lifecycle: "issued" } }), false);
 });
 
-test("Dashboard, QWeather, and GitHub cards expose unread anomaly previews that navigate to Notifications", () => {
+test("QWeather is excluded from card notification previews while other sources remain previewable", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   assert.match(renderer, /function findPreviewableNotification\(source/);
+  assert.match(renderer, /if \(source === "qweather"\) return null;/);
   assert.match(renderer, /data-notification-preview-id=/);
   assert.match(renderer, /currentSection = "Notifications"/);
   assert.match(renderer, /await selectNotification\(previewId\)/);
@@ -1989,7 +1990,10 @@ test("notification timeline styles provide source chips, date rules, inline deta
   assert.match(css, /\.notification-source-chip\.active \{[^}]*background: #2563eb;/);
   assert.match(css, /\.notifications-page \.notification-test-button \{[^}]*background: var\(--surface\);/);
   assert.match(css, /\.notification-date-group \{[^}]*border-top:/);
-  assert.match(css, /\.notification-timeline::before \{[^}]*background: var\(--border\);/);
+  assert.match(css, /\.notification-date-group::before \{[^}]*left: 10px;[^}]*background: var\(--border\);/);
+  assert.match(css, /\.notification-timeline-row \{[^}]*grid-template-columns: 28px 44px minmax\(0, 1fr\) auto;/);
+  assert.match(css, /\.notification-timeline-entry\.level-warning \.notification-timeline-row \{[^}]*inset 3px 0 0 #f59e0b/);
+  assert.match(css, /\.notification-timeline-entry\.level-(?:danger|critical) \.notification-timeline-row \{[^}]*inset 3px 0 0 #ef4444/);
   assert.match(css, /\.notification-timeline-row:focus-visible \{[^}]*outline:/);
   assert.match(css, /\.notification-inline-summary \{[^}]*border:/);
   assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*\.notification-timeline-meta/);
