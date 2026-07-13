@@ -3666,6 +3666,12 @@ async function selectNotification(id) {
   const conversation = notificationConversationForId(id);
   const safeId = String(conversation?.id || id || "").trim();
   if (!safeId) return;
+  if (notificationSelection.id === safeId && !notificationSelection.loading) {
+    notificationSelection = { id: null, loading: false, data: null, error: "" };
+    notificationActionFeedback = "";
+    updateMainStatusDom();
+    return;
+  }
   notificationSelection = { id: safeId, loading: true, data: null, error: "" };
   notificationActionFeedback = "";
   updateMainStatusDom();

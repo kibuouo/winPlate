@@ -1663,6 +1663,44 @@ test("notification page keeps external navigation and selected-row detail loadin
   assert.match(renderer, /window\.winplate\.clearReadNotifications\(\)/);
 });
 
+test("clicking an expanded timeline notification collapses its inline detail without reloading", async () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  let detailRequests = 0;
+  let renders = 0;
+  const context = {
+    window: {
+      winplate: {
+        async getNotificationDetail() {
+          detailRequests += 1;
+          return { notification: { id: "n1", unread: false }, detail: {}, actions: [] };
+        }
+      }
+    }
+  };
+  const source = `
+    let notificationSummary = { unreadCount: 0, items: [{ id: "n1", title: "已展开", unread: false }] };
+    let notificationSelection = { id: "n1", loading: false, data: { notification: { id: "n1" } }, error: "" };
+    let notificationActionFeedback = "";
+    ${extractNamedFunction(renderer, "normalizedNotifications")}
+    ${extractNamedFunction(renderer, "notificationItemsForDigest")}
+    ${extractNamedFunction(renderer, "notificationConversations")}
+    ${extractNamedFunction(renderer, "notificationConversationForId")}
+    function updateMainStatusDom() { renders += 1; }
+    ${extractNamedFunction(renderer, "selectNotification")}
+    this.selectExpandedNotification = () => selectNotification("n1");
+    this.selection = () => notificationSelection;
+  `;
+  context.renders = 0;
+  vm.runInNewContext(source, context, { filename: "notification-selection-harness.js" });
+
+  await context.selectExpandedNotification();
+
+  assert.equal(detailRequests, 0);
+  assert.equal(context.selection().id, null);
+  assert.equal(context.selection().data, null);
+  assert.equal(context.renders, 1);
+});
+
 test("notification inline detail keeps only concise content and safe row actions", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const inline = renderer.slice(renderer.indexOf("function notificationInlineDetail"), renderer.indexOf("function updateNotificationAcknowledgement"));
