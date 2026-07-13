@@ -920,6 +920,25 @@ if (!gotLock) {
       scheduleNotificationDigestRefresh();
       return summary;
     });
+    ipcMain.handle("notifications:mark-read-many", async (event, ids) => {
+      requireMainWindowSender(event);
+      const notificationIds = Array.isArray(ids) ? ids.map((id) => String(id || "").trim()) : [];
+      if (!notificationIds.length || notificationIds.some((id) => !id) || new Set(notificationIds).size !== notificationIds.length) {
+        throw new Error("Notification ids are required");
+      }
+      const response = await fetch("http://127.0.0.1:8765/api/notifications/read-many", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: notificationIds })
+      });
+      if (!response.ok) {
+        throw new Error(`Notification batch read failed: HTTP ${response.status}`);
+      }
+      const summary = await response.json();
+      clearNotificationCaches();
+      scheduleNotificationDigestRefresh();
+      return summary;
+    });
     ipcMain.handle("notifications:mark-all-read", async (event) => {
       requireMainWindowSender(event);
       const response = await fetch("http://127.0.0.1:8765/api/notifications/read-all", { method: "POST" });

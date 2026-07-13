@@ -145,6 +145,10 @@ class NotificationPayload(BaseModel):
     id: str | None = None
 
 
+class NotificationReadManyPayload(BaseModel):
+    ids: list[str]
+
+
 class NotificationDigestRecordPayload(BaseModel):
     title: str
     summary: str
@@ -855,6 +859,28 @@ def mark_notification_read(notification_id: str) -> dict:
         connection.execute(
             "UPDATE notifications SET unread = 0, updated_at = ? WHERE id = ?",
             (utc_epoch_seconds() * 1000, safe_notification_id),
+        )
+        connection.commit()
+    return notification_summary()
+
+
+def mark_development_notifications_read(notification_ids: list[str]) -> dict:
+    if not isinstance(notification_ids, list):
+        raise RuntimeError("开发通知标识无效")
+    ids = [str(value or "").strip() for value in notification_ids]
+    if not ids or any(not value for value in ids) or len(set(ids)) != len(ids):
+        raise RuntimeError("开发通知标识无效")
+    placeholders = ", ".join("?" for _ in ids)
+    with closing(connect()) as connection:
+        rows = connection.execute(
+            f"SELECT id, source FROM notifications WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        if len(rows) != len(ids) or any(row["source"] not in {"codex", "chatgpt"} for row in rows):
+            raise RuntimeError("只能批量标记开发通知")
+        connection.execute(
+            f"UPDATE notifications SET unread = 0, updated_at = ? WHERE id IN ({placeholders})",
+            [utc_epoch_seconds() * 1000, *ids],
         )
         connection.commit()
     return notification_summary()
@@ -2586,6 +2612,14 @@ def create_notification_digest_record(payload: NotificationDigestRecordPayload) 
 @api.post("/api/notifications/{notification_id}/read")
 def mark_notification_as_read(notification_id: str) -> dict:
     return mark_notification_read(notification_id)
+
+
+@api.post("/api/notifications/read-many")
+def mark_development_notifications_as_read(payload: NotificationReadManyPayload) -> dict:
+    try:
+        return mark_development_notifications_read(payload.ids)
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @api.post("/api/notifications/read-all")

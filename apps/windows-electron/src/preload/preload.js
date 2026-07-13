@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld("winplate", {
   getSmartBrief: () => ipcRenderer.invoke("notifications:get-smart-brief"),
   refreshSmartBrief: () => ipcRenderer.invoke("notifications:refresh-smart-brief"),
   markNotificationRead: (id) => ipcRenderer.invoke("notifications:mark-read", id),
+  markNotificationsRead: (ids) => ipcRenderer.invoke("notifications:mark-read-many", ids),
   markAllNotificationsRead: () => ipcRenderer.invoke("notifications:mark-all-read"),
   clearNotifications: () => ipcRenderer.invoke("notifications:clear"),
   clearReadNotifications: () => ipcRenderer.invoke("notifications:clear-read"),

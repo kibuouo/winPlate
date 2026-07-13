@@ -112,6 +112,7 @@ test("sensitive business IPC handlers require the live main-window sender", () =
     "email:read-message",
     "notifications:refresh-smart-brief",
     "notifications:mark-read",
+    "notifications:mark-read-many",
     "notifications:mark-all-read",
     "notifications:clear",
     "notifications:clear-read",
@@ -128,6 +129,15 @@ test("sensitive business IPC handlers require the live main-window sender", () =
       `${channel} must reject non-main senders`
     );
   }
+});
+
+test("notification batch-read bridge accepts only the narrow array contract", () => {
+  const main = readMain();
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+
+  assert.match(main, /ipcMain\.handle\("notifications:mark-read-many", async \(event, ids\) => \{\s*requireMainWindowSender\(event\);/);
+  assert.match(main, /Array\.isArray\(ids\)/);
+  assert.match(preload, /markNotificationsRead: \(ids\) => ipcRenderer\.invoke\("notifications:mark-read-many", ids\)/);
 });
 
 test("floating shell IPC handlers require the live floating-window sender", () => {

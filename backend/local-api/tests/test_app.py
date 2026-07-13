@@ -1027,6 +1027,33 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(summary["unreadCount"], 0)
         main.DATABASE_PATH = original_path
 
+    def test_mark_development_notifications_read_marks_every_child_atomically(self):
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                main.DATABASE_PATH = Path(directory) / "test.db"
+                main.initialize_database()
+                main.upsert_notification(notification_id="codex:one", source="codex", title="Task", unread=True)
+                main.upsert_notification(notification_id="chatgpt:two", source="chatgpt", title="Task", unread=True)
+                summary = main.mark_development_notifications_read(["codex:one", "chatgpt:two"])
+                self.assertEqual(summary["unreadCount"], 0)
+        finally:
+            main.DATABASE_PATH = original_path
+
+    def test_mark_development_notifications_read_rejects_non_development_without_partial_update(self):
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                main.DATABASE_PATH = Path(directory) / "test.db"
+                main.initialize_database()
+                main.upsert_notification(notification_id="codex:one", source="codex", title="Task", unread=True)
+                main.upsert_notification(notification_id="mail:one", source="mail", title="Mail", unread=True)
+                with self.assertRaisesRegex(RuntimeError, "开发通知"):
+                    main.mark_development_notifications_read(["codex:one", "mail:one"])
+                self.assertEqual(main.notification_summary()["unreadCount"], 2)
+        finally:
+            main.DATABASE_PATH = original_path
+
     def test_clear_read_notifications_preserves_unread_items(self):
         original_path = main.DATABASE_PATH
         try:
