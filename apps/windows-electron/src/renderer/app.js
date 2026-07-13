@@ -1020,14 +1020,14 @@ function notificationItemsForDigest() {
 
 function notificationConversations() {
   const items = notificationItemsForDigest();
-  return typeof window.winplate?.foldNotificationConversations === "function"
-    ? window.winplate.foldNotificationConversations(items)
+  return typeof window.WinPlateNotificationConversations?.foldNotificationConversations === "function"
+    ? window.WinPlateNotificationConversations.foldNotificationConversations(items)
     : items;
 }
 
 function notificationConversationForId(id) {
   const conversations = notificationConversations();
-  const resolved = window.winplate?.conversationForNotificationId?.(conversations, id);
+  const resolved = window.WinPlateNotificationConversations?.conversationForNotificationId?.(conversations, id);
   return resolved || conversations.find((item) => String(item.id) === String(id)) || null;
 }
 

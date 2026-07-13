@@ -140,6 +140,12 @@ test("notification batch-read bridge accepts only the narrow array contract", ()
   assert.match(preload, /markNotificationsRead: \(ids\) => ipcRenderer\.invoke\("notifications:mark-read-many", ids\)/);
 });
 
+test("sandboxed preload does not load workspace packages", () => {
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+
+  assert.doesNotMatch(preload, /require\(["']@winplate\//);
+});
+
 test("floating shell IPC handlers require the live floating-window sender", () => {
   const main = readMain();
 

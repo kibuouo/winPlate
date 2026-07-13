@@ -1675,7 +1675,6 @@ test("notification inline detail keeps only concise content and safe row actions
 
 test("notification page derives folded conversations and marks every unread child together", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
   const notificationPage = renderer.slice(renderer.indexOf("function notificationContent"), renderer.indexOf("function updateNotificationAcknowledgement"));
 
   assert.match(renderer, /function notificationConversations\(\)/);
@@ -1683,8 +1682,26 @@ test("notification page derives folded conversations and marks every unread chil
   assert.match(renderer, /markNotificationsRead\(/);
   assert.match(notificationPage, /notificationConversations\(\)/);
   assert.match(renderer, /notification-conversation-updates/);
-  assert.match(preload, /foldNotificationConversations: \(items\) => foldNotificationConversations\(items\)/);
-  assert.match(preload, /conversationForNotificationId: \(conversations, id\) => conversationForNotificationId\(conversations, id\)/);
+  assert.match(renderer, /window\.WinPlateNotificationConversations\?\.foldNotificationConversations/);
+  assert.match(renderer, /window\.WinPlateNotificationConversations\?\.conversationForNotificationId/);
+});
+
+test("browser conversation helper folds Codex replies without the preload bridge", () => {
+  const helperPath = path.join(__dirname, "notificationConversations.js");
+  assert.equal(fs.existsSync(helperPath), true, "the renderer must own its browser-safe folding helper");
+
+  const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(helperPath, "utf8"), context, { filename: "notificationConversations.js" });
+  const { foldNotificationConversations, conversationForNotificationId } = context.window.WinPlateNotificationConversations;
+  const conversations = foldNotificationConversations([
+    { id: "codex:old", source: "codex", title: "精简测试", body: "first", unread: true, createdAt: 1_000 },
+    { id: "codex:new", source: "codex", title: " 精简测试 ", body: "latest", unread: false, createdAt: 2_000 }
+  ]);
+
+  assert.equal(conversations.length, 1);
+  assert.equal(conversations[0].id, "codex:new");
+  assert.equal(conversations[0].unread, true);
+  assert.equal(conversationForNotificationId(conversations, "codex:old").id, "codex:new");
 });
 
 test("Codex surfaces use the shared official icon body", () => {
