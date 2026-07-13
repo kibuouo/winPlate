@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { foldNotificationConversations } = require("../notification/conversations");
 
 const GROUPS = [
   { key: "weather", label: "天气", sources: new Set(["qweather"]) },
@@ -136,7 +137,7 @@ function categoryForSource(source) {
 }
 
 function createLocalDigest(rawItems, now = Date.now()) {
-  const items = dedupeNotifications(Array.isArray(rawItems) ? rawItems : [])
+  const items = dedupeNotifications(foldNotificationConversations(rawItems))
     .sort((a, b) => scoreNotification(b, now) - scoreNotification(a, now) || b.createdAt - a.createdAt);
   const unreadItems = items.filter((item) => item.unread);
   if (!unreadItems.length) {

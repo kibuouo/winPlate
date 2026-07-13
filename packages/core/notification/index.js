@@ -15,6 +15,12 @@ const SOURCE_ALIASES = {
 const VALID_LEVELS = new Set(["info", "success", "warning", "critical"]);
 const WEATHER_RESOLVED_RE = /解除|取消|撤销|终止|结束|失效|expired|cancel(?:led|ed)?|resolved|cleared/i;
 const WEATHER_UPGRADED_RE = /升级|提升为|升为|upgrade/i;
+const {
+  FOUR_HOURS_MS,
+  conversationForNotificationId,
+  foldNotificationConversations,
+  normalizedConversationTitle
+} = require("./conversations");
 
 function trimId(value, limit = 180) {
   return String(value || "").trim().slice(0, limit);
@@ -182,9 +188,13 @@ function createNotificationStore({ loadNotifications, now = () => Date.now() }) 
 }
 
 module.exports = {
+  FOUR_HOURS_MS,
   createNotificationStore,
   buildCopyText,
+  conversationForNotificationId,
+  foldNotificationConversations,
   getActionsForNotification,
+  normalizedConversationTitle,
   normalizeLevel,
   normalizeRawNotification,
   normalizeSource,

@@ -11,7 +11,7 @@
     "./notification/smart-icon-keys": "./notification/smart-icon-keys.js"
   },
   "scripts": {
-    "test": "node --test architecture.test.js digest/digestEngine.test.js module-registry/moduleRegistry.test.js"
+    "test": "node --test architecture.test.js digest/digestEngine.test.js module-registry/moduleRegistry.test.js notification/conversations.test.js"
   },
   "dependencies": {
     "@winplate/icons": "0.2.0"
