@@ -40,6 +40,7 @@ function foldNotificationConversations(items, { continuityMs = FOUR_HOURS_MS } =
       conversationKey: key || null,
       memberIds: updates.map((item) => item.id),
       updateCount: updates.length,
+      unread: updates.some((item) => item?.unread),
       updates
     };
   });

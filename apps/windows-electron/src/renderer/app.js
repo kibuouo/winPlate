@@ -916,12 +916,12 @@ function quotaStatusLamp(percent) {
 }
 
 function normalizedNotifications(summary = notificationSummary) {
-  const items = Array.isArray(summary.items) ? summary.items : [];
+  const items = Array.isArray(summary?.items) ? summary.items : [];
   return {
     items,
-    latest: summary.latest || items[0] || null,
-    unreadCount: Math.max(0, Number(summary.unreadCount) || 0),
-    updatedAt: summary.updatedAt || null
+    latest: summary?.latest || items[0] || null,
+    unreadCount: Math.max(0, Number(summary?.unreadCount) || 0),
+    updatedAt: summary?.updatedAt || null
   };
 }
 
@@ -1016,6 +1016,26 @@ function absoluteTimeLabel(value) {
 
 function notificationItemsForDigest() {
   return normalizedNotifications().items;
+}
+
+function notificationConversations() {
+  const items = notificationItemsForDigest();
+  return typeof window.winplate?.foldNotificationConversations === "function"
+    ? window.winplate.foldNotificationConversations(items)
+    : items;
+}
+
+function notificationConversationForId(id) {
+  const conversations = notificationConversations();
+  const resolved = window.winplate?.conversationForNotificationId?.(conversations, id);
+  return resolved || conversations.find((item) => String(item.id) === String(id)) || null;
+}
+
+function unreadConversationMemberIds(conversation) {
+  const rawById = new Map(notificationItemsForDigest().map((item) => [String(item.id), item]));
+  return (Array.isArray(conversation?.memberIds) ? conversation.memberIds : [conversation?.id])
+    .map(String)
+    .filter((id) => rawById.get(id)?.unread);
 }
 
 function notificationSourceLabel(source) {
@@ -2594,7 +2614,8 @@ function mailContent() {
 
 function notificationContent() {
   const summary = normalizedNotifications();
-  const items = notificationItemsForDigest();
+  const items = notificationConversations();
+  const unreadCount = items.filter((item) => item.unread).length;
   const filteredItems = window.WinPlateNotificationDigest.filterNotificationItems(items, notificationFilters);
   const sourceCounts = window.WinPlateNotificationDigest.notificationSourceCounts(items);
   const sourceChips = [{ source: "all", count: items.length }, ...sourceCounts].map(({ source, count }) => `
@@ -2609,15 +2630,15 @@ function notificationContent() {
     sourceIcon: (source) => window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source)),
     levelLabel: notificationLevelLabel,
     relativeTime: relativeUpdatedAt,
-    inlineDetail: () => notificationInlineDetail()
+    inlineDetail: (conversation) => notificationInlineDetail(conversation)
   });
   return `
     <section class="notifications-page" data-module-id="notifications" ${moduleHealthAttributes("notifications")}>
       <div class="notifications-page-heading">
         <div><p>NOTIFICATIONS</p><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示。</span></div>
         <div class="notification-actions">
-          <strong class="notification-unread-count">${summary.unreadCount} 未读</strong>
-          <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${summary.unreadCount ? "" : "disabled"}>全部标记已读</button>
+          <strong class="notification-unread-count">${unreadCount} 未读</strong>
+          <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${unreadCount ? "" : "disabled"}>全部标记已读</button>
           <button class="notification-clear-button" id="clear-read-notifications" type="button" ${items.some((item) => !item.unread) ? "" : "disabled"}>清空已读</button>
           <button class="notification-test-button" id="push-test-notification" type="button">测试通知</button>
         </div>
@@ -2630,7 +2651,7 @@ function notificationContent() {
     </section>`;
 }
 
-function notificationInlineDetail() {
+function notificationInlineDetail(conversation = notificationConversationForId(notificationSelection.id)) {
   const payload = notificationSelection.data || {};
   const detail = payload.detail || {};
   const notification = payload.notification || {};
@@ -2649,8 +2670,12 @@ function notificationInlineDetail() {
           : notification.unread ? "标记已读" : "已读"
       }))
     : [];
+  const updates = Number(conversation?.updateCount) > 1 && Array.isArray(conversation?.updates)
+    ? `<section class="notification-conversation-updates" aria-label="本轮更新"><strong>本轮更新</strong><ol>${conversation.updates.map((item) => `<li><time>${escapeHtml(absoluteTimeLabel(item.createdAt))}</time><p>${escapeHtml(item.body || item.message || item.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></li>`).join("")}</ol></section>`
+    : "";
   return `<section class="notification-inline-summary" aria-label="通知摘要">
     <div class="notification-inline-summary-body">${body}</div>
+    ${updates}
     ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
     ${actions.length ? `<footer class="notification-inline-summary-actions">${actions.map(notificationActionButton).join("")}</footer>` : ""}
   </section>`;
@@ -3605,7 +3630,8 @@ async function copyTextToClipboard(text) {
 }
 
 async function openNotificationDetail(notificationId) {
-  const id = String(notificationId || "").trim();
+  const conversation = notificationConversationForId(notificationId);
+  const id = String(conversation?.id || notificationId || "").trim();
   if (!id) return;
   notificationDrawerState = { ...notificationDrawerState, open: true, mode: "detail" };
   notificationDetail = { open: true, loading: true, id, data: null, error: "" };
@@ -3615,9 +3641,9 @@ async function openNotificationDetail(notificationId) {
   try {
     const payload = await window.winplate.getNotificationDetail(id);
     notificationDetail = { open: true, loading: false, id, data: payload, error: "" };
-    if (payload?.notification?.unread) {
+    if (conversation?.unread || payload?.notification?.unread) {
       try {
-        await markNotificationRead(id, { feedback: "已标记为已读" });
+        await markConversationRead(conversation || payload?.notification, { feedback: "已标记为已读" });
       } catch (error) {
         console.warn("Failed to mark opened notification read:", error);
         notificationActionFeedback = "已查看，但标记已读失败";
@@ -3637,7 +3663,8 @@ async function openNotificationDetail(notificationId) {
 }
 
 async function selectNotification(id) {
-  const safeId = String(id || "").trim();
+  const conversation = notificationConversationForId(id);
+  const safeId = String(conversation?.id || id || "").trim();
   if (!safeId) return;
   notificationSelection = { id: safeId, loading: true, data: null, error: "" };
   notificationActionFeedback = "";
@@ -3645,7 +3672,7 @@ async function selectNotification(id) {
   try {
     const payload = await window.winplate.getNotificationDetail(safeId);
     notificationSelection = { id: safeId, loading: false, data: payload, error: "" };
-    if (payload?.notification?.unread) await markNotificationRead(safeId, { feedback: "" });
+    if (conversation?.unread || payload?.notification?.unread) await markConversationRead(conversation || payload?.notification, { feedback: "" });
   } catch (error) {
     notificationSelection = { id: safeId, loading: false, data: null, error: error.message || "通知详情加载失败" };
   }
@@ -3726,6 +3753,45 @@ async function markNotificationRead(notificationId, options = null) {
   if (notificationDrawerState.mode === "list") focusNotificationDrawerControl(".notification-detail-close");
 }
 
+function markDetailRead(payload, ids) {
+  if (!payload?.notification || !ids.includes(String(payload.notification.id))) return payload;
+  return {
+    ...payload,
+    notification: { ...payload.notification, unread: false },
+    actions: (payload.actions || []).map((entry) => (
+      entry.type === "markRead" ? { ...entry, label: "已读" } : entry
+    ))
+  };
+}
+
+async function markConversationRead(conversation, options = null) {
+  const { returnToList = false, feedback = "已标记为已读" } = options || {};
+  const unreadIds = unreadConversationMemberIds(conversation);
+  if (!unreadIds.length) {
+    notificationActionFeedback = feedback;
+    const representedItems = window.WinPlateNotificationDigest.selectDigestItems(
+      notificationDigest,
+      notificationItemsForDigest()
+    );
+    if (returnToList && representedItems.length) showNotificationDrawerList();
+    updateMainStatusDom();
+    if (notificationDrawerState.mode === "list") focusNotificationDrawerControl(".notification-detail-close");
+    return;
+  }
+  if (unreadIds.length <= 1 || typeof window.winplate?.markNotificationsRead !== "function") {
+    return markNotificationRead(conversation?.id || unreadIds[0], options);
+  }
+  notificationSummary = await window.winplate.markNotificationsRead(unreadIds);
+  notificationDetail = { ...notificationDetail, data: markDetailRead(notificationDetail.data, unreadIds) };
+  notificationSelection = { ...notificationSelection, data: markDetailRead(notificationSelection.data, unreadIds) };
+  if (typeof updateNotificationAcknowledgement === "function") updateNotificationAcknowledgement();
+  await hydrateNotificationDigest();
+  notificationActionFeedback = feedback;
+  if (returnToList) showNotificationDrawerList();
+  updateMainStatusDom();
+  if (notificationDrawerState.mode === "list") focusNotificationDrawerControl(".notification-detail-close");
+}
+
 async function handleNotificationAction(actionId) {
   const activeDetail = (typeof notificationSelection !== "undefined" && notificationSelection.data) || notificationDetail.data;
   const actions = Array.isArray(activeDetail?.actions) ? activeDetail.actions : [];
@@ -3737,8 +3803,8 @@ async function handleNotificationAction(actionId) {
     return;
   }
   if (action.type === "markRead") {
-    await markNotificationRead(
-      action.payload?.notificationId || (typeof notificationSelection !== "undefined" ? notificationSelection.id : null) || notificationDetail.id,
+    await markConversationRead(
+      notificationConversationForId(action.payload?.notificationId || (typeof notificationSelection !== "undefined" ? notificationSelection.id : null) || notificationDetail.id),
       { returnToList: true }
     );
     return;

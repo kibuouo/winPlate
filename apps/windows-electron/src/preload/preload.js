@@ -1,4 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const {
+  conversationForNotificationId,
+  foldNotificationConversations
+} = require("@winplate/core/notification");
 
 const platform = ["darwin", "win32"].includes(process.platform)
   ? process.platform
@@ -35,6 +39,8 @@ contextBridge.exposeInMainWorld("winplate", {
   "email:read-message": (uid) => ipcRenderer.invoke("email:read-message", uid),
   openMail: () => ipcRenderer.invoke("mail:open"),
   getNotifications: () => ipcRenderer.invoke("notifications:get"),
+  foldNotificationConversations: (items) => foldNotificationConversations(items),
+  conversationForNotificationId: (conversations, id) => conversationForNotificationId(conversations, id),
   getNotificationDigest: () => ipcRenderer.invoke("notification:get-digest"),
   getNotificationDetail: (id) => ipcRenderer.invoke("notifications:get-detail", id),
   navigateNotification: (action) => ipcRenderer.invoke("notifications:navigate", action),

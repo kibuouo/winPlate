@@ -83,6 +83,9 @@ function loadMainPreloadBridge(platform) {
   vm.runInNewContext(preload, {
     process: { platform },
     require(moduleName) {
+      if (moduleName === "@winplate/core/notification") {
+        return require("@winplate/core/notification");
+      }
       assert.equal(moduleName, "electron");
       return {
         contextBridge: {
@@ -422,7 +425,11 @@ function createNotificationDrawerHarness({ detailResponses = [], markReadSummary
     let notificationActionFeedback = "";
     let notificationActionInFlight = false;
     const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-    const notificationItemsForDigest = () => notificationSummary.items;
+    ${extractNamedFunction(renderer, "normalizedNotifications")}
+    ${extractNamedFunction(renderer, "notificationItemsForDigest")}
+    ${extractNamedFunction(renderer, "notificationConversations")}
+    ${extractNamedFunction(renderer, "notificationConversationForId")}
+    ${extractNamedFunction(renderer, "unreadConversationMemberIds")}
     const notificationSourceLabel = (value) => value;
     const relativeUpdatedAt = () => "刚刚";
     const absoluteTimeLabel = String;
@@ -439,6 +446,8 @@ function createNotificationDrawerHarness({ detailResponses = [], markReadSummary
     ${extractNamedFunction(renderer, "closeNotificationDetail")}
     ${closeDrawerSource}
     ${extractNamedFunction(renderer, "markNotificationRead")}
+    ${extractNamedFunction(renderer, "markDetailRead")}
+    ${extractNamedFunction(renderer, "markConversationRead")}
     ${extractNamedFunction(renderer, "handleNotificationAction")}
     ${extractNamedFunction(renderer, "handleNotificationPageKeydown")}
     ${extractNamedFunction(renderer, "handleNotificationPageClick")}
@@ -1611,6 +1620,32 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   assert.match(html, /class="notification-source-icon source-github" aria-hidden="true"><i data-icon="github"><\/i><\/span>/);
 });
 
+test("notification timeline renders a folded conversation count and one selectable row", () => {
+  const api = loadNotificationDigestComponent();
+  const html = api.renderNotificationTimeline([{
+    id: "codex:new",
+    source: "codex",
+    title: "精简测试",
+    body: "latest",
+    level: "success",
+    unread: true,
+    createdAt: Date.parse("2026-07-13T12:00:00"),
+    updateCount: 2,
+    memberIds: ["codex:new", "codex:old"],
+    updates: [
+      { id: "codex:new", body: "latest" },
+      { id: "codex:old", body: "<script>" }
+    ]
+  }], {
+    selectedId: "codex:new",
+    inlineDetail: () => "<section>detail</section>"
+  });
+
+  assert.match(html, /2 条更新/);
+  assert.equal((html.match(/data-notification-select=/g) || []).length, 1);
+  assert.doesNotMatch(html, /<script>/);
+});
+
 test("notification page uses source chips and an inline selected detail instead of a workspace", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const page = renderer.slice(renderer.indexOf("function notificationContent"), renderer.indexOf("function updateNotificationAcknowledgement"));
@@ -1636,6 +1671,20 @@ test("notification inline detail keeps only concise content and safe row actions
   assert.match(inline, /action\.type === "navigate"\s*\?\s*"打开来源"/);
   assert.doesNotMatch(inline, /notification-detail-meta/);
   assert.doesNotMatch(inline, /<h2>/);
+});
+
+test("notification page derives folded conversations and marks every unread child together", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const notificationPage = renderer.slice(renderer.indexOf("function notificationContent"), renderer.indexOf("function updateNotificationAcknowledgement"));
+
+  assert.match(renderer, /function notificationConversations\(\)/);
+  assert.match(renderer, /function notificationConversationForId\(id\)/);
+  assert.match(renderer, /markNotificationsRead\(/);
+  assert.match(notificationPage, /notificationConversations\(\)/);
+  assert.match(renderer, /notification-conversation-updates/);
+  assert.match(preload, /foldNotificationConversations: \(items\) => foldNotificationConversations\(items\)/);
+  assert.match(preload, /conversationForNotificationId: \(conversations, id\) => conversationForNotificationId\(conversations, id\)/);
 });
 
 test("Codex surfaces use the shared official icon body", () => {

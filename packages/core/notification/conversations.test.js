@@ -32,6 +32,15 @@ test("keeps unmatched sources, blank titles, and gaps beyond four hours separate
   assert.equal(conversations.length, 5);
 });
 
+test("keeps a conversation unread while any older reply remains unread", () => {
+  const [conversation] = foldNotificationConversations([
+    { id: "codex:new", source: "codex", title: "精简测试", unread: false, createdAt: 2_000 },
+    { id: "codex:old", source: "codex", title: "精简测试", unread: true, createdAt: 1_000 }
+  ]);
+
+  assert.equal(conversation.unread, true);
+});
+
 test("digest counts one unread conversation for multiple Codex replies", () => {
   const digest = createLocalDigest([
     { id: "codex:1", source: "codex", title: "精简测试", body: "first", level: "info", unread: true, createdAt: 1_000, meta: {} },
