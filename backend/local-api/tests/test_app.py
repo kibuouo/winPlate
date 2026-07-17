@@ -982,6 +982,28 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(summary["unreadCount"], 0)
         main.DATABASE_PATH = original_path
 
+    def test_notification_summary_returns_latest_fifty_items_by_default(self):
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                main.DATABASE_PATH = Path(directory) / "test.db"
+                main.initialize_database()
+                for index in range(55):
+                    main.upsert_notification(
+                        notification_id=f"codex:{index}",
+                        source="codex",
+                        title=f"Task {index}",
+                        created_at=index + 1,
+                    )
+
+                summary = main.get_notifications()
+
+            self.assertEqual(len(summary["items"]), 50)
+            self.assertEqual(summary["items"][0]["id"], "codex:54")
+            self.assertEqual(summary["items"][-1]["id"], "codex:5")
+        finally:
+            main.DATABASE_PATH = original_path
+
     def test_persist_notification_digest_record_stores_time_and_content(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:

@@ -785,9 +785,9 @@ def sync_openai_desktop_notifications(limit: int = 80) -> None:
         connection.commit()
 
 
-def notification_summary(limit: int = 20) -> dict:
+def notification_summary(limit: int = 50) -> dict:
     sync_openai_desktop_notifications()
-    safe_limit = max(1, min(50, int(limit or 20)))
+    safe_limit = max(1, min(50, int(limit or 50)))
     with closing(connect()) as connection:
         rows = connection.execute(
             """
@@ -2590,7 +2590,7 @@ def get_mail_message_detail(uid: str) -> dict:
 
 
 @api.get("/api/notifications")
-def get_notifications(limit: int = 20) -> dict:
+def get_notifications(limit: int = 50) -> dict:
     return notification_summary(limit)
 
 

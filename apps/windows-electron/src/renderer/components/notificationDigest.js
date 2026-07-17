@@ -149,7 +149,7 @@
   }
 
   function renderNotificationTimeline(items, {
-    selectedId = null, sourceLabel, sourceIcon, levelLabel, relativeTime,
+    selectedId = null, sourceLabel, sourceIcon, levelLabel, absoluteTime, relativeTime,
     inlineDetail = () => "", now = new Date()
   } = {}) {
     const groups = groupNotificationItemsByDate(items, now);
@@ -166,11 +166,10 @@
               <i class="notification-timeline-dot" aria-hidden="true"></i>
               <span class="notification-source-icon source-${escapeHtml(item.source || "system")}" aria-hidden="true">${sourceIcon?.(item.source) || ""}</span>
               <span class="notification-timeline-main">
-                <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
                 <span class="notification-timeline-title"><strong>${escapeHtml(item.title || "通知")}</strong>${Number(item.updateCount) > 1 ? `<em class="notification-update-count">${Math.max(2, Number(item.updateCount))} 条更新</em>` : ""}${item.unread ? '<em class="unread-badge">未读</em>' : ""}</span>
-                <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
+                <p><span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
               </span>
-              <span class="notification-timeline-meta"><time>${escapeHtml(relativeTime?.(item.createdAt) || "")}</time><span>${escapeHtml(levelLabel?.(item.level) || item.level || "信息")}</span></span>
+              <span class="notification-timeline-meta"><time class="notification-time-absolute">${escapeHtml(absoluteTime?.(item.createdAt) || "")}</time><time class="notification-time-relative">${escapeHtml(relativeTime?.(item.createdAt) || "")}</time><span>${escapeHtml(levelLabel?.(item.level) || item.level || "信息")}</span></span>
             </button>
             ${selected ? inlineDetail(item) : ""}
           </article>`;

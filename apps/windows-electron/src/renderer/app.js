@@ -38,6 +38,8 @@ let applicationSettings = {
 };
 let applicationSettingsBusy = false;
 const boundApplicationSettingsControls = new WeakSet();
+let activeSettingsSection = "settings-appearance";
+let activeSettingsService = "settings-github";
 let currentSection = "Dashboard";
 let floatingPinned = false;
 let systemClockTimer = null;
@@ -387,10 +389,8 @@ function themeSelector() {
 function settingsSidebarContent() {
   const items = [
     ["settings-appearance", "外观"],
-    ["settings-general", "通用与模块"],
-    ["settings-weather", "天气"],
-    ["settings-deepseek", "DeepSeek"],
-    ["settings-mail", "QQ 邮箱"],
+    ["settings-general", "工作区"],
+    ["settings-services", "连接服务"],
     ["settings-application", "应用"]
   ].filter(([id]) => isMac || id !== "settings-application");
   return `
@@ -398,12 +398,13 @@ function settingsSidebarContent() {
       <button class="settings-back" data-section="Dashboard" type="button">← 返回应用</button>
       <label class="settings-search">
         <span aria-hidden="true">⌕</span>
-        <input id="settings-search" type="search" placeholder="搜索设置..." autocomplete="off">
+        <input id="settings-search" type="search" placeholder="搜索并定位设置..." autocomplete="off">
       </label>
+      <small class="settings-search-feedback" id="settings-search-feedback" aria-live="polite"></small>
     </div>
     <nav class="settings-nav" aria-label="设置分类">
       <p>设置</p>
-      ${items.map(([id, label], index) => `<button class="${index === 0 ? "active" : ""}" data-settings-target="${id}" type="button">${label}</button>`).join("")}
+      ${items.map(([id, label]) => `<button class="${activeSettingsSection === id ? "active" : ""}" data-settings-target="${id}" type="button">${label}</button>`).join("")}
     </nav>`;
 }
 
@@ -411,25 +412,68 @@ function bindSettingsNavigation() {
   const search = document.querySelector("#settings-search");
   const sections = [...document.querySelectorAll(".settings-page [data-settings-section]")];
   const buttons = [...document.querySelectorAll("[data-settings-target]")];
+  const serviceSections = [...document.querySelectorAll("[data-settings-service]")];
+  const serviceButtons = [...document.querySelectorAll("[data-settings-service-target]")];
+  const feedback = document.querySelector("#settings-search-feedback");
   if (!search || !sections.length) return;
 
-  const setActive = (target) => {
+  const showService = (target) => {
+    if (!serviceSections.some((section) => section.id === target)) return;
+    activeSettingsService = target;
+    serviceSections.forEach((section) => { section.hidden = section.id !== target; });
+    serviceButtons.forEach((button) => {
+      const active = button.dataset.settingsServiceTarget === target;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+  };
+  const showSection = (target, { scroll = true } = {}) => {
+    if (!sections.some((section) => section.id === target)) return;
+    activeSettingsSection = target;
+    sections.forEach((section) => { section.hidden = section.id !== target; });
     buttons.forEach((button) => button.classList.toggle("active", button.dataset.settingsTarget === target));
+    if (target === "settings-services") showService(activeSettingsService);
+    if (scroll) document.querySelector(".main-content")?.scrollTo({ top: 0, behavior: "smooth" });
   };
   buttons.forEach((button) => {
     button.onclick = () => {
-      const section = document.getElementById(button.dataset.settingsTarget);
-      if (!section) return;
-      setActive(button.dataset.settingsTarget);
-      section.scrollIntoView({ behavior: "smooth", block: "start" });
+      search.value = "";
+      if (feedback) feedback.textContent = "";
+      showSection(button.dataset.settingsTarget);
+    };
+  });
+  serviceButtons.forEach((button) => {
+    button.onclick = () => {
+      search.value = "";
+      if (feedback) feedback.textContent = "";
+      showService(button.dataset.settingsServiceTarget);
+      document.querySelector(".main-content")?.scrollTo({ top: 0, behavior: "smooth" });
     };
   });
   search.oninput = () => {
     const query = search.value.trim().toLocaleLowerCase();
-    sections.forEach((section) => {
-      section.classList.toggle("is-filtered-out", Boolean(query) && !section.textContent.toLocaleLowerCase().includes(query));
-    });
+    if (!query) {
+      if (feedback) feedback.textContent = "";
+      showSection(activeSettingsSection, { scroll: false });
+      return;
+    }
+    const serviceMatch = serviceSections.find((section) => section.textContent.toLocaleLowerCase().includes(query));
+    if (serviceMatch) {
+      showSection("settings-services");
+      showService(serviceMatch.id);
+      if (feedback) feedback.textContent = `已定位到${serviceMatch.dataset.settingsServiceLabel || "连接服务"}`;
+      return;
+    }
+    const sectionMatch = sections.find((section) => section.textContent.toLocaleLowerCase().includes(query));
+    if (sectionMatch) {
+      showSection(sectionMatch.id);
+      if (feedback) feedback.textContent = `已定位到${sectionMatch.dataset.settingsLabel || "相关设置"}`;
+      return;
+    }
+    if (feedback) feedback.textContent = "没有找到相关设置";
   };
+  showSection(activeSettingsSection, { scroll: false });
+  showService(activeSettingsService);
 }
 
 function bindThemeControls() {
@@ -440,41 +484,22 @@ function bindThemeControls() {
   });
 }
 
+function updateSettingsServiceStatus(service, text) {
+  const status = document.querySelector(`[data-settings-service-status="${service}"]`);
+  if (status) status.textContent = text;
+}
+
 function productSettingsPanel() {
-  const github = appSettings.integrations.github || {};
   const digest = appSettings.notificationDigest || {};
   const ordered = window.WinPlateModuleRegistry.orderedModules(appSettings.modules.order);
   return `
     <form class="settings-panel product-settings-panel" id="product-settings-form">
       <fieldset>
-        <legend><strong>界面密度</strong><small>设置页面始终使用实体背景，避免内容与桌面叠色</small></legend>
-        <label>
-          <span><strong>布局密度</strong><small>紧凑模式减少卡片留白</small></span>
-          <select id="window-density">
-            <option value="comfortable" ${appSettings.appearance.density === "comfortable" ? "selected" : ""}>舒展</option>
-            <option value="compact" ${appSettings.appearance.density === "compact" ? "selected" : ""}>紧凑</option>
-          </select>
-        </label>
-      </fieldset>
-      <fieldset>
-        <legend><strong>GitHub</strong><small>Token 留空时保持现有值，不会回显到页面</small></legend>
-        <label>
-          <span><strong>用户名</strong><small>保存后立即刷新 GitHub 模块</small></span>
-          <input id="github-username" type="text" autocomplete="off" value="${escapeHtml(github.username || "kibuouo")}">
-        </label>
-        <label>
-          <span><strong>Personal access token</strong><small>${github.hasToken ? "已配置" : "未配置"}</small></span>
-          <input id="github-token" type="password" autocomplete="off" placeholder="${github.hasToken ? "已配置，留空保持不变" : "可选"}">
-        </label>
-      </fieldset>
-      <fieldset>
-        <legend><strong>模块管理</strong><small>禁用模块会隐藏界面并停止自动刷新</small></legend>
+        <legend><strong>显示模块</strong><small>关闭后会从界面隐藏，并停止对应的自动刷新</small></legend>
         <div class="module-settings-list">
-          ${ordered.map((module, index) => `
+          ${ordered.map((module) => `
             <div class="module-settings-row" data-module-setting="${module.id}">
-              <label class="module-enabled"><input type="checkbox" data-module-enabled ${moduleEnabled(module.id) ? "checked" : ""}><span><strong>${module.title}</strong><small>${module.views.join(" · ")}</small></span></label>
-              <label><span>顺序</span><input type="number" min="1" max="${ordered.length}" value="${index + 1}" data-module-order></label>
-              <label><span>刷新（秒）</span><input type="number" min="${module.minRefreshSeconds}" max="${module.maxRefreshSeconds}" value="${moduleRefreshSeconds(module.id)}" data-module-refresh></label>
+              <label class="module-enabled"><span><strong>${module.title}</strong><small>${module.views.join(" · ")}</small></span><input type="checkbox" data-module-enabled ${moduleEnabled(module.id) ? "checked" : ""}></label>
             </div>`).join("")}
         </div>
       </fieldset>
@@ -487,9 +512,30 @@ function productSettingsPanel() {
       </fieldset>
       <div class="product-settings-actions">
         <small id="product-settings-status">配置保存在当前 Windows 用户目录</small>
-        <button type="submit">保存通用设置</button>
+        <button type="submit">保存工作区设置</button>
       </div>
     </form>`;
+}
+
+function githubSettingsPanel() {
+  const github = appSettings.integrations.github || {};
+  return `<form class="settings-panel weather-settings-panel" id="github-settings-form">
+    <fieldset>
+      <legend><strong>GitHub</strong><small>用于读取个人资料和贡献数据</small></legend>
+      <label>
+        <span><strong>用户名</strong><small>保存后立即刷新 GitHub 模块</small></span>
+        <input id="github-username" type="text" autocomplete="off" value="${escapeHtml(github.username || "kibuouo")}">
+      </label>
+      <label>
+        <span><strong>Personal access token</strong><small>${github.hasToken ? "已配置，留空保持不变" : "可选"}</small></span>
+        <input id="github-token" type="password" autocomplete="off" placeholder="${github.hasToken ? "已配置，留空保持不变" : "可选"}">
+      </label>
+    </fieldset>
+    <div class="weather-settings-actions">
+      <small id="github-settings-status" class="${github.hasToken ? "configured" : ""}">GitHub：${github.hasToken ? "已配置" : "使用公开数据"}</small>
+      <button type="submit">保存连接</button>
+    </div>
+  </form>`;
 }
 
 function bindProductSettings() {
@@ -502,33 +548,13 @@ function bindProductSettings() {
     button.disabled = true;
     status.textContent = "正在保存...";
     const rows = [...form.querySelectorAll("[data-module-setting]")];
-    const order = rows
-      .map((row) => ({ id: row.dataset.moduleSetting, order: Number(row.querySelector("[data-module-order]").value) }))
-      .sort((left, right) => left.order - right.order)
-      .map((item) => item.id);
     const enabled = Object.fromEntries(rows.map((row) => [
       row.dataset.moduleSetting,
       row.querySelector("[data-module-enabled]").checked
     ]));
-    const refreshSeconds = Object.fromEntries(rows.map((row) => [
-      row.dataset.moduleSetting,
-      Number(row.querySelector("[data-module-refresh]").value)
-    ]));
     const nextSettings = {
       ...appSettings,
-      appearance: {
-        ...appSettings.appearance,
-        opacity: appSettings.appearance.opacity,
-        density: form.querySelector("#window-density").value
-      },
-      modules: { enabled, order, refreshSeconds },
-      integrations: {
-        ...appSettings.integrations,
-        github: {
-          username: form.querySelector("#github-username").value.trim(),
-          token: form.querySelector("#github-token").value.trim()
-        }
-      },
+      modules: { ...appSettings.modules, enabled },
       notificationDigest: {
         enabled: form.querySelector("#notification-ai-enabled").checked
       }
@@ -540,18 +566,49 @@ function bindProductSettings() {
       applyMainTheme();
       configureRefreshTasks();
       status.textContent = "已保存并应用";
+      status.className = "";
       currentSection = moduleEnabled("github") || moduleEnabled("codex") ? currentSection : "Dashboard";
-      refreshController.refresh("github", { force: true, reason: "settings" }).catch(() => {});
     } catch (error) {
       status.textContent = error.message || "保存失败";
       status.className = "error";
+    } finally {
       button.disabled = false;
     }
   };
 }
 
-function hasOfficialWeatherSettings(settings = weatherSettings) {
-  return Boolean(settings.projectId && settings.credentialId && settings.hasPrivateKey);
+function bindGithubSettings() {
+  const form = document.querySelector("#github-settings-form");
+  if (!form) return;
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const status = form.querySelector("#github-settings-status");
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    status.textContent = "GitHub：正在保存...";
+    try {
+      appSettings = await window.winplate.saveSettings({
+        ...appSettings,
+        integrations: {
+          ...appSettings.integrations,
+          github: {
+            username: form.querySelector("#github-username").value.trim(),
+            token: form.querySelector("#github-token").value.trim()
+          }
+        }
+      });
+      form.querySelector("#github-token").value = "";
+      updateSettingsServiceStatus("github", appSettings.integrations.github?.hasToken ? "已配置" : "公开数据");
+      status.textContent = "GitHub：已保存";
+      status.className = "configured";
+      refreshController.refresh("github", { force: true, reason: "settings" }).catch(() => {});
+    } catch (error) {
+      status.textContent = `GitHub：${error.message || "保存失败"}`;
+      status.className = "error";
+    } finally {
+      button.disabled = false;
+    }
+  };
 }
 
 function weatherLocationSourceLabel(source) {
@@ -573,9 +630,8 @@ function relativeWeatherLocationTime(updatedAt) {
   return hours < 24 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
 }
 
-function updateWeatherSettingsStatuses(form, serviceState, officialState) {
+function updateWeatherSettingsStatus(form, serviceState) {
   const serviceStatus = form.querySelector("#weather-service-status");
-  const officialStatus = form.querySelector("#weather-official-status");
   const states = {
     configured: ["已配置", "configured"],
     unconfigured: ["未配置", ""],
@@ -590,7 +646,6 @@ function updateWeatherSettingsStatuses(form, serviceState, officialState) {
     element.className = className;
   };
   applyState(serviceStatus, "天气服务", serviceState);
-  applyState(officialStatus, "官方统计", officialState);
 }
 
 async function bindWeatherSettings() {
@@ -598,55 +653,37 @@ async function bindWeatherSettings() {
   if (!form) return;
   const keyInput = form.querySelector("#qweather-api-key");
   const hostInput = form.querySelector("#qweather-api-host");
-  const projectInput = form.querySelector("#qweather-project-id");
-  const credentialInput = form.querySelector("#qweather-credential-id");
-  const privateKeyInput = form.querySelector("#qweather-private-key");
   const saveButton = form.querySelector("button[type='submit']");
   try {
     weatherSettings = await window.winplate.getWeatherSettings();
     hostInput.value = weatherSettings.apiHost;
-    projectInput.value = weatherSettings.projectId || "";
-    credentialInput.value = weatherSettings.credentialId || "";
     keyInput.placeholder = weatherSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
-    privateKeyInput.placeholder = weatherSettings.hasPrivateKey ? "已配置，留空则保持不变" : "粘贴 Ed25519 私钥";
-    updateWeatherSettingsStatuses(
-      form,
-      weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured",
-      qweatherOfficialStatus || (hasOfficialWeatherSettings() ? "configured" : "unconfigured")
-    );
+    updateSettingsServiceStatus("weather", weatherSettings.hasApiKey ? "已配置" : "未配置");
+    updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
   } catch (error) {
-    updateWeatherSettingsStatuses(form, "readFailed", "readFailed");
+    updateSettingsServiceStatus("weather", "读取失败");
+    updateWeatherSettingsStatus(form, "readFailed");
   }
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     saveButton.disabled = true;
-    updateWeatherSettingsStatuses(form, "saving", "saving");
+    updateWeatherSettingsStatus(form, "saving");
     try {
       weatherSettings = await window.winplate.saveWeatherSettings({
         apiKey: keyInput.value,
         apiHost: hostInput.value,
-        projectId: projectInput.value,
-        credentialId: credentialInput.value,
-        privateKey: privateKeyInput.value
+        projectId: weatherSettings.projectId || "",
+        credentialId: weatherSettings.credentialId || ""
       });
       keyInput.value = "";
-      privateKeyInput.value = "";
       keyInput.placeholder = "已配置，留空则保持不变";
-      privateKeyInput.placeholder = weatherSettings.hasPrivateKey ? "已配置，留空则保持不变" : "粘贴 Ed25519 私钥";
+      updateSettingsServiceStatus("weather", weatherSettings.hasApiKey ? "已配置" : "未配置");
       qweatherOfficialStatus = null;
-      updateWeatherSettingsStatuses(
-        form,
-        weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured",
-        hasOfficialWeatherSettings() ? "configured" : "unconfigured"
-      );
+      updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
       locationWeatherPromise = null;
       refreshStatus();
     } catch (error) {
-      updateWeatherSettingsStatuses(
-        form,
-        weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured",
-        qweatherOfficialStatus || (hasOfficialWeatherSettings() ? "configured" : "unconfigured")
-      );
+      updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
     } finally {
       saveButton.disabled = false;
     }
@@ -768,7 +805,6 @@ async function bindDeepSeekSettings() {
   const form = document.querySelector("#deepseek-settings-form");
   if (!form) return;
   const keyInput = form.querySelector("#deepseek-api-key");
-  const baseUrlInput = form.querySelector("#deepseek-base-url");
   const status = form.querySelector("#deepseek-settings-status");
   const chatStatus = form.querySelector("#deepseek-chat-status");
   const button = form.querySelector("button[type='submit']");
@@ -784,11 +820,12 @@ async function bindDeepSeekSettings() {
   };
   try {
     deepseekSettings = await window.winplate.getDeepSeekSettings();
-    baseUrlInput.value = deepseekSettings.baseUrl;
     keyInput.placeholder = deepseekSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
+    updateSettingsServiceStatus("deepseek", deepseekSettings.hasApiKey ? "已配置" : "未配置");
     setStatus(deepseekSettings.hasApiKey ? "已配置" : "未配置", deepseekSettings.hasApiKey ? "configured" : "");
     setChatStatus(deepseekSettings.hasApiKey ? "可测试" : "未配置", deepseekSettings.hasApiKey ? "" : "error");
   } catch {
+    updateSettingsServiceStatus("deepseek", "读取失败");
     setStatus("读取失败", "error");
     setChatStatus("读取失败", "error");
   }
@@ -813,10 +850,11 @@ async function bindDeepSeekSettings() {
     try {
       deepseekSettings = await window.winplate.saveDeepSeekSettings({
         apiKey: keyInput.value,
-        baseUrl: baseUrlInput.value
+        baseUrl: deepseekSettings.baseUrl
       });
       keyInput.value = "";
       keyInput.placeholder = "已配置，留空则保持不变";
+      updateSettingsServiceStatus("deepseek", deepseekSettings.hasApiKey ? "已配置" : "未配置");
       statusData.deepseek = await window.winplate.getDeepSeekUsage({ force: true });
       setStatus(
         statusData.deepseek.status === "Normal" ? "已配置，余额读取正常" : "已保存，余额暂不可用",
@@ -1014,6 +1052,16 @@ function absoluteTimeLabel(value) {
   }).format(new Date(timestamp));
 }
 
+function notificationClockLabel(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(timestamp));
+}
+
 function notificationItemsForDigest() {
   return normalizedNotifications().items;
 }
@@ -1040,7 +1088,7 @@ function unreadConversationMemberIds(conversation) {
 
 function notificationSourceLabel(source) {
   return {
-    mail: "Mail",
+    mail: "邮件",
     qweather: "QWeather",
     codex: "Codex",
     chatgpt: "ChatGPT",
@@ -2131,17 +2179,6 @@ function macApplicationSettingsSection() {
   </section>`;
 }
 
-function windowsGeneralSettingsSection() {
-  return `<section class="settings-section" id="settings-application" data-settings-section>
-    <h2>通用</h2>
-    <div class="settings-panel">
-      <div><span><strong>Floating window</strong><small>Show the status capsule on your desktop.</small></span><b class="enabled">Enabled</b></div>
-      <div><span><strong>Always on top</strong><small>Keep WinPlate above other windows.</small></span><b class="enabled">Enabled</b></div>
-      <div><span><strong>Codex source</strong><small>Hidden local CLI session using /status.</small></span><b>${statusData.codex.source || "Unavailable"}</b></div>
-    </div>
-  </section>`;
-}
-
 function heartCard() {
   return `
     <article class="dashboard-card heart-card" data-module-id="heart" ${moduleHealthAttributes("heart")}>
@@ -2625,28 +2662,36 @@ function notificationContent() {
       aria-pressed="${notificationFilters.source === source}">
       <span>${source === "all" ? "" : window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source))}${escapeHtml(source === "all" ? "全部" : notificationSourceLabel(source))}</span><small>${count}</small>
     </button>`).join("");
+  const markReadIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("check-circle");
+  const clearReadIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("x-circle");
+  const testNotificationIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("bell");
   const timeline = window.WinPlateNotificationDigest.renderNotificationTimeline(filteredItems, {
     selectedId: notificationSelection.id,
     sourceLabel: notificationSourceLabel,
     sourceIcon: (source) => window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source)),
     levelLabel: notificationLevelLabel,
+    absoluteTime: notificationClockLabel,
     relativeTime: relativeUpdatedAt,
     inlineDetail: (conversation) => notificationInlineDetail(conversation)
   });
   return `
     <section class="notifications-page" data-module-id="notifications" ${moduleHealthAttributes("notifications")}>
       <div class="notifications-page-heading">
-        <div><p>NOTIFICATIONS</p><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示。</span></div>
+        <div class="notifications-heading-copy"><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示，帮助你快速理解变化并采取行动。</span></div>
         <div class="notification-actions">
-          <strong class="notification-unread-count">${unreadCount} 未读</strong>
-          <button class="notification-clear-button" id="mark-all-notifications-read" type="button" ${unreadCount ? "" : "disabled"}>全部标记已读</button>
-          <button class="notification-clear-button" id="clear-read-notifications" type="button" ${items.some((item) => !item.unread) ? "" : "disabled"}>清空已读</button>
-          <button class="notification-test-button" id="push-test-notification" type="button">测试通知</button>
+          <strong class="notification-unread-count"><i aria-hidden="true"></i>${unreadCount} 未读</strong>
+          <button class="notification-clear-button notification-header-action" id="mark-all-notifications-read" type="button" ${unreadCount ? "" : "disabled"}>${markReadIcon}<span>全部标记已读</span></button>
+          <button class="notification-clear-button notification-header-action" id="clear-read-notifications" type="button" ${items.some((item) => !item.unread) ? "" : "disabled"}>${clearReadIcon}<span>清空已读</span></button>
+          <button class="notification-header-action" data-section="Settings" type="button">${settingsNavIcon}<span>设置</span></button>
         </div>
       </div>
       <div class="notification-source-filters">
         <div class="notification-source-chip-list">${sourceChips}</div>
-        <label class="notification-state-filter">状态<select data-notification-filter="state"><option value="all" ${notificationFilters.state === "all" ? "selected" : ""}>全部</option><option value="unread" ${notificationFilters.state === "unread" ? "selected" : ""}>未读</option><option value="read" ${notificationFilters.state === "read" ? "selected" : ""}>已读</option></select></label>
+        <div class="notification-filter-tools">
+          <span class="notification-sort-label">最新优先</span>
+          <label class="notification-state-filter">显示<select data-notification-filter="state"><option value="all" ${notificationFilters.state === "all" ? "selected" : ""}>全部</option><option value="unread" ${notificationFilters.state === "unread" ? "selected" : ""}>未读</option><option value="read" ${notificationFilters.state === "read" ? "selected" : ""}>已读</option></select></label>
+          <button class="notification-test-button" id="push-test-notification" type="button">${testNotificationIcon}<span>测试</span></button>
+        </div>
       </div>
       ${timeline}
     </section>`;
@@ -2674,11 +2719,23 @@ function notificationInlineDetail(conversation = notificationConversationForId(n
   const updates = Number(conversation?.updateCount) > 1 && Array.isArray(conversation?.updates)
     ? `<section class="notification-conversation-updates" aria-label="本轮更新"><strong>本轮更新</strong><ol>${conversation.updates.map((item) => `<li><time>${escapeHtml(absoluteTimeLabel(item.createdAt))}</time><p>${escapeHtml(item.body || item.message || item.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></li>`).join("")}</ol></section>`
     : "";
+  const resolvedNotification = { ...(conversation || {}), ...(notification || {}) };
+  const detailMetadata = `<dl class="notification-inline-summary-meta">
+    <div><dt>来源</dt><dd>${escapeHtml(notificationSourceLabel(resolvedNotification.source))}</dd></div>
+    <div><dt>状态</dt><dd>${resolvedNotification.unread ? "未读" : "已读"}</dd></div>
+    <div><dt>级别</dt><dd>${escapeHtml(notificationLevelLabel(resolvedNotification.level))}</dd></div>
+    <div><dt>标识</dt><dd title="${escapeHtml(resolvedNotification.id || "")}">${escapeHtml(resolvedNotification.id || "-")}</dd></div>
+  </dl>`;
   return `<section class="notification-inline-summary" aria-label="通知摘要">
-    <div class="notification-inline-summary-body">${body}</div>
-    ${updates}
-    ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
-    ${actions.length ? `<footer class="notification-inline-summary-actions">${actions.map(notificationActionButton).join("")}</footer>` : ""}
+    <div class="notification-inline-summary-grid">
+      ${detailMetadata}
+      <div class="notification-inline-summary-content">
+        <div class="notification-inline-summary-body">${body}</div>
+        ${updates}
+        ${notificationActionFeedback ? `<p class="notification-detail-feedback" role="status">${escapeHtml(notificationActionFeedback)}</p>` : ""}
+        ${actions.length ? `<footer class="notification-inline-summary-actions">${actions.map(notificationActionButton).join("")}</footer>` : ""}
+      </div>
+    </div>
   </section>`;
 }
 
@@ -2742,17 +2799,29 @@ function dashboardContent(section) {
     Notifications: notificationContent(),
     Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${heartCard()}`,
     QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
-    Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><p>设置</p><h1>设置</h1><span>管理 WinPlate 的外观、服务与模块。</span></div>
+    Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1></div>
       ${isMac ? macApplicationSettingsSection() : ""}
-      <section class="settings-section" id="settings-appearance" data-settings-section>
-        <h2>外观</h2>
+      <section class="settings-section" id="settings-appearance" data-settings-section data-settings-label="外观">
+        <div class="settings-section-heading"><div><p>外观</p><h2>主题</h2></div></div>
         <div class="settings-panel appearance-panel">${themeSelector()}</div>
       </section>
-      <section class="settings-section" id="settings-general" data-settings-section>
-        <h2>通用与模块</h2>
+      <section class="settings-section" id="settings-general" data-settings-section data-settings-label="工作区">
+        <div class="settings-section-heading"><div><p>工作区</p><h2>模块与通知</h2></div></div>
         ${productSettingsPanel()}
       </section>
-      <section class="settings-section" id="settings-weather" data-settings-section>
+      <section class="settings-section settings-services-section" id="settings-services" data-settings-section data-settings-label="连接服务">
+        <div class="settings-section-heading"><div><p>连接</p><h2>连接服务</h2></div></div>
+        <div class="settings-service-nav" role="tablist" aria-label="连接服务">
+          <button class="${activeSettingsService === "settings-github" ? "active" : ""}" data-settings-service-target="settings-github" type="button" role="tab" aria-selected="${activeSettingsService === "settings-github"}"><strong>GitHub</strong><small data-settings-service-status="github">${appSettings.integrations.github?.hasToken ? "已配置" : "公开数据"}</small></button>
+          <button class="${activeSettingsService === "settings-weather" ? "active" : ""}" data-settings-service-target="settings-weather" type="button" role="tab" aria-selected="${activeSettingsService === "settings-weather"}"><strong>天气</strong><small data-settings-service-status="weather">${weatherSettings.hasApiKey ? "已配置" : "未配置"}</small></button>
+          <button class="${activeSettingsService === "settings-deepseek" ? "active" : ""}" data-settings-service-target="settings-deepseek" type="button" role="tab" aria-selected="${activeSettingsService === "settings-deepseek"}"><strong>DeepSeek</strong><small data-settings-service-status="deepseek">${deepseekSettings.hasApiKey ? "已配置" : "未配置"}</small></button>
+          <button class="${activeSettingsService === "settings-mail" ? "active" : ""}" data-settings-service-target="settings-mail" type="button" role="tab" aria-selected="${activeSettingsService === "settings-mail"}"><strong>QQ 邮箱</strong><small data-settings-service-status="mail">${mailSettings.connected ? "已连接" : mailSettings.configured ? "已配置" : "未配置"}</small></button>
+        </div>
+      <div class="settings-service-panel" id="settings-github" data-settings-service data-settings-service-label="GitHub">
+        <h2>GitHub</h2>
+        ${githubSettingsPanel()}
+      </div>
+      <div class="settings-service-panel" id="settings-weather" data-settings-service data-settings-service-label="天气">
         <h2>天气</h2>
         <form class="settings-panel weather-settings-panel" id="weather-settings-form">
           <fieldset>
@@ -2767,31 +2836,15 @@ function dashboardContent(section) {
             </label>
           </fieldset>
           ${renderWeatherLocationSettings()}
-          <fieldset>
-            <legend><strong>官方用量统计</strong><small>可选，用于读取 QWeather 官方调用统计</small></legend>
-            <label>
-              <span><strong>JWT Project ID</strong><small>QWeather 控制台中的 Project ID</small></span>
-              <input id="qweather-project-id" type="text" autocomplete="off">
-            </label>
-            <label>
-              <span><strong>JWT Credential ID</strong><small>官方统计接口使用的 Credential ID</small></span>
-              <input id="qweather-credential-id" type="text" autocomplete="off">
-            </label>
-            <label>
-              <span><strong>Ed25519 私钥</strong><small>仅保存在本地设备中，留空保持原值</small></span>
-              <textarea id="qweather-private-key" rows="4" autocomplete="off" spellcheck="false"></textarea>
-            </label>
-          </fieldset>
           <div class="weather-settings-actions">
             <div class="weather-settings-statuses">
               <small id="weather-service-status">天气服务：正在读取...</small>
-              <small id="weather-official-status">官方统计：正在读取...</small>
             </div>
             <button type="submit">保存配置</button>
           </div>
         </form>
-      </section>
-      <section class="settings-section" id="settings-deepseek" data-settings-section>
+      </div>
+      <div class="settings-service-panel" id="settings-deepseek" data-settings-service data-settings-service-label="DeepSeek">
         <h2>DeepSeek</h2>
         <form class="settings-panel weather-settings-panel" id="deepseek-settings-form">
           <fieldset>
@@ -2799,10 +2852,6 @@ function dashboardContent(section) {
             <label>
               <span><strong>API Key</strong><small>仅保存在本地设备中，留空保持原值</small></span>
               <input id="deepseek-api-key" type="password" autocomplete="off">
-            </label>
-            <label>
-              <span><strong>Base URL</strong><small>默认使用 DeepSeek 官方 API 地址</small></span>
-              <input id="deepseek-base-url" type="url" autocomplete="off" spellcheck="false">
             </label>
           </fieldset>
           <div class="weather-settings-actions">
@@ -2815,8 +2864,8 @@ function dashboardContent(section) {
             <button type="submit">保存配置</button>
           </div>
         </form>
-      </section>
-      <section class="settings-section" id="settings-mail" data-settings-section>
+      </div>
+      <div class="settings-service-panel" id="settings-mail" data-settings-service data-settings-service-label="QQ 邮箱">
         <h2>QQ 邮箱</h2>
         <form class="settings-panel weather-settings-panel mail-settings-panel" id="mail-settings-form">
           <fieldset>
@@ -2829,20 +2878,11 @@ function dashboardContent(section) {
               <span><strong>授权码</strong><small>开启 POP3/IMAP/SMTP 服务后生成，账号密码变更后需重新获取</small></span>
               <input id="qq-mail-auth-code" type="password" autocomplete="off" placeholder="${mailSettings.configured ? "已配置，重新填写可覆盖" : "请输入 QQ 邮箱授权码"}">
             </label>
-            <label>
-              <span><strong>协议</strong><small>读取邮件使用 IMAP，发送邮件预留 SMTP 配置</small></span>
-              <input id="qq-mail-protocol" type="text" value="${escapeHtml(mailSettings.protocol || "IMAP")}" disabled>
-            </label>
-            <label>
-              <span><strong>自动同步间隔</strong><small>后台自动检查新邮件的频率，最短 15 秒</small></span>
-              <input id="qq-mail-auto-refresh-seconds" type="number" min="${MIN_MAIL_AUTO_REFRESH_SECONDS}" max="${MAX_MAIL_AUTO_REFRESH_SECONDS}" step="15" value="${mailAutoRefreshSeconds}">
-            </label>
           </fieldset>
           <div class="weather-settings-actions">
             <div class="weather-settings-statuses">
               <small id="mail-settings-status" class="${mailSettings.configured ? "configured" : ""}">QQ 邮箱配置：${mailSettings.configured ? "已配置" : "未配置"}</small>
               <small id="mail-connection-status" class="${mailSettings.connected ? "configured" : ""}">IMAP：${mailSettings.connected ? "已连接" : "未连接"}</small>
-              <small id="mail-auto-refresh-status">自动同步：每 ${mailAutoRefreshLabel()}</small>
             </div>
             <div class="mail-settings-actions">
               <button type="submit">保存配置</button>
@@ -2850,8 +2890,8 @@ function dashboardContent(section) {
             </div>
           </div>
         </form>
-      </section>
-      ${isMac ? "" : windowsGeneralSettingsSection()}</div></div>`
+      </div>
+      </section></div></div>`
   };
   return content[section];
 }
@@ -3058,7 +3098,7 @@ function renderMain() {
             </button>
           </div>`}
         </aside>
-        <main class="main-content">
+        <main class="main-content ${currentSection === "Notifications" ? "notifications-main-content" : ""}">
           <section id="page-content">${dashboardContent(currentSection)}</section>
         </main>
       </div>
@@ -3091,6 +3131,7 @@ function renderMain() {
       bindSettingsNavigation();
       bindApplicationSettingsControls();
       bindProductSettings();
+      bindGithubSettings();
       bindWeatherSettings();
       bindWeatherLocationSettings();
       bindDeepSeekSettings();
@@ -3127,6 +3168,7 @@ function renderMain() {
   bindSettingsNavigation();
   bindApplicationSettingsControls();
   bindProductSettings();
+  bindGithubSettings();
   bindWeatherSettings();
   bindWeatherLocationSettings();
   bindDeepSeekSettings();
@@ -3442,39 +3484,28 @@ function bindMailControls() {
   if (form) {
     const addressInput = form.querySelector("#qq-mail-address");
     const authCodeInput = form.querySelector("#qq-mail-auth-code");
-    const autoRefreshInput = form.querySelector("#qq-mail-auto-refresh-seconds");
     const mailStatus = form.querySelector("#mail-settings-status");
     const connectionStatus = form.querySelector("#mail-connection-status");
-    const autoRefreshStatus = form.querySelector("#mail-auto-refresh-status");
     const saveButton = form.querySelector("button[type='submit']");
     const setMailSettingsStatus = (message, className = "") => {
       mailStatus.textContent = `QQ 邮箱配置：${message}`;
       mailStatus.className = className;
       connectionStatus.textContent = `IMAP：${mailSettings.connected ? "已连接" : "未连接"}`;
       connectionStatus.className = mailSettings.connected ? "configured" : "";
-      autoRefreshStatus.textContent = `自动同步：每 ${mailAutoRefreshLabel()}`;
     };
     form.onsubmit = async (event) => {
       event.preventDefault();
       saveButton.disabled = true;
       setMailSettingsStatus("正在保存...");
       try {
-        const nextMailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(autoRefreshInput.value);
         mailSettings = await window.winplate.saveMailSettings({
           address: addressInput.value,
           authCode: authCodeInput.value
         });
-        mailAutoRefreshSeconds = nextMailAutoRefreshSeconds;
-        appSettings.modules.refreshSeconds.mail = mailAutoRefreshSeconds;
-        await window.winplate.saveAppearanceSettings({
-          theme: themePreference,
-          mailAutoRefreshSeconds
-        });
-        startMailAutoRefreshTimer();
         addressInput.value = mailSettings.address || "";
         authCodeInput.value = "";
         authCodeInput.placeholder = "已配置，重新填写可覆盖";
-        autoRefreshInput.value = String(mailAutoRefreshSeconds);
+        updateSettingsServiceStatus("mail", mailSettings.connected ? "已连接" : "已配置");
         mailOutline = await window.winplate.getMailOutline();
         setMailSettingsStatus("已配置", "configured");
       } catch (error) {

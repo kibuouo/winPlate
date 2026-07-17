@@ -168,7 +168,7 @@ test("main renderer provides exactly two semantic macOS application toggles", ()
   assert.doesNotMatch(macSettings, /desktop capsule|pin|compact title|menuBarDisplay|quota warning|floating/i);
 
   assert.match(renderer, /\$\{isMac \? macApplicationSettingsSection\(\) : ""\}/);
-  assert.match(renderer, /\$\{isMac \? "" : windowsGeneralSettingsSection\(\)\}/);
+  assert.doesNotMatch(renderer, /windowsGeneralSettingsSection/);
   assert.doesNotMatch(renderer, /Windows user environment/);
 });
 
@@ -204,7 +204,7 @@ test("Windows app shell shares the titlebar/sidebar seam across page types", () 
     renderMain,
     /class="workspace \$\{currentSection === "Settings" \? "settings-workspace" : ""\} \$\{currentSection !== "Settings" && sidebarCollapsed \? "sidebar-collapsed" : ""\}"/
   );
-  assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\s*\{[^}]*--shell-sidebar-width:\s*224px[^}]*--shell-chrome-bg:\s*var\(--main-bg\)[^}]*--shell-content-bg:\s*#18181b/);
+  assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\s*\{[^}]*--shell-sidebar-width:\s*224px[^}]*--shell-chrome-bg:\s*var\(--main-bg\)[^}]*--shell-content-bg:\s*#181818/);
   assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\.shell-sidebar-collapsed\s*\{[^}]*--shell-sidebar-width:\s*72px/);
   assert.match(css, /\.main-body\.platform-win32 \.main-window-shell\.shell-sidebar-settings\s*\{[^}]*--shell-sidebar-width:\s*286px/);
   assert.match(css, /\.main-body\.platform-win32 \.app-titlebar\s*\{[^}]*background:\s*var\(--shell-chrome-bg\)/);
@@ -212,10 +212,20 @@ test("Windows app shell shares the titlebar/sidebar seam across page types", () 
   assert.match(css, /\.main-body\.platform-win32 \.sidebar\s*\{[^}]*background:\s*var\(--shell-chrome-bg\)[^}]*border-right:\s*0[^}]*box-shadow:\s*none/);
   assert.match(css, /\.main-body\.platform-win32 \.main-content\s*\{[^}]*border-top:[^}]*border-left:[^}]*border-radius:\s*20px 0 0 0[^}]*background:\s*var\(--shell-content-bg\)/);
   assert.match(css, /\.main-body\.platform-win32 \.settings-page\s*\{[^}]*background:\s*var\(--shell-content-bg\)/);
+  assert.match(css, /nav \.notification-icon\s*\{[^}]*margin-left:\s*0/);
   assert.doesNotMatch(css, /\.settings-workspace \.main-content\s*\{[^}]*border-radius/);
 });
 
-test("Settings uses an opaque Codex-style settings workspace with anchored navigation", () => {
+test("dark theme uses neutral Codex-style surfaces and restrained selected navigation", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(css, /\.main-body \{[^}]*--main-bg: #1f1f1f;[^}]*--surface: #292929;[^}]*--surface-raised: #303030;[^}]*--surface-muted: #212121;/);
+  assert.match(css, /\.main-body \{[^}]*--text: #f2f2f2;[^}]*--text-soft: #d0d0d0;[^}]*--text-muted: #949494;/);
+  assert.match(css, /html:not\(\[data-theme="light"\]\) nav button\.active \{[^}]*background: #2b2b2b;[^}]*box-shadow: none;/);
+  assert.match(css, /html:not\(\[data-theme="light"\]\) \.sidebar-settings\.active \{[^}]*background: #2b2b2b;[^}]*box-shadow: none;/);
+});
+
+test("Settings uses an opaque task-grouped workspace with exclusive pages", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
@@ -224,9 +234,16 @@ test("Settings uses an opaque Codex-style settings workspace with anchored navig
   assert.doesNotMatch(renderer, /settings-window-shell/);
   assert.match(renderer, /settings-workspace/);
   assert.match(renderer, /\["settings-appearance", "外观"\]/);
+  assert.match(renderer, /\["settings-general", "工作区"\]/);
+  assert.match(renderer, /\["settings-services", "连接服务"\]/);
   assert.match(renderer, /data-settings-target="\$\{id\}"/);
   assert.match(renderer, /id="settings-appearance"/);
   assert.match(renderer, /id="settings-general"/);
+  assert.match(renderer, /id="settings-services"/);
+  assert.match(renderer, /data-settings-service-target="settings-github"/);
+  assert.match(renderer, /data-settings-service-target="settings-weather"/);
+  assert.match(renderer, /section\.hidden = section\.id !== target/);
+  assert.doesNotMatch(renderer, /section\.scrollIntoView/);
   assert.match(renderer, /function bindSettingsNavigation\(\)/);
   assert.match(renderer, /bindSettingsNavigation\(\);/);
   assert.match(renderer, /const crossesSettingsWorkspace = \(currentSection === "Settings"\) !== \(nextSection === "Settings"\)/);
@@ -237,9 +254,33 @@ test("Settings uses an opaque Codex-style settings workspace with anchored navig
   assert.doesNotMatch(css, /\.settings-workspace \.main-content\s*\{[^}]*border-radius/);
   assert.match(css, /\.settings-workspace \.sidebar\s*\{[^}]*background:\s*var\(--sidebar-bg\)/);
   assert.match(css, /\.settings-page\s*\{[^}]*background:\s*var\(--main-bg\)/);
+  assert.match(css, /\.settings-page \[data-settings-section\]\[hidden\]/);
+  assert.match(css, /\.settings-service-nav\s*\{/);
   assert.doesNotMatch(css, /\.settings-page[^}]*color-mix/);
   assert.match(main, /setAppWindowOpacity\(1\)/);
   assert.doesNotMatch(main, /setAppWindowOpacity\(currentSettings\.appearance\.opacity\)/);
+});
+
+test("Settings keeps only essential controls while preserving hidden configuration", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+
+  assert.doesNotMatch(renderer, /id="window-density"/);
+  assert.doesNotMatch(renderer, /data-module-order/);
+  assert.doesNotMatch(renderer, /data-module-refresh/);
+  assert.doesNotMatch(renderer, /id="qweather-project-id"/);
+  assert.doesNotMatch(renderer, /id="qweather-credential-id"/);
+  assert.doesNotMatch(renderer, /id="qweather-private-key"/);
+  assert.doesNotMatch(renderer, /id="deepseek-base-url"/);
+  assert.doesNotMatch(renderer, /id="qq-mail-protocol"/);
+  assert.doesNotMatch(renderer, /id="qq-mail-auto-refresh-seconds"/);
+  assert.match(renderer, /modules: \{ \.\.\.appSettings\.modules, enabled \}/);
+  assert.match(renderer, /projectId: weatherSettings\.projectId \|\| ""/);
+  assert.match(renderer, /baseUrl: deepseekSettings\.baseUrl/);
+  assert.match(renderer, /function updateSettingsServiceStatus\(service, text\)/);
+  assert.match(renderer, /data-settings-service-status="weather"/);
+  assert.match(renderer, /data-settings-service-status="deepseek"/);
+  assert.match(main, /const effectiveAuthCode = authCode \|\| currentServiceSettings\.qqMailAuthCode;/);
 });
 
 test("GitHub activity uses separated actions, compact month controls, and a titlebar clock", () => {
@@ -1608,7 +1649,7 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   const html = api.renderNotificationTimeline(items, {
     selectedId: "today", now, sourceLabel: (value) => value,
     sourceIcon: (source) => `<i data-icon="${source}"></i>`,
-    levelLabel: (value) => value, relativeTime: () => "刚刚"
+    levelLabel: (value) => value, absoluteTime: () => "08:00", relativeTime: () => "刚刚"
   });
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
@@ -1618,6 +1659,8 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   assert.match(html, /今天 7月12日/);
   assert.match(html, /class="notification-source-icon source-codex" aria-hidden="true"><i data-icon="codex"><\/i><\/span>/);
   assert.match(html, /class="notification-source-icon source-github" aria-hidden="true"><i data-icon="github"><\/i><\/span>/);
+  assert.match(html, /class="notification-time-absolute">08:00<\/time>/);
+  assert.match(html, /class="notification-time-relative">刚刚<\/time>/);
 });
 
 test("notification timeline renders a folded conversation count and one selectable row", () => {
@@ -1652,7 +1695,10 @@ test("notification page uses source chips and an inline selected detail instead 
   assert.match(page, /data-notification-source=/);
   assert.match(page, /renderNotificationTimeline/);
   assert.match(page, /notification-inline-summary/);
+  assert.match(page, /notification-inline-summary-meta/);
   assert.match(page, /id="clear-read-notifications"/);
+  assert.match(page, /class="notification-sort-label">最新优先/);
+  assert.match(page, /data-section="Settings"/);
   assert.doesNotMatch(page, /class="notification-workspace"/);
 });
 
@@ -1989,13 +2035,19 @@ test("notification timeline styles provide source chips, date rules, inline deta
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   assert.match(css, /\.notification-source-chip\.active \{[^}]*background: #2563eb;/);
   assert.match(css, /\.notifications-page \.notification-test-button \{[^}]*background: var\(--surface\);/);
-  assert.match(css, /\.notification-date-group \{[^}]*border-top:/);
-  assert.match(css, /\.notification-date-group::before \{[^}]*left: 10px;[^}]*background: var\(--border\);/);
-  assert.match(css, /\.notification-timeline-row \{[^}]*grid-template-columns: 28px 44px minmax\(0, 1fr\) auto;/);
-  assert.match(css, /\.notification-timeline-entry\.level-warning \.notification-timeline-row \{[^}]*inset 3px 0 0 #f59e0b/);
-  assert.match(css, /\.notification-timeline-entry\.level-(?:danger|critical) \.notification-timeline-row \{[^}]*inset 3px 0 0 #ef4444/);
+  assert.doesNotMatch(css, /\.notification-date-group \{[^}]*border-top:/);
+  assert.match(css, /\.notification-date-group::before \{[^}]*top: 0;[^}]*bottom: 0;[^}]*left: 8px;[^}]*background: var\(--border\);/);
+  assert.match(css, /\.notification-date-group:first-child::before \{[^}]*top: 22px;/);
+  assert.match(css, /\.notification-date-group:last-child::before \{[^}]*bottom: 21px;/);
+  assert.match(css, /\.notification-date-label \{[^}]*padding: 15px 0 9px 34px;/);
+  assert.match(css, /\.notification-date-label::before \{[^}]*left: 8px;[^}]*width: 16px;[^}]*background: var\(--border\);/);
+  assert.match(css, /\.notification-timeline-row \{[^}]*grid-template-columns: 18px 40px minmax\(0, 1fr\) 220px;/);
+  assert.doesNotMatch(css, /\.notification-timeline-row \{[^}]*border-bottom:/);
+  assert.match(css, /\.notification-timeline-entry\.level-warning \.notification-timeline-row \{[^}]*inset 2px 0 0 #f59e0b/);
+  assert.match(css, /\.notification-timeline-entry\.level-(?:danger|critical) \.notification-timeline-row \{[^}]*inset 2px 0 0 #ef4444/);
   assert.match(css, /\.notification-timeline-row:focus-visible \{[^}]*outline:/);
   assert.match(css, /\.notification-inline-summary \{[^}]*border:/);
+  assert.match(css, /\.notification-timeline-meta \{[^}]*grid-template-columns: 56px 74px 60px;/);
   assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*\.notification-timeline-meta/);
 });
 
@@ -2010,7 +2062,8 @@ test("notification timeline styles identify each source with a circular icon", (
 
 test("notification inline summaries keep multiline mail bodies within a compact row", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
-  assert.match(css, /\.notification-inline-summary \{[^}]*justify-self: start;[^}]*width: min\(calc\(100% - 66px\), 760px\);[^}]*box-sizing: border-box;/);
+  assert.match(css, /\.notification-inline-summary \{[^}]*justify-self: start;[^}]*width: calc\(100% - 54px\);[^}]*box-sizing: border-box;/);
+  assert.match(css, /\.notification-inline-summary-grid \{[^}]*grid-template-columns: minmax\(150px, \.32fr\) minmax\(0, 1fr\);/);
   assert.match(css, /\.notification-inline-summary-body \{[^}]*min-height: 0;/);
 });
 
@@ -2087,6 +2140,15 @@ test("floating capsule defines distinct light and dark theme tokens", () => {
   assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.weather-icon/);
   assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.notification-strip\.severity-info/);
   assert.match(floatingStatusCss, /html\[data-theme="light"\] \.status-capsule \.network-speed-arrow/);
+});
+
+test("floating capsule does not cast a shadow into the transparent window bounds", () => {
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const capsuleCss = css.match(/\.status-capsule\s*\{([^}]*)\}/)?.[1] || "";
+  const capsuleHoverCss = css.match(/\.status-capsule:hover\s*\{([^}]*)\}/)?.[1] || "";
+
+  assert.doesNotMatch(capsuleCss, /box-shadow|--capsule-shadow/);
+  assert.doesNotMatch(capsuleHoverCss, /box-shadow|--capsule-shadow/);
 });
 
 test("main content header keeps only the clock and removes LIVE STATUS", () => {

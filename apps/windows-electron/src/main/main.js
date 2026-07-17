@@ -758,15 +758,17 @@ if (!gotLock) {
       requireMainWindowSender(event);
       const address = typeof settings?.address === "string" ? settings.address.trim() : "";
       const authCode = typeof settings?.authCode === "string" ? settings.authCode.trim() : "";
+      const currentServiceSettings = serviceSettingsLifecycle.effectiveSettings();
+      const effectiveAuthCode = authCode || currentServiceSettings.qqMailAuthCode;
       if (!address || !/^[^@\s]+@qq\.com$/i.test(address)) {
         throw new Error("QQ 邮箱地址格式无效");
       }
-      if (!authCode) {
+      if (!effectiveAuthCode) {
         throw new Error("QQ 邮箱授权码不能为空");
       }
       await serviceSettingsLifecycle.persist({
         qqMailAddress: address,
-        qqMailAuthCode: authCode,
+        qqMailAuthCode: effectiveAuthCode,
         qqMailImapHost: DEFAULT_SERVICE_SETTINGS.qqMailImapHost,
         qqMailImapPort: DEFAULT_SERVICE_SETTINGS.qqMailImapPort,
         qqMailSmtpHost: DEFAULT_SERVICE_SETTINGS.qqMailSmtpHost,
