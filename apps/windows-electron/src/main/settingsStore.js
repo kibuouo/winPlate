@@ -4,6 +4,7 @@ const { MODULES } = require("../shared/moduleRegistry");
 
 const SETTINGS_VERSION = 1;
 const VALID_THEMES = new Set(["system", "dark", "light"]);
+const VALID_ACCENTS = new Set(["green", "blue", "purple", "rose", "orange"]);
 const VALID_DENSITIES = new Set(["comfortable", "compact"]);
 
 function defaultSettings() {
@@ -11,6 +12,7 @@ function defaultSettings() {
     version: SETTINGS_VERSION,
     appearance: {
       theme: "system",
+      accent: "green",
       opacity: 0.94,
       density: "comfortable"
     },
@@ -66,6 +68,7 @@ function normalizeSettings(value = {}, fallback = defaultSettings()) {
     version: SETTINGS_VERSION,
     appearance: {
       theme: VALID_THEMES.has(appearance.theme) ? appearance.theme : fallback.appearance.theme,
+      accent: VALID_ACCENTS.has(appearance.accent) ? appearance.accent : fallback.appearance.accent,
       opacity: clampNumber(appearance.opacity, fallback.appearance.opacity, 0.65, 1),
       density: VALID_DENSITIES.has(appearance.density) ? appearance.density : fallback.appearance.density
     },

@@ -283,6 +283,22 @@ test("Settings keeps only essential controls while preserving hidden configurati
   assert.match(main, /const effectiveAuthCode = authCode \|\| currentServiceSettings\.qqMailAuthCode;/);
 });
 
+test("Settings offers a persisted allowlisted accent color control", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const settingsStore = fs.readFileSync(path.join(__dirname, "..", "main", "settingsStore.js"), "utf8");
+
+  assert.match(renderer, /const ACCENT_COLORS = \{[\s\S]*?green: "#10a37f"[\s\S]*?orange: "#c2410c"/);
+  assert.match(renderer, /data-accent-choice="\$\{value\}" role="radio"/);
+  assert.match(renderer, /saveAppearanceSettings\(\{ accent \}\)/);
+  assert.match(renderer, /style\.setProperty\("--user-accent", accent\)/);
+  assert.match(renderer, /const nextAccent = ACCENT_COLORS\[settings\.appearance\?\.accent\][\s\S]*?: accentPreference;/);
+  assert.match(renderer, /appearance: \{ \.\.\.settings\.appearance, accent: nextAccent \}/);
+  assert.match(css, /--accent:\s*var\(--user-accent, #10a37f\)/);
+  assert.match(css, /\.accent-selector button\.active/);
+  assert.match(settingsStore, /VALID_ACCENTS = new Set\(\["green", "blue", "purple", "rose", "orange"\]\)/);
+});
+
 test("GitHub activity uses separated actions, compact month controls, and a titlebar clock", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const renderStart = renderer.indexOf("function renderMain()");
@@ -296,6 +312,29 @@ test("GitHub activity uses separated actions, compact month controls, and a titl
   assert.match(renderer, /data-month-today/);
   assert.match(renderMain, /class="titlebar-clock"[\s\S]*?id="system-clock"/);
   assert.doesNotMatch(renderMain, /class="main-content-header"[\s\S]*?id="system-clock"/);
+});
+
+test("main modules share the notifications-style page heading", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(renderer, /function modulePageHeader\(\{ title, description, actions = "", className = "" \}\)/);
+  assert.match(renderer, /title: "GitHub activity"/);
+  assert.match(renderer, /title: "邮件大纲"/);
+  assert.match(renderer, /title: "通知中心"/);
+  assert.match(renderer, /title: "剩余用量"/);
+  assert.match(renderer, /title: "天气与服务状态"/);
+  assert.match(renderer, /title: "Health snapshot"/);
+  assert.match(renderer, /class="health-page"/);
+  assert.match(renderer, /const label = sectionLabels\.get\(item\) \|\| item/);
+  assert.match(css, /\.module-page-heading\s*\{[^}]*border-bottom:\s*1px solid var\(--border\)/);
+  assert.match(css, /\.module-heading-copy h1\s*\{[^}]*font-size:\s*clamp\(24px,\s*2\.35vw,\s*30px\)/);
+  assert.match(css, /\.health-page\s*\{[^}]*gap:\s*24px/);
+  assert.match(css, /#page-content \{ padding: 42px 44px 48px; \}/);
+  assert.match(css, /\.notifications-main-content #page-content \{ padding: 32px 32px 36px; \}/);
+  assert.match(css, /\.mail-actions \.mail-connect-button,\s*\.mail-actions \.mail-refresh-button \{[^}]*width: 92px;[^}]*height: 40px;/);
+  assert.doesNotMatch(css, /\.mail-page-heading h1\s*\{/);
+  assert.doesNotMatch(css, /\.codex-page-header h1\s*\{/);
 });
 
 test("titlebar compact weather renders beside the date and refreshes with weather data", () => {
@@ -318,7 +357,10 @@ test("titlebar compact weather renders beside the date and refreshes with weathe
 
 test("GitHub activity CSS keeps controls collision-free and calendar rows compact", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const githubShellRule = css.match(/\.github-dashboard, \.github-main-column\s*\{([^}]*)\}/)?.[1] || "";
 
+  assert.match(githubShellRule, /width:\s*100%/);
+  assert.doesNotMatch(githubShellRule, /max-width|margin:\s*0 auto/);
   assert.match(css, /\.titlebar-clock\s*\{/);
   assert.match(css, /\.github-heading-actions\s*\{/);
   assert.match(css, /\.github-profile-status\s*\{/);
@@ -1513,6 +1555,12 @@ test("weather icons use the official local package SVGs and keep floating weathe
   assertRendererSvgExists(iconTemplate.replace("${code}", "100"), "main renderer weather icon");
   assertRendererSvgExists(fallbackUrl, "main renderer fallback weather icon");
   assert.match(renderer, /weatherIconMarkup\("100", "qweather-service-icon"\)/);
+  assert.match(renderer, /function qweatherIconMarkup\(className = "qweather-nav-icon"\)[\s\S]*<circle cx="8" cy="8" r="4\.25"><\/circle>[\s\S]*M7\.25 18\.75h10/);
+  assert.match(renderer, /qweatherIconMarkup\("weather-dashboard-icon"\)/);
+  assert.match(renderer, /item === "QWeather" \? qweatherIconMarkup\(\)/);
+  assert.match(renderer, /source === "qweather"\) return qweatherIconMarkup\("notification-weather-icon"\)/);
+  assert.doesNotMatch(renderer, /const qweatherNavIcon/);
+  assert.match(styles, /\.qweather-nav-icon,[\s\S]*\.weather-dashboard-icon,[\s\S]*\.notification-weather-icon\s*\{[^}]*stroke:\s*currentColor;[^}]*stroke-width:\s*1\.8/);
   assert.doesNotMatch(renderer, /qweather-icons-color/);
   assert.doesNotMatch(renderer, /https:\/\/.*weather/i);
   assert.match(styles, /\.weather-icon\s*\{[\s\S]*?brightness\(0\) invert\(1\)/);
@@ -1698,7 +1746,9 @@ test("notification page uses source chips and an inline selected detail instead 
   assert.match(page, /notification-inline-summary-meta/);
   assert.match(page, /id="clear-read-notifications"/);
   assert.match(page, /class="notification-sort-label">最新优先/);
-  assert.match(page, /data-section="Settings"/);
+  assert.match(page, /data-notification-state-choice="\$\{value\}"/);
+  assert.doesNotMatch(page, /<select data-notification-filter="state">/);
+  assert.doesNotMatch(page, /data-section="Settings"/);
   assert.doesNotMatch(page, /class="notification-workspace"/);
 });
 
@@ -1793,6 +1843,15 @@ test("Codex surfaces use the shared official icon body", () => {
   assert.match(renderer, /codex:\s*"codex"/);
   assert.match(renderer, /const codexIcon = `\s*<svg class="codex-icon"[^>]*>\s*\$\{window\.WinPlateSmartNotificationIcons\.SMART_NOTIFICATION_ICON_REGISTRY\.codex\}/);
   assert.doesNotMatch(renderer, /const codexIcon = `[^`]*m8\.25 10\.25/i);
+});
+
+test("floating capsule keeps the transparent monochrome Codex icon", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  for (const functionName of ["renderFloating", "updateFloatingStatusDom"]) {
+    const floatingRenderer = extractNamedFunction(renderer, functionName);
+    assert.match(floatingRenderer, /codex-module[\s\S]*?\$\{sidebarCodexIcon\}/);
+    assert.doesNotMatch(floatingRenderer, /codex-module[\s\S]*?\$\{codexIcon\}/);
+  }
 });
 
 test("only active red QWeather notifications require acknowledgement", () => {
@@ -2033,7 +2092,12 @@ test("notification digest drawer reuses the Mail drawer layout contract", () => 
 
 test("notification timeline styles provide source chips, date rules, inline detail, and narrow layout", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
-  assert.match(css, /\.notification-source-chip\.active \{[^}]*background: #2563eb;/);
+  assert.match(css, /\.notification-source-chip\.active \{[^}]*border-color: var\(--accent\);[^}]*background: var\(--accent\);/);
+  assert.match(css, /\.notification-unread-count i \{[^}]*background: var\(--accent\);/);
+  assert.match(css, /\.notification-state-menu button\.active \{[^}]*background: var\(--accent\);/);
+  assert.match(css, /\.notification-state-menu button:hover,[^}]*background: var\(--accent\);/);
+  assert.match(css, /\.notification-timeline-title \.unread-badge \{[^}]*color: var\(--accent\);/);
+  assert.match(css, /\.notification-timeline-row:hover,[^}]*background: color-mix\(in srgb, var\(--accent\) 5%, transparent\);/);
   assert.match(css, /\.notifications-page \.notification-test-button \{[^}]*background: var\(--surface\);/);
   assert.doesNotMatch(css, /\.notification-date-group \{[^}]*border-top:/);
   assert.match(css, /\.notification-date-group::before \{[^}]*top: 0;[^}]*bottom: 0;[^}]*left: 8px;[^}]*background: var\(--border\);/);
@@ -2051,10 +2115,27 @@ test("notification timeline styles provide source chips, date rules, inline deta
   assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*\.notification-timeline-meta/);
 });
 
-test("notification timeline styles identify each source with a circular icon", () => {
+test("ordinary notification severity stays green instead of following the accent", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /--notification-level-normal: #10b981;/);
+  assert.match(css, /\.notification-timeline-dot \{[^}]*background: var\(--notification-level-normal\);[^}]*box-shadow:[^}]*var\(--notification-level-normal\)/);
+  assert.match(css, /\.notification-timeline-meta > span::before \{[^}]*background: var\(--notification-level-normal\);/);
+  assert.match(css, /\.notification-status-dot \{[^}]*background: var\(--notification-level-normal-bright\);/);
+  assert.match(css, /\.notification-strip\.severity-info \{[^}]*var\(--notification-level-normal\)/);
+  assert.match(css, /\.notification-digest-card\.severity-info \{[^}]*var\(--notification-level-normal\)/);
+  assert.doesNotMatch(css, /\.notification-strip\.severity-info \{[^}]*var\(--accent\)/);
+  assert.doesNotMatch(css, /\.notification-digest-card\.severity-info \{[^}]*var\(--accent\)/);
+});
+
+test("notification source icons use one monochrome transparent treatment", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(renderer, /function renderNotificationSourceIcon\(source\) \{[\s\S]*if \(source === "codex"\) return sidebarCodexIcon/);
+  assert.match(renderer, /if \(source === "qweather"\)[\s\S]*notification-weather-icon/);
+  assert.match(renderer, /sourceIcon: renderNotificationSourceIcon/);
+  assert.match(css, /\.notification-source-icon \{[^}]*color: var\(--text-muted\);[^}]*background: transparent;/);
   for (const source of ["codex", "github", "mail", "qweather", "system"]) {
-    assert.match(css, new RegExp(`\\.notification-source-icon\\.source-${source}`));
+    assert.match(css, new RegExp(`\\.notification-source-icon\\.source-${source} \\{[^}]*color: inherit;[^}]*background: transparent;`));
   }
   assert.match(css, /\.notification-inline-summary \{[^}]*max-width:/);
   assert.match(css, /\.notification-inline-summary-actions \{[^}]*justify-content: flex-end;/);
@@ -2187,7 +2268,7 @@ test("GitHub activity page keeps the clock out of flow and uses a monthly calend
   assert.match(css, /\.main-content-header\s*\{[^}]*position:\s*absolute;/);
   assert.match(css, /\.github-calendar-grid\s*\{[^}]*grid-template-columns:\s*repeat\(7,/);
   assert.match(github, /const monthSummary = githubMonthSummary\(selectedMonth\);/);
-  assert.match(github, /<h2>GitHub activity<\/h2>/);
+  assert.match(github, /title: "GitHub activity"/);
   assert.match(github, /class="github-calendar-stats"/);
   assert.doesNotMatch(github, /class="github-month-summary-card"/);
   assert.ok(github.indexOf("github-page-heading") < github.indexOf("github-profile-bar"));

@@ -7,7 +7,7 @@ MODULES = (
     {"id": "notifications", "title": "Notifications", "service": "notifications", "routes": ("/api/notifications",)},
     {"id": "mail", "title": "Mail", "service": "mail", "routes": ("/api/mail/outline", "/api/mail/refresh")},
     {"id": "weather", "title": "QWeather", "service": "weather", "routes": ("/api/status", "/api/weather/refresh")},
-    {"id": "heart", "title": "Heart", "service": "status", "routes": ("/api/status",)},
+    {"id": "heart", "title": "Health", "service": "status", "routes": ("/api/status",)},
     {"id": "network", "title": "Network", "service": "electron", "routes": ()},
 )
 

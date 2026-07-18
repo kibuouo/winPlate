@@ -12,7 +12,7 @@ const {
 
 test("normalizes settings ranges and keeps every registered module", () => {
   const value = normalizeSettings({
-    appearance: { theme: "dark", opacity: 2, density: "compact" },
+    appearance: { theme: "dark", accent: "purple", opacity: 2, density: "compact" },
     modules: {
       enabled: { github: false },
       order: ["network", "network", "unknown"],
@@ -22,6 +22,7 @@ test("normalizes settings ranges and keeps every registered module", () => {
     notificationDigest: { enabled: false }
   });
   assert.equal(value.appearance.opacity, 1);
+  assert.equal(value.appearance.accent, "purple");
   assert.equal(value.appearance.density, "compact");
   assert.equal(value.modules.enabled.github, false);
   assert.equal(value.modules.order[0], "network");
@@ -30,6 +31,11 @@ test("normalizes settings ranges and keeps every registered module", () => {
   assert.equal(value.modules.refreshSeconds.mail, 1800);
   assert.equal(value.integrations.github.username, "kibuouo");
   assert.equal(value.notificationDigest.enabled, false);
+});
+
+test("keeps accent colors on an explicit allowlist", () => {
+  assert.equal(normalizeSettings({ appearance: { accent: "blue" } }).appearance.accent, "blue");
+  assert.equal(normalizeSettings({ appearance: { accent: "#ff00ff" } }).appearance.accent, "green");
 });
 
 test("migrates the removed local-only privacy mode to disabled AI summaries", () => {

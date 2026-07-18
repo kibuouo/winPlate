@@ -110,7 +110,7 @@ const moduleHealth = Object.fromEntries(moduleDefinitions.map((module) => [modul
 }]));
 let appSettings = {
   version: 1,
-  appearance: { theme: "system", opacity: 0.94, density: "comfortable" },
+  appearance: { theme: "system", accent: "green", opacity: 0.94, density: "comfortable" },
   modules: {
     enabled: Object.fromEntries(moduleDefinitions.map((module) => [module.id, module.defaultEnabled])),
     order: [...moduleDefinitions].sort((a, b) => a.defaultOrder - b.defaultOrder).map((module) => module.id),
@@ -133,6 +133,13 @@ const refreshController = window.WinPlateRefresh.createRefreshController({
   }
 });
 const THEME_STORAGE_KEY = "winplate-theme";
+const ACCENT_COLORS = {
+  green: "#10a37f",
+  blue: "#2563eb",
+  purple: "#7c3aed",
+  rose: "#db2777",
+  orange: "#c2410c"
+};
 const WEATHER_LOCATION_STORAGE_KEY = "winplate-weather-location";
 const DEFAULT_MAIL_AUTO_REFRESH_SECONDS = 30;
 const MIN_MAIL_AUTO_REFRESH_SECONDS = 15;
@@ -178,6 +185,7 @@ let weatherLocationPreference = localStorage.getItem(WEATHER_LOCATION_STORAGE_KE
 let weatherUpdateVersion = 0;
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
+let accentPreference = "green";
 let mailAutoRefreshSeconds = DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
 
 function moduleEnabled(id) {
@@ -299,9 +307,12 @@ function resolvedTheme() {
 
 function applyMainTheme() {
   const theme = resolvedTheme();
+  const accent = ACCENT_COLORS[accentPreference] || ACCENT_COLORS.green;
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.accent = accentPreference;
   document.documentElement.dataset.density = appSettings.appearance.density;
   document.documentElement.style.colorScheme = theme;
+  document.documentElement.style.setProperty("--user-accent", accent);
   document.documentElement.style.setProperty("--window-opacity", String(appSettings.appearance.opacity));
   document.documentElement.style.setProperty("--window-opacity-percent", `${Math.round(appSettings.appearance.opacity * 100)}%`);
   if (view === "main") window.winplate.setWindowTheme(theme);
@@ -331,6 +342,26 @@ async function setThemePreference(theme) {
   }
 }
 
+async function setAccentPreference(accent) {
+  if (!ACCENT_COLORS[accent] || accent === accentPreference) return;
+  const previousAccent = accentPreference;
+  accentPreference = accent;
+  appSettings.appearance.accent = accent;
+  applyMainTheme();
+  bindThemeControls();
+  try {
+    const appearance = await window.winplate.saveAppearanceSettings({ accent });
+    accentPreference = ACCENT_COLORS[appearance?.accent] ? appearance.accent : accent;
+    appSettings.appearance.accent = accentPreference;
+  } catch (error) {
+    accentPreference = previousAccent;
+    appSettings.appearance.accent = previousAccent;
+    applyMainTheme();
+    bindThemeControls();
+    console.error("Failed to save accent setting:", error);
+  }
+}
+
 async function hydrateAppearanceSettings() {
   const legacyTheme = localStorage.getItem(THEME_STORAGE_KEY);
   try {
@@ -342,10 +373,12 @@ async function hydrateAppearanceSettings() {
     themePreference = ["light", "dark", "system"].includes(appearance?.theme)
       ? appearance.theme
       : "system";
+    accentPreference = ACCENT_COLORS[appearance?.accent] ? appearance.accent : "green";
     mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(
       settings?.modules?.refreshSeconds?.mail ?? appearance?.mailAutoRefreshSeconds
     );
     appSettings.appearance.theme = themePreference;
+    appSettings.appearance.accent = accentPreference;
     appSettings.modules.refreshSeconds.mail = mailAutoRefreshSeconds;
     if (legacyTheme && ["light", "dark", "system"].includes(legacyTheme)) {
       themePreference = legacyTheme;
@@ -381,6 +414,41 @@ function themeSelector() {
         ${options.map(([value, icon, label]) => `
           <button type="button" class="${themePreference === value ? "active" : ""}" data-theme-choice="${value}" role="radio" aria-checked="${themePreference === value}">
             <i>${icon}</i><span>${label}</span>
+          </button>`).join("")}
+      </div>
+    </div>`;
+}
+
+function modulePageHeader({ title, description, actions = "", className = "" }) {
+  const headingClass = ["module-page-heading", className].filter(Boolean).join(" ");
+  return `
+    <div class="${headingClass}">
+      <div class="module-heading-copy">
+        <h1>${escapeHtml(title)}</h1>
+        <span>${escapeHtml(description)}</span>
+      </div>
+      ${actions}
+    </div>`;
+}
+
+function accentSelector() {
+  const options = [
+    ["green", "绿色"],
+    ["blue", "蓝色"],
+    ["purple", "紫色"],
+    ["rose", "玫红"],
+    ["orange", "橙色"]
+  ];
+  return `
+    <div class="appearance-setting">
+      <span>
+        <strong>强调色</strong>
+        <small>用于标题、按钮和选中状态</small>
+      </span>
+      <div class="accent-selector" role="radiogroup" aria-label="强调色">
+        ${options.map(([value, label]) => `
+          <button type="button" class="${accentPreference === value ? "active" : ""}" data-accent-choice="${value}" role="radio" aria-checked="${accentPreference === value}" aria-label="${label}" title="${label}">
+            <span aria-hidden="true"></span>
           </button>`).join("")}
       </div>
     </div>`;
@@ -481,6 +549,11 @@ function bindThemeControls() {
     button.classList.toggle("active", button.dataset.themeChoice === themePreference);
     button.setAttribute("aria-checked", String(button.dataset.themeChoice === themePreference));
     button.onclick = () => setThemePreference(button.dataset.themeChoice);
+  });
+  document.querySelectorAll("[data-accent-choice]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.accentChoice === accentPreference);
+    button.setAttribute("aria-checked", String(button.dataset.accentChoice === accentPreference));
+    button.onclick = () => setAccentPreference(button.dataset.accentChoice);
   });
 }
 
@@ -1283,6 +1356,11 @@ const sidebarCodexIcon = `
     <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
     <path d="m8.25 10.25 2.25 2.25-2.25 2.25M12.75 14.75h3"/>
   </svg>`;
+function renderNotificationSourceIcon(source) {
+  if (source === "codex") return sidebarCodexIcon;
+  if (source === "qweather") return qweatherIconMarkup("notification-weather-icon");
+  return window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source));
+}
 const refreshIcon = `
   <svg class="refresh-button-icon" viewBox="0 0 24 24" aria-hidden="true">
     <path d="M21 12a9 9 0 0 1-15.64 6.12L3 16"/>
@@ -1449,10 +1527,11 @@ function githubContent() {
   return `
     <section class="github-dashboard" data-module-id="github" ${moduleHealthAttributes("github")}>
       <div class="github-main-column">
-        ${stateNotice}
-        <div class="github-page-heading">
-          <div><p>GITHUB</p><h2>GitHub activity</h2><span>Monthly contribution rhythm and project activity for ${github.username}.</span></div>
-          <div class="github-heading-actions">
+        ${modulePageHeader({
+          title: "GitHub activity",
+          description: `Monthly contribution rhythm and project activity for ${github.username}.`,
+          className: "github-page-heading",
+          actions: `<div class="github-heading-actions">
             <button
               class="refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
               id="refresh-github"
@@ -1463,8 +1542,9 @@ function githubContent() {
               ${refreshIcon}
               <span>${githubRefreshInFlight ? "刷新中" : "刷新"}</span>
             </button>
-          </div>
-        </div>
+          </div>`
+        })}
+        ${stateNotice}
         <div class="github-profile-bar">
           ${avatarMarkup(github, "github-profile-avatar")}
           <div class="github-profile-copy">
@@ -1531,11 +1611,13 @@ const dashboardIcon = `
     <path d="M8.5 20h7M12 16.5V20"></path>
   </svg>`;
 
-const qweatherNavIcon = `
-  <svg class="qweather-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="8" cy="8" r="4.25"></circle>
-    <path d="M7.25 18.75h10a4 4 0 0 0 .45-7.97A5.75 5.75 0 0 0 7.08 9.3a4.75 4.75 0 0 0 .17 9.45Z"></path>
-  </svg>`;
+function qweatherIconMarkup(className = "qweather-nav-icon") {
+  return `
+    <svg class="${className}" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="8" cy="8" r="4.25"></circle>
+      <path d="M7.25 18.75h10a4 4 0 0 0 .45-7.97A5.75 5.75 0 0 0 7.08 9.3a4.75 4.75 0 0 0 .17 9.45Z"></path>
+    </svg>`;
+}
 
 const settingsNavIcon = `
   <svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -1708,7 +1790,7 @@ function weatherDashboardCard() {
           <small>${weather.source === "qweather" ? "QWeather 实时数据" : weather.source === "unconfigured" ? "请允许系统定位或配置回退位置" : "等待天气数据"}</small>
         </div>
         <div class="weather-card-current">
-          ${weatherIconMarkup(weather.icon, "weather-dashboard-icon")}
+          ${qweatherIconMarkup("weather-dashboard-icon")}
           <strong>${weather.temperature ?? "--"}°</strong>
           <div><b>${weather.condition || "天气未知"}</b><p class="weather-card-summary">${weather.weatherSummary || "天气数据更新后将在这里显示。"}</p></div>
         </div>
@@ -1745,7 +1827,7 @@ function renderFloating() {
               <span class="github-summary">GitHub</span>
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
-              ${codexIcon}
+              ${sidebarCodexIcon}
               <span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
@@ -2623,9 +2705,11 @@ function mailContent() {
     : `<div class="mail-empty-state">${mailIcon}<strong>${emptyMessage}</strong></div>`;
   return `
     <section class="mail-page" data-module-id="mail" ${moduleHealthAttributes("mail")}>
-      <div class="mail-page-heading">
-        <div><p>MAIL</p><h1>邮件大纲</h1><span>最近 ${mailOutline.windowDays || mailSettings.windowDays || 30} 天收件箱摘要。</span></div>
-        <div class="mail-actions">
+      ${modulePageHeader({
+        title: "邮件大纲",
+        description: `最近 ${mailOutline.windowDays || mailSettings.windowDays || 30} 天收件箱摘要。`,
+        className: "mail-page-heading",
+        actions: `<div class="mail-actions">
           <button class="mail-connect-button" id="connect-mail" type="button">${mailSettings.connected ? "重新连接" : "连接 QQ 邮箱"}</button>
           <button
             class="refresh-button mail-refresh-button ${mailRefreshInFlight ? "refreshing" : ""}"
@@ -2637,8 +2721,8 @@ function mailContent() {
             ${refreshIcon}
             <span>${mailRefreshInFlight ? "刷新中" : "刷新"}</span>
           </button>
-        </div>
-      </div>
+        </div>`
+      })}
       <div class="mail-status-bar">
         <span class="mail-status-pill state-${escapeHtml(mailOutline.availability)}">${mailStatusLabel()}</span>
         <span>${escapeHtml(mailOutline.query || "IMAP INBOX SINCE 30 days")}</span>
@@ -2660,15 +2744,16 @@ function notificationContent() {
     <button class="notification-source-chip ${notificationFilters.source === source ? "active" : ""}"
       type="button" data-notification-source="${escapeHtml(source)}"
       aria-pressed="${notificationFilters.source === source}">
-      <span>${source === "all" ? "" : window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source))}${escapeHtml(source === "all" ? "全部" : notificationSourceLabel(source))}</span><small>${count}</small>
+      <span>${source === "all" ? "" : renderNotificationSourceIcon(source)}${escapeHtml(source === "all" ? "全部" : notificationSourceLabel(source))}</span><small>${count}</small>
     </button>`).join("");
   const markReadIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("check-circle");
   const clearReadIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("x-circle");
   const testNotificationIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("bell");
+  const notificationStateLabels = { all: "全部", unread: "未读", read: "已读" };
   const timeline = window.WinPlateNotificationDigest.renderNotificationTimeline(filteredItems, {
     selectedId: notificationSelection.id,
     sourceLabel: notificationSourceLabel,
-    sourceIcon: (source) => window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(notificationSourceIconKey(source)),
+    sourceIcon: renderNotificationSourceIcon,
     levelLabel: notificationLevelLabel,
     absoluteTime: notificationClockLabel,
     relativeTime: relativeUpdatedAt,
@@ -2676,20 +2761,26 @@ function notificationContent() {
   });
   return `
     <section class="notifications-page" data-module-id="notifications" ${moduleHealthAttributes("notifications")}>
-      <div class="notifications-page-heading">
-        <div class="notifications-heading-copy"><h1>通知中心</h1><span>统一收纳邮件、天气预警和本地任务提示，帮助你快速理解变化并采取行动。</span></div>
-        <div class="notification-actions">
+      ${modulePageHeader({
+        title: "通知中心",
+        description: "统一收纳邮件、天气预警和本地任务提示，帮助你快速理解变化并采取行动。",
+        className: "notifications-page-heading",
+        actions: `<div class="notification-actions">
           <strong class="notification-unread-count"><i aria-hidden="true"></i>${unreadCount} 未读</strong>
           <button class="notification-clear-button notification-header-action" id="mark-all-notifications-read" type="button" ${unreadCount ? "" : "disabled"}>${markReadIcon}<span>全部标记已读</span></button>
           <button class="notification-clear-button notification-header-action" id="clear-read-notifications" type="button" ${items.some((item) => !item.unread) ? "" : "disabled"}>${clearReadIcon}<span>清空已读</span></button>
-          <button class="notification-header-action" data-section="Settings" type="button">${settingsNavIcon}<span>设置</span></button>
-        </div>
-      </div>
+        </div>`
+      })}
       <div class="notification-source-filters">
         <div class="notification-source-chip-list">${sourceChips}</div>
         <div class="notification-filter-tools">
           <span class="notification-sort-label">最新优先</span>
-          <label class="notification-state-filter">显示<select data-notification-filter="state"><option value="all" ${notificationFilters.state === "all" ? "selected" : ""}>全部</option><option value="unread" ${notificationFilters.state === "unread" ? "selected" : ""}>未读</option><option value="read" ${notificationFilters.state === "read" ? "selected" : ""}>已读</option></select></label>
+          <div class="notification-state-filter"><span>显示</span><details class="notification-state-menu">
+            <summary>${notificationStateLabels[notificationFilters.state] || notificationStateLabels.all}</summary>
+            <div role="menu" aria-label="通知状态筛选">
+              ${Object.entries(notificationStateLabels).map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${notificationFilters.state === value}" class="${notificationFilters.state === value ? "active" : ""}" data-notification-state-choice="${value}">${label}</button>`).join("")}
+            </div>
+          </details></div>
           <button class="notification-test-button" id="push-test-notification" type="button">${testNotificationIcon}<span>测试</span></button>
         </div>
       </div>
@@ -2792,18 +2883,18 @@ function dashboardContent(section) {
     </div>`;
 
   const content = {
-    Dashboard: `<div class="page-heading"><p>OVERVIEW</p><h1>Good afternoon, ${statusData.github.name}</h1><span>Your live workspace status at a glance.</span></div>${cards}`,
+    Dashboard: `${modulePageHeader({ title: `Good afternoon, ${statusData.github.name}`, description: "Your live workspace status at a glance." })}${cards}`,
     GitHub: githubContent(),
     Codex: codexContent(),
     Mail: mailContent(),
     Notifications: notificationContent(),
-    Heart: `<div class="page-heading"><p>HEART</p><h1>Health snapshot</h1><span>Recent reading from ${statusData.heart.source}.</span></div>${heartCard()}`,
-    QWeather: `<div class="page-heading"><p>QWEATHER</p><h1>天气与服务状态</h1><span>实时天气、未来预报与 API 配额使用情况。</span></div>${qweatherCards}`,
+    Heart: `<section class="health-page">${modulePageHeader({ title: "Health snapshot", description: `Recent reading from ${statusData.heart.source}.` })}${heartCard()}</section>`,
+    QWeather: `${modulePageHeader({ title: "天气与服务状态", description: "实时天气、未来预报与 API 配额使用情况。" })}${qweatherCards}`,
     Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1></div>
       ${isMac ? macApplicationSettingsSection() : ""}
       <section class="settings-section" id="settings-appearance" data-settings-section data-settings-label="外观">
         <div class="settings-section-heading"><div><p>外观</p><h2>主题</h2></div></div>
-        <div class="settings-panel appearance-panel">${themeSelector()}</div>
+        <div class="settings-panel appearance-panel">${themeSelector()}${accentSelector()}</div>
       </section>
       <section class="settings-section" id="settings-general" data-settings-section data-settings-label="工作区">
         <div class="settings-section-heading"><div><p>工作区</p><h2>模块与通知</h2></div></div>
@@ -3018,9 +3109,11 @@ function codexContent() {
     </div>`;
   return `
     <div data-module-id="codex" ${moduleHealthAttributes("codex")}>
-    <div class="codex-page-header">
-      <h1>剩余用量</h1>
-    </div>
+    ${modulePageHeader({
+      title: "剩余用量",
+      description: "查看 Codex 使用窗口、CLI 状态与 DeepSeek API 余额。",
+      className: "codex-page-header"
+    })}
     <section class="codex-usage-panel">
       <div class="codex-panel-title">
         <div>${codexIcon}<h2>Codex Usage</h2></div>
@@ -3049,9 +3142,11 @@ function renderMain() {
     : null;
   document.body.className = `main-body platform-${isMac ? "darwin" : "win32"}`;
   applyMainTheme();
+  const detailModules = window.WinPlateModuleRegistry.modulesForView("detail", appSettings.modules);
+  const sectionLabels = new Map(detailModules.map((module) => [module.section, module.title]));
   const sections = [
     "Dashboard",
-    ...window.WinPlateModuleRegistry.modulesForView("detail", appSettings.modules)
+    ...detailModules
       .map((module) => module.section)
       .filter(Boolean)
   ];
@@ -3090,7 +3185,10 @@ function renderMain() {
               </button>
             </div>
           </div>
-          <nav>${sections.map((item) => `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${item}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? sidebarCodexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherNavIcon : "⚙"}</i><span class="nav-label">${item}</span></button>`).join("")}</nav>
+          <nav>${sections.map((item) => {
+            const label = sectionLabels.get(item) || item;
+            return `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${escapeHtml(label)}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? sidebarCodexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherIconMarkup() : "⚙"}</i><span class="nav-label">${escapeHtml(label)}</span></button>`;
+          }).join("")}</nav>
           <div class="sidebar-footer">
             <button class="sidebar-settings ${currentSection === "Settings" ? "active" : ""}" data-section="Settings" title="Settings" aria-label="设置">
               <i>${settingsNavIcon}</i>
@@ -3305,7 +3403,7 @@ function updateFloatingStatusDom(moduleIds = null) {
               <span class="github-summary">GitHub</span>
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
-              ${codexIcon}<span class="module-label">Codex</span>
+              ${sidebarCodexIcon}<span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
               ${quotaStatusLamp(statusData.codex.remainingPct)}
@@ -3866,9 +3964,9 @@ function bindNotificationControls() {
       notificationRawExpanded = rawSection.open;
     };
   }
-  document.querySelectorAll("[data-notification-filter]").forEach((control) => {
-    control.onchange = () => {
-      notificationFilters = { ...notificationFilters, [control.dataset.notificationFilter]: control.value };
+  document.querySelectorAll("[data-notification-state-choice]").forEach((button) => {
+    button.onclick = () => {
+      notificationFilters = { ...notificationFilters, state: button.dataset.notificationStateChoice };
       updateMainStatusDom();
     };
   });
@@ -4430,8 +4528,15 @@ if (view !== "tooltip") {
     refreshController.refresh("status", { force: true, reason: "broadcast" }).catch(() => {});
   });
   window.winplate?.onSettingsUpdated?.((settings) => {
-    appSettings = settings;
+    const nextAccent = ACCENT_COLORS[settings.appearance?.accent]
+      ? settings.appearance.accent
+      : accentPreference;
+    appSettings = {
+      ...settings,
+      appearance: { ...settings.appearance, accent: nextAccent }
+    };
     themePreference = settings.appearance.theme;
+    accentPreference = nextAccent;
     mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(settings.modules.refreshSeconds.mail);
     applyMainTheme();
     configureRefreshTasks();

@@ -27,3 +27,8 @@ test("filters disabled modules and respects configured order per view", () => {
   );
   assert.equal(orderedModules(settings.order)[0].id, "weather");
 });
+
+test("presents the heart module as Health without changing its navigation section", () => {
+  assert.equal(getModuleMeta("heart").title, "Health");
+  assert.equal(getModuleMeta("heart").section, "Heart");
+});

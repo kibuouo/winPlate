@@ -507,6 +507,7 @@ if (!gotLock) {
     });
     ipcMain.handle("appearance:get-settings", async () => ({
       theme: currentSettings.appearance.theme,
+      accent: currentSettings.appearance.accent,
       mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
     }));
     ipcMain.handle("appearance:save-settings", async (event, settings) => {
@@ -515,7 +516,8 @@ if (!gotLock) {
         ...currentSettings,
         appearance: {
           ...currentSettings.appearance,
-          ...(settings?.theme ? { theme: settings.theme } : {})
+          ...(settings?.theme ? { theme: settings.theme } : {}),
+          ...(settings?.accent ? { accent: settings.accent } : {})
         },
         modules: {
           ...currentSettings.modules,
@@ -531,6 +533,7 @@ if (!gotLock) {
       broadcastSettingsUpdated(payload);
       return {
         theme: currentSettings.appearance.theme,
+        accent: currentSettings.appearance.accent,
         mailAutoRefreshSeconds: currentSettings.modules.refreshSeconds.mail
       };
     });
