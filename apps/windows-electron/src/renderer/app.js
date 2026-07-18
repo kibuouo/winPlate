@@ -1646,6 +1646,49 @@ function weatherIconMarkup(iconCode, className = "weather-icon") {
   return `<img class="${className}" src="../../assets/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
 }
 
+function weatherSceneMarkup(weather = {}) {
+  const profile = window.WinPlateWeatherScenes?.effectProfile(weather) || {
+    scene: "unknown",
+    intensity: 0,
+    cloudCover: 50,
+    windSpeed: 0,
+    windDegrees: 0,
+    humidity: 50,
+    visibility: 20,
+    haze: 0
+  };
+  return `
+    <div class="weather-scene weather-scene-rich weather-scene-${profile.scene}" aria-hidden="true">
+      <span class="weather-scene-photo"></span>
+      <canvas class="weather-scene-canvas"
+        data-scene="${profile.scene}"
+        data-intensity="${profile.intensity.toFixed(3)}"
+        data-cloud-cover="${profile.cloudCover.toFixed(1)}"
+        data-wind-speed="${profile.windSpeed.toFixed(1)}"
+        data-wind-degrees="${profile.windDegrees.toFixed(1)}"
+        data-humidity="${profile.humidity.toFixed(1)}"
+        data-visibility="${profile.visibility.toFixed(1)}"
+        data-haze="${profile.haze.toFixed(3)}"></canvas>
+      <span class="weather-scene-orb"></span>
+    </div>`;
+}
+
+function mountWeatherEffects(root = document) {
+  window.WinPlateWeatherEffects?.mountWeatherEffects(root);
+}
+
+function weatherLiveInsights(weather = {}) {
+  const summary = String(weather.minutelySummary || "").trim();
+  const airQuality = weather.airQuality && typeof weather.airQuality === "object" ? weather.airQuality : null;
+  const aqi = airQuality?.display || (Number.isFinite(Number(airQuality?.aqi)) ? String(Math.round(Number(airQuality.aqi))) : "");
+  if (!summary && !aqi) return "";
+  return `
+    <div class="weather-live-insights">
+      ${summary ? `<div><span>临近降水</span><strong>${escapeHtml(summary)}</strong></div>` : ""}
+      ${aqi ? `<div><span>空气质量</span><strong>${escapeHtml(aqi)}${airQuality?.category ? ` · ${escapeHtml(airQuality.category)}` : ""}</strong></div>` : ""}
+    </div>`;
+}
+
 function bindWeatherIconFallbacks(root = document) {
   root.querySelectorAll("img.weather-icon, img.weather-detail-icon, img.titlebar-weather-icon").forEach((image) => {
     const showFallback = () => {
@@ -1766,6 +1809,7 @@ function notificationPreviewMarkup(source) {
 
 function weatherDashboardCard() {
   const weather = statusData.weather || mockStatus.weather;
+  const weatherScene = window.WinPlateWeatherScenes?.sceneForWeather(weather) || "unknown";
   const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 5) : [];
   const dayLabel = (date, index) => {
     if (index === 0) return "今天";
@@ -1779,8 +1823,9 @@ function weatherDashboardCard() {
     ["风力", [weather.windDirection, weather.windScale && `${weather.windScale}级`].filter(Boolean).join(" ") || "--"]
   ];
   return `
-    <article class="dashboard-card weather-dashboard-card" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
+    <article class="dashboard-card weather-dashboard-card" data-weather-scene="${weatherScene}" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
       ${notificationPreviewMarkup("qweather")}
+      ${weatherSceneMarkup(weather)}
       <div class="weather-card-main">
         <div class="weather-card-heading">
           <div class="weather-location-stack">
@@ -1790,10 +1835,11 @@ function weatherDashboardCard() {
           <small>${weather.source === "qweather" ? "QWeather 实时数据" : weather.source === "unconfigured" ? "请允许系统定位或配置回退位置" : "等待天气数据"}</small>
         </div>
         <div class="weather-card-current">
-          ${qweatherIconMarkup("weather-dashboard-icon")}
+          ${weatherIconMarkup(weather.icon, "weather-dashboard-icon")}
           <strong>${weather.temperature ?? "--"}°</strong>
           <div><b>${weather.condition || "天气未知"}</b><p class="weather-card-summary">${weather.weatherSummary || "天气数据更新后将在这里显示。"}</p></div>
         </div>
+        ${weatherLiveInsights(weather)}
         ${weatherAlertsPanel()}
         <div class="weather-card-details">
           ${details.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("")}
@@ -2223,7 +2269,7 @@ function qweatherServiceCard(official, failures) {
     <article class="dashboard-card qweather-card" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
       ${notificationPreviewMarkup("qweather")}
       <div class="qweather-card-heading">
-        <div class="card-icon">${weatherIconMarkup("100", "qweather-service-icon")}</div>
+        <div class="card-icon">${qweatherIconMarkup("qweather-service-icon")}</div>
         <div class="card-actions">
           <span class="service-health"><i></i>服务正常</span>
           <button type="button" class="refresh-button qweather-verify-button" id="qweather-verify" aria-label="刷新 QWeather 官方用量">
@@ -3238,6 +3284,7 @@ function renderMain() {
       bindMailControls();
       bindNotificationControls();
       bindNotificationPreviewCards();
+      mountWeatherEffects(document.querySelector("#page-content"));
     });
   });
   const pageContent = document.querySelector("#page-content");
@@ -3275,6 +3322,7 @@ function renderMain() {
   bindMailControls();
   bindNotificationControls();
   bindNotificationPreviewCards();
+  mountWeatherEffects(appRoot);
   document.querySelector("#window-minimize")?.addEventListener("click", () => window.winplate.minimizeWindow());
   document.querySelector("#sidebar-toggle")?.addEventListener("click", () => {
     sidebarCollapsed = !sidebarCollapsed;
@@ -3343,6 +3391,7 @@ function updateMainStatusDom(moduleIds = null) {
     }
     updateProgressBars(pageContent);
     updateModuleHealthDom(requested);
+    if (requested.includes("weather")) mountWeatherEffects(pageContent);
     return;
   }
 
@@ -3360,6 +3409,7 @@ function updateMainStatusDom(moduleIds = null) {
     bindMailControls();
     bindNotificationControls();
     updateProgressBars(pageContent);
+    mountWeatherEffects(pageContent);
     return;
   }
 
@@ -3383,6 +3433,7 @@ function updateMainStatusDom(moduleIds = null) {
     bindNotificationControls();
   }
   updateProgressBars(pageContent);
+  mountWeatherEffects(pageContent);
 }
 
 function updateFloatingStatusDom(moduleIds = null) {

@@ -1554,17 +1554,40 @@ test("weather icons use the official local package SVGs and keep floating weathe
   assert.ok(fallbackUrl, "main renderer weather icon fallback URL is missing");
   assertRendererSvgExists(iconTemplate.replace("${code}", "100"), "main renderer weather icon");
   assertRendererSvgExists(fallbackUrl, "main renderer fallback weather icon");
-  assert.match(renderer, /weatherIconMarkup\("100", "qweather-service-icon"\)/);
+  assert.match(renderer, /qweatherIconMarkup\("qweather-service-icon"\)/);
   assert.match(renderer, /function qweatherIconMarkup\(className = "qweather-nav-icon"\)[\s\S]*<circle cx="8" cy="8" r="4\.25"><\/circle>[\s\S]*M7\.25 18\.75h10/);
-  assert.match(renderer, /qweatherIconMarkup\("weather-dashboard-icon"\)/);
+  assert.match(renderer, /weatherIconMarkup\(weather\.icon, "weather-dashboard-icon"\)/);
   assert.match(renderer, /item === "QWeather" \? qweatherIconMarkup\(\)/);
   assert.match(renderer, /source === "qweather"\) return qweatherIconMarkup\("notification-weather-icon"\)/);
   assert.doesNotMatch(renderer, /const qweatherNavIcon/);
-  assert.match(styles, /\.qweather-nav-icon,[\s\S]*\.weather-dashboard-icon,[\s\S]*\.notification-weather-icon\s*\{[^}]*stroke:\s*currentColor;[^}]*stroke-width:\s*1\.8/);
+  assert.match(styles, /\.qweather-nav-icon,[\s\S]*\.qweather-service-icon,[\s\S]*\.notification-weather-icon\s*\{[^}]*stroke:\s*currentColor;[^}]*stroke-width:\s*1\.8/);
   assert.doesNotMatch(renderer, /qweather-icons-color/);
   assert.doesNotMatch(renderer, /https:\/\/.*weather/i);
   assert.match(styles, /\.weather-icon\s*\{[\s\S]*?brightness\(0\) invert\(1\)/);
   assert.match(styles, /\.weather-tooltip-icon\s*\{[\s\S]*?brightness\(0\) invert\(1\)/);
+});
+
+test("weather detail card renders a local cinematic scene driven by live QWeather data", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const effects = fs.readFileSync(path.join(__dirname, "weatherEffects.js"), "utf8");
+
+  assert.match(html, /<script src="\.\/weatherScenes\.js"><\/script>[\s\S]*<script src="\.\/weatherEffects\.js"><\/script>[\s\S]*bootstrap\.mjs/);
+  assert.match(renderer, /function weatherSceneMarkup\(weather = \{\}\)/);
+  assert.match(renderer, /data-weather-scene="\$\{weatherScene\}"/);
+  assert.match(renderer, /canvas class="weather-scene-canvas"/);
+  assert.match(renderer, /data-cloud-cover="\$\{profile\.cloudCover\.toFixed\(1\)\}"/);
+  assert.match(renderer, /data-wind-speed="\$\{profile\.windSpeed\.toFixed\(1\)\}"/);
+  assert.match(renderer, /function mountWeatherEffects\(root = document\)/);
+  assert.match(renderer, /weatherSceneMarkup\(weather\)/);
+  assert.match(styles, /weather-scenes\/storm\.webp/);
+  assert.match(styles, /weather-scenes\/clear-day\.webp/);
+  assert.match(styles, /\.weather-scene-canvas/);
+  assert.match(effects, /\["rain", "storm"\]\.includes\(config\.scene\)/);
+  assert.match(effects, /config\.windDegrees \* Math\.PI \/ 180/);
+  assert.match(effects, /prefers-reduced-motion: reduce/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.weather-scene \* \{ animation: none !important; \}/);
 });
 
 test("weather detail page has a dedicated QWeather alert panel instead of relying on the notification capsule", () => {

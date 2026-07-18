@@ -321,7 +321,8 @@ class DatabaseTests(unittest.TestCase):
             {"code": "200", "updateTime": "2026-06-13T12:00+08:00", "now": {
                 "obsTime": "2026-06-13T11:55+08:00", "temp": "30", "feelsLike": "35",
                 "icon": "305", "text": "小雨", "humidity": "81", "precip": "0.3",
-                "pressure": "1005", "vis": "12", "windDir": "东南风", "windScale": "3",
+                "pressure": "1005", "vis": "12", "cloud": "84", "windDir": "东南风", "windScale": "3",
+                "windSpeed": "18", "wind360": "135",
             }},
             {"code": "200", "hourly": [{"fxTime": "2026-06-13T12:00+08:00", "pop": "75"}]},
             {"code": "200", "daily": [
@@ -344,10 +345,50 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["precipitation"], 0.3)
         self.assertEqual(result["pressure"], 1005)
         self.assertEqual(result["visibility"], 12)
+        self.assertEqual(result["cloudCover"], 84)
+        self.assertEqual(result["windSpeed"], 18)
+        self.assertEqual(result["windDegrees"], 135)
         self.assertEqual(result["forecast"][0]["tempMax"], 31)
         self.assertEqual(result["forecast"][1]["condition"], "多云")
         self.assertEqual(len(result["forecast"]), 5)
         self.assertEqual(result["forecast"][-1]["date"], "2026-06-17")
+
+    def test_weather_visual_context_uses_optional_minutely_and_air_quality_data(self):
+        minutely = {
+            "code": "200",
+            "summary": "50分钟后开始下小雨",
+            "minutely": [
+                {"fxTime": "2026-06-13T12:00+08:00", "precip": "0.12", "type": "rain"},
+                {"fxTime": "2026-06-13T12:05+08:00", "precip": "0.20", "type": "rain"},
+            ],
+        }
+        air = {
+            "indexes": [{
+                "code": "cn-mee",
+                "aqi": 32,
+                "aqiDisplay": "32",
+                "category": "优",
+                "color": {"red": 0, "green": 228, "blue": 0, "alpha": 1},
+            }],
+        }
+        with (
+            patch.object(main, "qweather_request", return_value=minutely) as request,
+            patch.object(main, "qweather_jwt_request", return_value=air) as jwt_request,
+        ):
+            result = main._weather_visual_context(30.50, 114.30)
+        request.assert_called_once_with("/v7/minutely/5m", {"location": "114.30,30.50", "lang": "zh"})
+        jwt_request.assert_called_once_with("/airquality/v1/current/30.50/114.30", {"lang": "zh"})
+        self.assertEqual(result["minutelySummary"], "50分钟后开始下小雨")
+        self.assertEqual(result["minutelyPrecipitation"][1]["precipitation"], 0.2)
+        self.assertEqual(result["airQuality"]["aqi"], 32)
+
+    def test_weather_visual_context_is_optional_when_enhancement_apis_fail(self):
+        with (
+            patch.object(main, "qweather_request", side_effect=RuntimeError("not entitled")),
+            patch.object(main, "qweather_jwt_request", side_effect=RuntimeError("missing JWT")),
+        ):
+            result = main._weather_visual_context(30.50, 114.30)
+        self.assertEqual(result, {"minutelySummary": "", "minutelyPrecipitation": [], "airQuality": None})
 
     def test_weather_status_without_location_is_unconfigured(self):
         with (
@@ -400,6 +441,8 @@ class DatabaseTests(unittest.TestCase):
             "114.31,30.59",
             display_location="武汉",
             location_source="system",
+            latitude=30.5928,
+            longitude=114.3055,
         )
 
     def test_refresh_weather_uses_longitude_latitude_order(self):
@@ -409,7 +452,13 @@ class DatabaseTests(unittest.TestCase):
         ):
             result = main.refresh_weather(main.WeatherLocation(latitude=22.3193, longitude=114.1694))
         self.assertEqual(result, {"source": "qweather", "location": "香港"})
-        weather_status.assert_called_once_with("114.17,22.32", force=True, location_source="system")
+        weather_status.assert_called_once_with(
+            "114.17,22.32",
+            force=True,
+            location_source="system",
+            latitude=22.3193,
+            longitude=114.1694,
+        )
         persist_weather_location.assert_called_once()
 
     def test_refresh_weather_persists_system_source_and_two_decimal_query(self):
@@ -461,6 +510,8 @@ class DatabaseTests(unittest.TestCase):
             "101280101",
             display_location="广州, 广东省",
             location_source="manual",
+            latitude=23.13,
+            longitude=113.26,
         )
 
     def test_status_weather_failure_does_not_clear_stored_location(self):

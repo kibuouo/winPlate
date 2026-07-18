@@ -1595,13 +1595,82 @@ def qweather_search_locations(query: str, number: int = 10) -> list[dict]:
     return [item for item in results if item["id"]]
 
 
-def build_weather_status(location: str, display_location: str | None = None, location_source: str | None = None) -> dict:
+def _weather_visual_context(latitude: float | None, longitude: float | None) -> dict:
+    if latitude is None or longitude is None:
+        return {"minutelySummary": "", "minutelyPrecipitation": [], "airQuality": None}
+    lat = float(latitude)
+    lon = float(longitude)
+    minutely_summary = ""
+    minutely_precipitation = []
+    air_quality = None
+    try:
+        payload = qweather_request(
+            "/v7/minutely/5m",
+            {"location": qweather_coord_query(lon, lat), "lang": "zh"},
+        )
+        minutely_summary = clean_mail_text(str(payload.get("summary") or ""), limit=120)
+        points = payload.get("minutely") if isinstance(payload.get("minutely"), list) else []
+        minutely_precipitation = [
+            {
+                "time": str(point.get("fxTime") or ""),
+                "precipitation": max(0.0, float(point.get("precip") or 0)),
+                "type": "snow" if str(point.get("type") or "").lower() == "snow" else "rain",
+            }
+            for point in points[:24]
+            if isinstance(point, dict)
+        ]
+    except (RuntimeError, TypeError, ValueError):
+        pass
+    try:
+        payload = qweather_jwt_request(
+            f"/airquality/v1/current/{lat:.2f}/{lon:.2f}",
+            {"lang": "zh"},
+        )
+        indexes = payload.get("indexes") if isinstance(payload.get("indexes"), list) else []
+        index = next(
+            (item for item in indexes if isinstance(item, dict) and str(item.get("code") or "").startswith("cn-")),
+            next((item for item in indexes if isinstance(item, dict)), None),
+        )
+        if index:
+            color = index.get("color") if isinstance(index.get("color"), dict) else {}
+            air_quality = {
+                "aqi": float(index["aqi"]) if index.get("aqi") is not None else None,
+                "display": str(index.get("aqiDisplay") or ""),
+                "category": str(index.get("category") or ""),
+                "color": {
+                    "red": int(color.get("red") or 0),
+                    "green": int(color.get("green") or 0),
+                    "blue": int(color.get("blue") or 0),
+                    "alpha": float(color.get("alpha") if color.get("alpha") is not None else 1),
+                },
+            }
+    except (RuntimeError, TypeError, ValueError, KeyError):
+        pass
+    return {
+        "minutelySummary": minutely_summary,
+        "minutelyPrecipitation": minutely_precipitation,
+        "airQuality": air_quality,
+    }
+
+
+def build_weather_status(
+    location: str,
+    display_location: str | None = None,
+    location_source: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> dict:
     query = str(location or "").strip()
     place = None
     weather_location = query
     resolved_location = None
     if is_qweather_location_id(query):
-        resolved_location = {"id": query, "name": display_location or query}
+        resolved_location = {
+            "id": query,
+            "name": display_location or query,
+            "lat": latitude,
+            "lon": longitude,
+        }
     else:
         location_payload = qweather_request("/geo/v2/city/lookup", {"location": query, "number": "1", "lang": "zh"})
         matches = location_payload.get("location", [])
@@ -1632,6 +1701,9 @@ def build_weather_status(location: str, display_location: str | None = None, loc
     precipitation = float(now["precip"])
     pressure = int(now["pressure"])
     visibility = int(float(now["vis"]))
+    cloud_cover = int(float(now.get("cloud") or 0))
+    wind_speed = float(now.get("windSpeed") or 0)
+    wind_degrees = int(float(now.get("wind360") or 0))
     hourly = hourly_payload.get("hourly", [])
     daily = daily_payload.get("daily", [])
     precipitation_probability = None
@@ -1666,6 +1738,9 @@ def build_weather_status(location: str, display_location: str | None = None, loc
         for item in daily[:5]
         if isinstance(item, dict) and item.get("tempMax") is not None and item.get("tempMin") is not None
     ]
+    resolved_latitude = resolved_location.get("lat") if isinstance(resolved_location, dict) else latitude
+    resolved_longitude = resolved_location.get("lon") if isinstance(resolved_location, dict) else longitude
+    visual_context = _weather_visual_context(resolved_latitude, resolved_longitude)
     return {
         "source": "qweather",
         "icon": icon,
@@ -1677,6 +1752,9 @@ def build_weather_status(location: str, display_location: str | None = None, loc
         "precipitation": precipitation,
         "pressure": pressure,
         "visibility": visibility,
+        "cloudCover": cloud_cover,
+        "windSpeed": wind_speed,
+        "windDegrees": wind_degrees,
         "precipitationProbability": precipitation_probability,
         "weatherSummary": weather_summary,
         "forecast": forecast,
@@ -1687,6 +1765,7 @@ def build_weather_status(location: str, display_location: str | None = None, loc
         "locationId": weather_location,
         "locationSource": location_source or "",
         "resolvedLocation": resolved_location,
+        **visual_context,
     }
 
 
@@ -1770,6 +1849,8 @@ def weather_status(
     force: bool = False,
     display_location: str | None = None,
     location_source: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> dict:
     query = location or QWEATHER_LOCATION
     if not query:
@@ -1779,7 +1860,13 @@ def weather_status(
         cached = _weather_cache.get(query)
     if not force and cached and now - cached[0] < QWEATHER_CACHE_SECONDS:
         return cached[1]
-    data = build_weather_status(query, display_location=display_location, location_source=location_source)
+    data = build_weather_status(
+        query,
+        display_location=display_location,
+        location_source=location_source,
+        latitude=latitude,
+        longitude=longitude,
+    )
     with _weather_cache_lock:
         _weather_cache[query] = (now, data)
     return data
@@ -2427,6 +2514,8 @@ def status() -> dict[str, dict]:
                     weather_query,
                     display_location=weather_display,
                     location_source=weather_source,
+                    latitude=stored_weather_location.get("latitude") if stored_weather_location else None,
+                    longitude=stored_weather_location.get("longitude") if stored_weather_location else None,
                 )
             except RuntimeError as error:
                 result["weather"] = {**result.get("weather", DEFAULT_STATUS["weather"]), "source": "unavailable", "error": str(error)}
@@ -2460,7 +2549,13 @@ def refresh_weather(location: WeatherLocation | None = None) -> dict:
             if not -90 <= location.latitude <= 90 or not -180 <= location.longitude <= 180:
                 raise HTTPException(status_code=422, detail="经纬度无效")
             query = qweather_coord_query(location.longitude, location.latitude)
-        data = weather_status(query, force=True, location_source="system" if location else None)
+        data = weather_status(
+            query,
+            force=True,
+            location_source="system" if location else None,
+            latitude=location.latitude if location else None,
+            longitude=location.longitude if location else None,
+        )
         if location:
             resolved = data.get("resolvedLocation") if isinstance(data.get("resolvedLocation"), dict) else {}
             persist_weather_location(
@@ -2504,6 +2599,8 @@ def set_manual_weather_location(location: ManualWeatherLocation) -> dict:
             force=True,
             display_location=display_location,
             location_source="manual",
+            latitude=location.latitude,
+            longitude=location.longitude,
         )
         persist_weather_location(
             location.latitude,
