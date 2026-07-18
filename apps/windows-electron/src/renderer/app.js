@@ -1646,7 +1646,8 @@ function weatherIconMarkup(iconCode, className = "weather-icon") {
   return `<img class="${className}" src="../../assets/qweather-icons/icons/${code}.svg" alt="" aria-hidden="true">`;
 }
 
-function weatherSceneMarkup(weather = {}) {
+function weatherSceneMarkup(weather = {}, options = {}) {
+  const compact = options.compact === true;
   const profile = window.WinPlateWeatherScenes?.effectProfile(weather) || {
     scene: "unknown",
     intensity: 0,
@@ -1658,7 +1659,7 @@ function weatherSceneMarkup(weather = {}) {
     haze: 0
   };
   return `
-    <div class="weather-scene weather-scene-rich weather-scene-${profile.scene}" aria-hidden="true">
+    <div class="weather-scene weather-scene-rich${compact ? " weather-scene-compact" : ""} weather-scene-${profile.scene}" aria-hidden="true">
       <span class="weather-scene-photo"></span>
       <canvas class="weather-scene-canvas"
         data-scene="${profile.scene}"
@@ -1668,7 +1669,8 @@ function weatherSceneMarkup(weather = {}) {
         data-wind-degrees="${profile.windDegrees.toFixed(1)}"
         data-humidity="${profile.humidity.toFixed(1)}"
         data-visibility="${profile.visibility.toFixed(1)}"
-        data-haze="${profile.haze.toFixed(3)}"></canvas>
+        data-haze="${profile.haze.toFixed(3)}"
+        data-density="${compact ? "0.45" : "1"}"></canvas>
       <span class="weather-scene-orb"></span>
     </div>`;
 }
@@ -2024,6 +2026,7 @@ function renderFloating() {
       precipitationProbability: currentWeather.precipitationProbability,
       wind: currentWeather.windDirection ? `${currentWeather.windDirection} ${currentWeather.windScale}级` : "",
       weatherSummary: currentWeather.weatherSummary,
+      weather: { ...currentWeather },
       time,
       date: fullDate
     };
@@ -2189,11 +2192,13 @@ function renderTooltip(data = {}) {
   }
 
   if (data.type === "weather") {
+    const previewWeather = data.weather && typeof data.weather === "object" ? data.weather : data;
     const metric = (label, value) => value === null || value === undefined || value === ""
       ? ""
       : `<div><span>${label}</span><strong>${value}</strong></div>`;
     appRoot.innerHTML = `
       <article class="weather-tooltip" role="tooltip" aria-label="天气详情">
+        ${weatherSceneMarkup(previewWeather, { compact: true })}
         <header class="weather-tooltip-header">
           <div class="weather-tooltip-location">${locationArrowIcon}<span>${data.location || "当前位置"}</span></div>
           <time>${data.time || ""}</time>
@@ -2214,6 +2219,7 @@ function renderTooltip(data = {}) {
           ${metric("能见度", data.visibility == null ? "" : `${data.visibility} km`)}
         </div>
       </article>`;
+    mountWeatherEffects(appRoot);
     return;
   }
 

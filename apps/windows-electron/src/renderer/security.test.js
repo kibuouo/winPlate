@@ -1574,7 +1574,7 @@ test("weather detail card renders a local cinematic scene driven by live QWeathe
   const effects = fs.readFileSync(path.join(__dirname, "weatherEffects.js"), "utf8");
 
   assert.match(html, /<script src="\.\/weatherScenes\.js"><\/script>[\s\S]*<script src="\.\/weatherEffects\.js"><\/script>[\s\S]*bootstrap\.mjs/);
-  assert.match(renderer, /function weatherSceneMarkup\(weather = \{\}\)/);
+  assert.match(renderer, /function weatherSceneMarkup\(weather = \{\}, options = \{\}\)/);
   assert.match(renderer, /data-weather-scene="\$\{weatherScene\}"/);
   assert.match(renderer, /canvas class="weather-scene-canvas"/);
   assert.match(renderer, /data-cloud-cover="\$\{profile\.cloudCover\.toFixed\(1\)\}"/);
@@ -1588,6 +1588,20 @@ test("weather detail card renders a local cinematic scene driven by live QWeathe
   assert.match(effects, /config\.windDegrees \* Math\.PI \/ 180/);
   assert.match(effects, /prefers-reduced-motion: reduce/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.weather-scene \* \{ animation: none !important; \}/);
+});
+
+test("floating weather preview reuses the live scene at compact particle density", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const effects = fs.readFileSync(path.join(__dirname, "weatherEffects.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(renderer, /weather: \{ \.\.\.currentWeather \}/);
+  assert.match(renderer, /weatherSceneMarkup\(previewWeather, \{ compact: true \}\)/);
+  assert.match(renderer, /data-density="\$\{compact \? "0\.45" : "1"\}"/);
+  assert.match(renderer, /mountWeatherEffects\(appRoot\)/);
+  assert.match(effects, /count = Math\.round\(count \* config\.density\)/);
+  assert.match(styles, /\.weather-tooltip > :not\(\.weather-scene\)/);
+  assert.match(styles, /\.weather-tooltip \.weather-scene::after/);
 });
 
 test("weather detail page has a dedicated QWeather alert panel instead of relying on the notification capsule", () => {

@@ -2580,6 +2580,9 @@ html[data-theme="light"] .deepseek-row-track > span { background: linear-gradien
 .notification-tooltip-empty .notification-icon { width: 28px; height: 28px; }
 
 .weather-tooltip {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   width: 100%;
   height: 100%;
   padding: 15px;
@@ -2590,6 +2593,29 @@ html[data-theme="light"] .deepseek-row-track > span { background: linear-gradien
   border: 1px solid rgba(125, 211, 252, .2);
   border-radius: 18px;
   box-shadow: 0 18px 42px rgba(2, 8, 23, .42);
+}
+
+.weather-tooltip > :not(.weather-scene) {
+  position: relative;
+  z-index: 3;
+}
+
+.weather-tooltip .weather-scene {
+  opacity: .88;
+}
+
+.weather-tooltip .weather-scene-photo {
+  opacity: .52;
+}
+
+.weather-tooltip .weather-scene-canvas {
+  opacity: .74;
+}
+
+.weather-tooltip .weather-scene::after {
+  background:
+    linear-gradient(90deg, rgba(8, 15, 28, .68), rgba(8, 15, 28, .35) 54%, rgba(8, 15, 28, .52)),
+    linear-gradient(0deg, rgba(8, 15, 28, .62), transparent 52%);
 }
 
 .weather-tooltip-header {

@@ -23,12 +23,13 @@
       windDegrees: finite(canvas.dataset.windDegrees),
       humidity: clamp(finite(canvas.dataset.humidity, 50), 0, 100),
       visibility: clamp(finite(canvas.dataset.visibility, 20), 1, 50),
-      haze: clamp(finite(canvas.dataset.haze), 0, 1)
+      haze: clamp(finite(canvas.dataset.haze), 0, 1),
+      density: clamp(finite(canvas.dataset.density, 1), .2, 1)
     };
   }
 
   function effectSignature(canvas) {
-    return ["scene", "intensity", "cloudCover", "windSpeed", "windDegrees", "humidity", "visibility", "haze"]
+    return ["scene", "intensity", "cloudCover", "windSpeed", "windDegrees", "humidity", "visibility", "haze", "density"]
       .map((key) => canvas.dataset[key] || "")
       .join("|");
   }
@@ -55,6 +56,7 @@
     else if (config.scene === "sleet") count = Math.round(60 + config.intensity * 110);
     else if (["snow", "cold"].includes(config.scene)) count = Math.round(42 + config.intensity * 120);
     else if (["mist", "haze", "sand", "hot"].includes(config.scene)) count = Math.round(24 + Math.max(config.haze, config.intensity) * 70);
+    count = Math.round(count * config.density);
     return Array.from({ length: count }, (_, index) => {
       const particle = {
         kind: config.scene === "sleet" && index % 3 === 0
@@ -72,7 +74,7 @@
 
   function createDroplets(width, height, config) {
     if (!["rain", "storm", "sleet"].includes(config.scene)) return [];
-    return Array.from({ length: Math.round(8 + config.intensity * 28) }, () => ({
+    return Array.from({ length: Math.round((8 + config.intensity * 28) * config.density) }, () => ({
       x: Math.random() * width,
       y: Math.random() * height,
       radius: 1.5 + Math.random() * 5.5,
