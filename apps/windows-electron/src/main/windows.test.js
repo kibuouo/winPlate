@@ -249,12 +249,20 @@ test("showMainWindow normalizes Electron metadata and preserves allowed sections
     windows.showMainWindow("");
     windows.showMainWindow("Unknown");
     windows.showMainWindow("Settings");
+    windows.showMainWindow({ section: "Mail", moduleId: "mail", sourceId: "2256" });
 
     assert.deepEqual(sent, [
       ["main:navigate", "Dashboard"],
       ["main:navigate", "Dashboard"],
       ["main:navigate", "Dashboard"],
-      ["main:navigate", "Settings"]
+      ["main:navigate", "Settings"],
+      ["main:navigate", {
+        section: "Mail",
+        moduleId: "mail",
+        source: null,
+        sourceId: "2256",
+        notificationId: null
+      }]
     ]);
     closeWindow(window);
   });

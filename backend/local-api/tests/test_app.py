@@ -936,6 +936,18 @@ class DatabaseTests(unittest.TestCase):
         self.assertIn("UNREAD", result["labels"])
         self.assertTrue(result["unread"])
 
+    def test_mail_text_decodes_nested_html_entities_for_summaries_and_details(self):
+        message = EmailMessage()
+        message.set_content("亲爱的用户：&amp;nbsp;服务已过期。")
+
+        result = main.parse_imap_message("m1", message.as_bytes(), [])
+        text_body, _, _ = main.message_body_parts(
+            main.message_from_bytes(message.as_bytes(), policy=main.policy.default)
+        )
+
+        self.assertEqual(result["summary"], "亲爱的用户： 服务已过期。")
+        self.assertEqual(text_body, "亲爱的用户： 服务已过期。")
+
     def test_message_body_parts_prefers_text_and_lists_attachments(self):
         message = EmailMessage()
         message["Subject"] = "Launch"

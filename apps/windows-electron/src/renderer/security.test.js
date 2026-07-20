@@ -2044,12 +2044,14 @@ test("notification mark-read refresh preserves detail when no represented items 
   assert.doesNotMatch(harness.drawer().textContent, /原始历史仍保留/);
 });
 
-test("external notification navigation selects the requested notification detail", () => {
+test("external notification navigation opens the requested mail or notification detail", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const navigation = renderer.slice(
     renderer.indexOf("window.winplate.onNavigate"),
     renderer.indexOf("window.winplate.onMaximizedChange")
   );
+  assert.match(navigation, /navigation\.section === "Mail" && navigation\.moduleId === "mail" && navigation\.sourceId/);
+  assert.match(navigation, /await openMailDetail\(navigation\.sourceId\)/);
   assert.match(navigation, /selectNotification\(navigation\.notificationId\)/);
   assert.match(navigation, /notificationSelection = \{ id: null, loading: false, data: null, error: "" \}/);
 });

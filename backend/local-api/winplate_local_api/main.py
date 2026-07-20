@@ -300,8 +300,20 @@ def connect_qq_mail() -> dict:
     return {"connected": True, **mail_settings()}
 
 
+def decode_mail_entities(value: str) -> str:
+    text = str(value or "")
+    # QQ mail content can encode entities twice (for example, &amp;nbsp;).
+    # Decode twice so that summaries never expose markup such as "&nbsp;".
+    for _ in range(2):
+        decoded = unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def clean_mail_text(value: str, limit: int = 220) -> str:
-    text = unescape(re.sub(r"<[^>]+>", " ", value or ""))
+    text = re.sub(r"<[^>]+>", " ", decode_mail_entities(value))
     text = re.sub(r"\s+", " ", text).strip()
     return text[:limit].rstrip()
 
@@ -378,7 +390,7 @@ def message_body_parts(message: Message) -> tuple[str, str, list[dict]]:
             charset = part.get_content_charset() or "utf-8"
             payload = payload_bytes.decode(charset, "replace")
         if content_type == "text/plain":
-            text_parts.append(str(payload).strip())
+            text_parts.append(decode_mail_entities(payload).replace("\xa0", " ").strip())
         else:
             html_parts.append(str(payload).strip())
     return "\n\n".join(part for part in text_parts if part), "\n\n".join(part for part in html_parts if part), attachments

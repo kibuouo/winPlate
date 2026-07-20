@@ -3723,7 +3723,7 @@ function bindMailControls() {
 }
 
 async function openMailDetail(uid, triggerButton = null) {
-  if (!uid || mailDetail.loading) return;
+  if (!uid || (mailDetail.loading && String(mailDetail.uid) === String(uid))) return;
   if (triggerButton) triggerButton.disabled = true;
   const requestId = `${uid}:${Date.now()}`;
   mailHighlightedUid = uid;
@@ -4609,6 +4609,10 @@ window.winplate.onNavigate(async (payload) => {
   const navigation = applyNavigationPayload(payload);
   if (view === "main") {
     renderMain();
+    if (navigation.section === "Mail" && navigation.moduleId === "mail" && navigation.sourceId) {
+      await openMailDetail(navigation.sourceId);
+      return;
+    }
     if (navigation.section === "Notifications") {
       if (navigation.notificationId) {
         await selectNotification(navigation.notificationId);

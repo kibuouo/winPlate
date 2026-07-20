@@ -1,5 +1,5 @@
 const MAIN_SECTIONS = new Set([
-  "Dashboard", "GitHub", "Codex", "Heart", "QWeather", "Notifications", "Settings"
+  "Dashboard", "GitHub", "Codex", "Heart", "Mail", "QWeather", "Notifications", "Settings"
 ]);
 
 function normalizeMainSection(section) {
