@@ -5,6 +5,7 @@ import os
 import re
 import email.utils
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -78,7 +79,34 @@ WINDOWS_FILETIME_EPOCH_MS = 11644473600000
 OPENAI_NOTIFICATION_HANDLERS = {
     "OpenAI.Codex": "codex",
     "OpenAI.ChatGPT": "chatgpt",
+    # ChatGPT notifications forwarded from the phone use the Android package
+    # name in the Windows notification database rather than the desktop app id.
+    "com.openai.chat": "chatgpt",
 }
+CHATGPT_TASK_STATUS_RE = re.compile(
+    r"^(?P<title>.+?)[。.]\s*(?P<status>"
+    r"正在运行|运行中|已完成|完成|成功|失败|已停止|已取消|错误|"
+    r"running|completed|complete|done|succeeded|failed|stopped|cancelled|canceled|error"
+    r")(?:[。.]|\s|$)",
+    re.IGNORECASE,
+)
+CHATGPT_RUNNING_STATUSES = {"正在运行", "运行中", "running"}
+CHATGPT_FAILURE_STATUSES = {"失败", "已停止", "已取消", "错误", "failed", "stopped", "cancelled", "canceled", "error"}
+CHATGPT_UI_AUTOMATION_SCRIPT = r'''
+Add-Type -AssemblyName UIAutomationClient
+$process = Get-Process ChatGPT -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if (-not $process) { '[]'; exit 0 }
+$root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$process.MainWindowHandle)
+$buttons = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))
+$tasks = foreach ($button in $buttons) {
+  $name = [string]$button.Current.Name
+  if ($name -notmatch '(正在运行|运行中|已完成|完成|成功|失败|已停止|已取消|错误|running|completed|complete|done|succeeded|failed|stopped|cancelled|canceled|error)') { continue }
+  $bytes = [Text.Encoding]::UTF8.GetBytes($name)
+  $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }
+  [pscustomobject]@{ name = $name; fingerprint = ($hash -join '') }
+}
+@($tasks) | ConvertTo-Json -Compress
+'''
 
 
 def build_log_config() -> dict:
@@ -703,9 +731,9 @@ def windows_filetime_to_epoch_ms(value: int | None) -> int:
 
 
 def openai_notification_source(primary_id: str | None) -> str | None:
-    value = str(primary_id or "")
+    value = str(primary_id or "").casefold()
     for prefix, source in OPENAI_NOTIFICATION_HANDLERS.items():
-        if prefix in value:
+        if prefix.casefold() in value:
             return source
     return None
 
@@ -797,8 +825,94 @@ def sync_openai_desktop_notifications(limit: int = 80) -> None:
         connection.commit()
 
 
+def chatgpt_desktop_task_candidates() -> list[dict[str, str]]:
+    if os.name != "nt":
+        return []
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", CHATGPT_UI_AUTOMATION_SCRIPT],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=4,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    try:
+        raw_items = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+    if isinstance(raw_items, dict):
+        raw_items = [raw_items]
+    if not isinstance(raw_items, list):
+        return []
+    candidates = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        fingerprint = str(item.get("fingerprint") or "").strip().lower()
+        match = CHATGPT_TASK_STATUS_RE.match(name)
+        if not match or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            continue
+        title = clean_mail_text(match.group("title"), limit=180)
+        status = match.group("status").casefold()
+        if not title or status in CHATGPT_RUNNING_STATUSES:
+            continue
+        candidates.append({"title": title, "status": status, "fingerprint": fingerprint})
+    return candidates
+
+
+def sync_chatgpt_desktop_task_notifications() -> None:
+    candidates = chatgpt_desktop_task_candidates()
+    if not candidates:
+        return
+    imported_at = utc_epoch_seconds() * 1000
+    with closing(connect()) as connection:
+        for candidate in candidates:
+            import_id = f"chatgpt-ui:{candidate['fingerprint']}"
+            if connection.execute("SELECT 1 FROM notification_imports WHERE id = ?", (import_id,)).fetchone():
+                continue
+            # The desktop app can publish the same completion as a Codex toast. Prefer that
+            # source when it carries the identical task title, otherwise preserve this as a
+            # ChatGPT-only completion that Windows did not surface.
+            duplicate_toast = connection.execute(
+                """
+                SELECT 1 FROM notifications
+                WHERE source = 'codex' AND title = ? AND ABS(created_at - ?) <= 300000
+                LIMIT 1
+                """,
+                (candidate["title"], imported_at),
+            ).fetchone()
+            level = "warning" if candidate["status"] in CHATGPT_FAILURE_STATUSES else "success"
+            message = (
+                f"ChatGPT 桌面任务{candidate['status']}"
+                if level == "warning" else "已在 ChatGPT 桌面应用中完成"
+            )
+            if not duplicate_toast:
+                connection.execute(
+                    """
+                    INSERT INTO notifications
+                    (id, source, level, title, message, unread, created_at, updated_at, external_url)
+                    VALUES (?, 'chatgpt', ?, ?, ?, 1, ?, ?, NULL)
+                    """,
+                    (import_id, level, candidate["title"], message, imported_at, imported_at),
+                )
+            connection.execute(
+                "INSERT OR IGNORE INTO notification_imports (id, source, imported_at) VALUES (?, 'chatgpt', ?)",
+                (import_id, imported_at),
+            )
+        connection.commit()
+
+
 def notification_summary(limit: int = 50) -> dict:
     sync_openai_desktop_notifications()
+    sync_chatgpt_desktop_task_notifications()
     safe_limit = max(1, min(50, int(limit or 50)))
     with closing(connect()) as connection:
         rows = connection.execute(

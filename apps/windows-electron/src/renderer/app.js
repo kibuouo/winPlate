@@ -1161,8 +1161,8 @@ function unreadConversationMemberIds(conversation) {
 
 function notificationSourceLabel(source) {
   return {
-    mail: "邮件",
-    qweather: "QWeather",
+    mail: "Mail",
+    qweather: "Weather",
     codex: "Codex",
     chatgpt: "ChatGPT",
     github: "GitHub",
@@ -1172,7 +1172,7 @@ function notificationSourceLabel(source) {
 }
 
 function notificationSourceIconKey(source) {
-  return { codex: "codex", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
+  return { codex: "codex", chatgpt: "chatgpt", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
 }
 
 function notificationLevelLabel(level) {

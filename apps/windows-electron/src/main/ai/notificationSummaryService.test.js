@@ -17,10 +17,11 @@ test("requests strict JSON and validates the digest shape", () => {
   const local = createLocalDigest(raw, 2);
   const prompt = buildSummaryPrompt(raw, local);
   assert.match(prompt[0].content, /只返回一个 JSON 对象/);
+  assert.match(prompt[0].content, /summary 使用 Markdown 无序列表/);
   assert.match(prompt[0].content, /禁止返回 SVG、HTML/);
   const parsed = parseStructuredDigest(JSON.stringify({
     title: "开发任务已完成",
-    summary: "Codex 测试已通过。",
+    summary: "- Codex 测试已通过。\n- 已同步通知预览。",
     severity: "info",
     category: "development",
     iconKey: "check-circle",
@@ -28,6 +29,7 @@ test("requests strict JSON and validates the digest shape", () => {
   }), local);
   assert.equal(parsed.headline, "开发任务已完成");
   assert.equal(parsed.title, "开发任务已完成");
+  assert.equal(parsed.summary, "- Codex 测试已通过。\n- 已同步通知预览。");
   assert.equal(parsed.iconKey, "check-circle");
   assert.deepEqual(parsed.groups, local.groups);
   assert.throws(() => parseStructuredDigest("free text", local));

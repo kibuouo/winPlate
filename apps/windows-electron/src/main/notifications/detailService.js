@@ -12,7 +12,7 @@ function metadataEntries(entries = []) {
 function sourceLabel(source) {
   return {
     mail: "Mail",
-    qweather: "QWeather",
+    qweather: "Weather",
     codex: "Codex",
     chatgpt: "ChatGPT",
     github: "GitHub",

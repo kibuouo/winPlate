@@ -2,9 +2,10 @@ const crypto = require("crypto");
 const { foldNotificationConversations } = require("../notification/conversations");
 
 const GROUPS = [
-  { key: "weather", label: "天气", sources: new Set(["qweather"]) },
-  { key: "development", label: "开发", sources: new Set(["codex", "chatgpt"]) },
-  { key: "mail", label: "邮件", sources: new Set(["mail"]) },
+  { key: "weather", label: "Weather", sources: new Set(["qweather"]) },
+  { key: "codex-work", label: "Codex", sources: new Set(["codex"]) },
+  { key: "chatgpt-chat", label: "ChatGPT", sources: new Set(["chatgpt"]) },
+  { key: "mail", label: "Mail", sources: new Set(["mail"]) },
   { key: "github", label: "GitHub", sources: new Set(["github"]) },
   { key: "system", label: "系统", sources: new Set(["system"]) }
 ];

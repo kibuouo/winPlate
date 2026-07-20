@@ -63,6 +63,35 @@
       </article>`).join("")}</div>`;
   }
 
+  function digestSummaryItems(summary) {
+    const text = String(summary || "").trim();
+    if (!text) return [];
+    const markdownLines = text.split(/\r?\n/).flatMap((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return [];
+      const markdownItem = trimmed.match(/^(?:[-*+] |\d+[.)] )(.*)$/);
+      if (markdownItem) return [markdownItem[1]];
+      return trimmed.split(/\s*(?:；|;)\s*|\s+-\s+/);
+    });
+    return markdownLines.map((line) => line
+      .replace(/^#{1,6}\s+/, "")
+      .trim()
+    ).filter(Boolean);
+  }
+
+  function renderDigestSummary(summary, { compact = false } = {}) {
+    const items = digestSummaryItems(summary);
+    const visibleItems = compact ? items.slice(0, 4) : items;
+    if (!visibleItems.length) {
+      return '<p class="notification-digest-summary-empty">当前没有需要关注的新通知。</p>';
+    }
+    const remaining = items.length - visibleItems.length;
+    return `<div class="notification-digest-summary markdown-content" aria-label="摘要内容">
+      <ul>${visibleItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      ${remaining > 0 ? `<span class="notification-digest-summary-more">另有 ${remaining} 条更新</span>` : ""}
+    </div>`;
+  }
+
   function renderDigestCard(digest, { compact = false } = {}) {
     const value = normalizeDigest(digest);
     const iconKey = "sparkles";
@@ -73,7 +102,7 @@
           <span class="notification-digest-count">${value.unreadCount} 未读</span>
         </div>
         <h2>${escapeHtml(value.headline)}</h2>
-        <p>${escapeHtml(value.summary)}</p>
+        ${renderDigestSummary(value.summary, { compact })}
         ${compact ? "" : renderGroups(value)}
       </section>`;
   }
@@ -114,19 +143,13 @@
   }
 
   function notificationSourceCounts(items = []) {
-    const sourceOrder = ["codex", "github", "mail", "qweather"];
+    const sourceOrder = ["codex", "chatgpt", "mail", "qweather"];
     return [...(Array.isArray(items) ? items : []).reduce((counts, item) => {
       const source = String(item?.source || "system");
-      counts.set(source, (counts.get(source) || 0) + 1);
+      if (sourceOrder.includes(source)) counts.set(source, (counts.get(source) || 0) + 1);
       return counts;
-    }, new Map()).entries()]
-      .map(([source, count]) => ({ source, count }))
-      .sort((left, right) => {
-        const leftIndex = sourceOrder.indexOf(left.source);
-        const rightIndex = sourceOrder.indexOf(right.source);
-        return (leftIndex < 0 ? sourceOrder.length : leftIndex) - (rightIndex < 0 ? sourceOrder.length : rightIndex)
-          || left.source.localeCompare(right.source);
-      });
+    }, new Map(sourceOrder.map((source) => [source, 0]))).entries()]
+      .map(([source, count]) => ({ source, count }));
   }
 
   function dateGroupLabel(date, now) {
@@ -208,6 +231,8 @@
     selectDigestItems,
     renderDigestDrawerList,
     renderDigestCard,
+    digestSummaryItems,
+    renderDigestSummary,
     renderGroups,
     renderRawNotifications,
     filterNotificationItems,

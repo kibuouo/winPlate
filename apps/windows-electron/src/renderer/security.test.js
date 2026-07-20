@@ -1716,8 +1716,23 @@ test("notifications escape pushed titles and messages before rendering", () => {
   assert.match(component, /escapeHtml\(item\.title\)/);
   assert.match(component, /escapeHtml\(item\.body \|\| item\.message\)/);
   assert.match(component, /escapeHtml\(value\.headline\)/);
-  assert.match(component, /escapeHtml\(value\.summary\)/);
+  assert.match(component, /renderDigestSummary\(value\.summary/);
+  assert.match(component, /escapeHtml\(item\)/);
   assert.match(component, /data-notification-select="\$\{escapeHtml\(item\.id\)\}"/);
+});
+
+test("compact capsule digest renders Markdown and legacy summaries as safe, bounded list items", () => {
+  const api = loadNotificationDigestComponent();
+  const html = api.renderDigestSummary(
+    "- **已完成** 实现通知摘要\n- 修复 <script>alert(1)</script>\n- 已验证渲染\n- 准备发布\n- 这是紧凑预览外的更新",
+    { compact: true }
+  );
+
+  assert.match(html, /class="notification-digest-summary markdown-content"/);
+  assert.match(html, /<li>\*\*已完成\*\* 实现通知摘要<\/li>/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /另有 1 条更新/);
+  assert.match(api.renderDigestSummary("Codex：已完成同步；优化通知预览 - 修复摘要溢出"), /<li>Codex：已完成同步<\/li>/);
 });
 
 test("notification timeline groups source-filtered rows by date and escapes content", () => {
@@ -1725,10 +1740,11 @@ test("notification timeline groups source-filtered rows by date and escapes cont
   const now = new Date("2026-07-12T12:00:00");
   const items = [
     { id: "today", source: "codex", title: "<script>", message: "safe", level: "info", unread: true, createdAt: Date.parse("2026-07-12T08:00:00") },
+    { id: "chat", source: "chatgpt", title: "Reply", message: "ready", level: "info", unread: true, createdAt: Date.parse("2026-07-12T07:00:00") },
     { id: "yesterday", source: "github", title: "Review", message: "ready", level: "warning", unread: false, createdAt: Date.parse("2026-07-11T08:00:00") }
   ];
   assert.deepEqual(api.notificationSourceCounts(items), [
-    { source: "codex", count: 1 }, { source: "github", count: 1 }
+    { source: "codex", count: 1 }, { source: "chatgpt", count: 1 }, { source: "mail", count: 0 }, { source: "qweather", count: 0 }
   ]);
   assert.deepEqual(api.groupNotificationItemsByDate(items, now).map((group) => group.label), ["今天 7月12日", "昨天 7月11日"]);
   const html = api.renderNotificationTimeline(items, {
@@ -2131,6 +2147,11 @@ test("notification digest drawer reuses the Mail drawer layout contract", () => 
 
 test("notification timeline styles provide source chips, date rules, inline detail, and narrow layout", () => {
   const css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  assert.match(css, /\.notifications-page \.module-page-heading \{[^}]*border-bottom: 0;/);
+  assert.match(css, /\.notification-source-filters \{[^}]*flex-wrap: nowrap;/);
+  assert.match(css, /\.notification-source-chip \{[^}]*font-size: 12px;[^}]*white-space: nowrap;/);
+  assert.match(css, /\.notification-filter-tools \{[^}]*flex-wrap: nowrap;[^}]*white-space: nowrap;/);
+  assert.match(css, /\.notification-sort-label, \.notification-state-filter \{[^}]*font-size: 10px;/);
   assert.match(css, /\.notification-source-chip\.active \{[^}]*border-color: var\(--accent\);[^}]*background: var\(--accent\);/);
   assert.match(css, /\.notification-unread-count i \{[^}]*background: var\(--accent\);/);
   assert.match(css, /\.notification-state-menu button\.active \{[^}]*background: var\(--accent\);/);
@@ -2173,7 +2194,7 @@ test("notification source icons use one monochrome transparent treatment", () =>
   assert.match(renderer, /if \(source === "qweather"\)[\s\S]*notification-weather-icon/);
   assert.match(renderer, /sourceIcon: renderNotificationSourceIcon/);
   assert.match(css, /\.notification-source-icon \{[^}]*color: var\(--text-muted\);[^}]*background: transparent;/);
-  for (const source of ["codex", "github", "mail", "qweather", "system"]) {
+  for (const source of ["codex", "chatgpt", "github", "mail", "qweather", "system"]) {
     assert.match(css, new RegExp(`\\.notification-source-icon\\.source-${source} \\{[^}]*color: inherit;[^}]*background: transparent;`));
   }
   assert.match(css, /\.notification-inline-summary \{[^}]*max-width:/);

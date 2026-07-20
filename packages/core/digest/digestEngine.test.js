@@ -57,7 +57,7 @@ test("maps source semantics to danger, warning, and info", () => {
   assert.equal(severityForNotification(item("qweather", "天气转多云")), "info");
   assert.equal(severityForNotification(item("mail", "新邮件：Launch")), "info");
   assert.equal(severityForNotification(item("codex", "Codex 任务完成")), "info");
-  assert.equal(severityForNotification(item("codex", "ChatGPT 任务完成")), "info");
+  assert.equal(severityForNotification(item("chatgpt", "ChatGPT 任务完成")), "info");
   assert.equal(severityForNotification(item("codex", "Codex 任务失败")), "warning");
   assert.equal(severityForNotification(item("chatgpt", "ChatGPT 任务失败")), "warning");
   assert.equal(severityForNotification(item("system", "系统发生严重错误")), "danger");
@@ -93,12 +93,13 @@ test("deduplicates by source and dedupeKey and builds the requested groups", () 
   const values = [
     { id: "1", source: "codex", title: "old", createdAt: 1, unread: true, dedupeKey: "task", level: "info", meta: {} },
     { id: "2", source: "codex", title: "done", createdAt: 2, unread: true, dedupeKey: "task", level: "success", meta: {} },
-    { id: "3", source: "github", title: "PR review", createdAt: 3, unread: true, dedupeKey: "pr", level: "info", meta: {} }
+    { id: "3", source: "chatgpt", title: "chat reply", createdAt: 3, unread: true, dedupeKey: "chat", level: "info", meta: {} },
+    { id: "4", source: "github", title: "PR review", createdAt: 4, unread: true, dedupeKey: "pr", level: "info", meta: {} }
   ];
-  assert.deepEqual(dedupeNotifications(values).map((item) => item.id), ["2", "3"]);
+  assert.deepEqual(dedupeNotifications(values).map((item) => item.id), ["2", "3", "4"]);
   const digest = createLocalDigest(values, 10);
-  assert.deepEqual(new Set(digest.groups.map((group) => group.label)), new Set(["开发", "GitHub"]));
-  assert.deepEqual(new Set(digest.sourceIds), new Set(["2", "3"]));
+  assert.deepEqual(new Set(digest.groups.map((group) => group.label)), new Set(["Codex", "ChatGPT", "GitHub"]));
+  assert.deepEqual(new Set(digest.sourceIds), new Set(["2", "3", "4"]));
 });
 
 test("returns an empty actionable digest when all notifications are already read", () => {

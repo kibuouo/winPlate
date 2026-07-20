@@ -20,9 +20,12 @@ class DatabaseTests(unittest.TestCase):
     def setUp(self):
         self.notification_sync_patch = patch.object(main, "sync_openai_desktop_notifications")
         self.notification_sync_patch.start()
+        self.chatgpt_ui_sync_patch = patch.object(main, "sync_chatgpt_desktop_task_notifications")
+        self.chatgpt_ui_sync_patch.start()
 
     def tearDown(self):
         self.notification_sync_patch.stop()
+        self.chatgpt_ui_sync_patch.stop()
 
     def test_cross_language_contract_schemas_are_versioned_and_closed(self):
         schemas = Path(__file__).resolve().parents[3] / "packages" / "shared-types" / "schemas"
@@ -1165,8 +1168,9 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(response, {"items": []})
         clear.assert_called_once_with()
 
-    def test_notification_summary_imports_openai_windows_toasts(self):
+    def test_notification_summary_imports_codex_and_chatgpt_windows_toasts(self):
         self.notification_sync_patch.stop()
+        self.chatgpt_ui_sync_patch.stop()
         original_path = main.DATABASE_PATH
         try:
             with tempfile.TemporaryDirectory() as directory:
@@ -1188,10 +1192,21 @@ class DatabaseTests(unittest.TestCase):
                         ("OpenAI.Codex_2p2nqsd0c76g0!App",),
                     )
                     connection.execute(
+                        "INSERT INTO NotificationHandler (RecordId, PrimaryId) VALUES (2, ?)",
+                        ("Microsoft.YourPhone_8wekyb3d8bbwe!YourPhoneNotifications_com.openai.chat",),
+                    )
+                    connection.execute(
                         "INSERT INTO Notification (Id, HandlerId, Type, Payload, ArrivalTime) VALUES (101, 1, 'toast', ?, ?)",
                         (
                             b'<toast><visual><binding><text>Codex task</text><text>Done cleanly</text></binding></visual></toast>',
                             (1780000000000 + main.WINDOWS_FILETIME_EPOCH_MS) * 10_000,
+                        ),
+                    )
+                    connection.execute(
+                        "INSERT INTO Notification (Id, HandlerId, Type, Payload, ArrivalTime) VALUES (102, 2, 'toast', ?, ?)",
+                        (
+                            b'<toast><visual><binding><text>ChatGPT task</text><text>Draft is ready</text></binding></visual></toast>',
+                            (1779999999000 + main.WINDOWS_FILETIME_EPOCH_MS) * 10_000,
                         ),
                     )
                     connection.commit()
@@ -1201,14 +1216,48 @@ class DatabaseTests(unittest.TestCase):
                     patch.object(main, "windows_notification_database_path", return_value=windows_db),
                 ):
                     summary = main.notification_summary()
-                    self.assertEqual(summary["unreadCount"], 1)
+                    self.assertEqual(summary["unreadCount"], 2)
                     self.assertEqual(summary["latest"]["source"], "codex")
                     self.assertEqual(summary["latest"]["title"], "Codex task")
+                    imported = {item["source"]: item for item in summary["items"]}
+                    self.assertEqual(imported["chatgpt"]["title"], "ChatGPT task")
+                    self.assertEqual(imported["chatgpt"]["message"], "Draft is ready")
                     main.clear_notifications()
                     self.assertEqual(main.notification_summary()["items"], [])
         finally:
             main.DATABASE_PATH = original_path
             self.notification_sync_patch.start()
+            self.chatgpt_ui_sync_patch.start()
+
+    def test_chatgpt_desktop_ui_imports_completed_tasks_without_reading_task_content(self):
+        self.chatgpt_ui_sync_patch.stop()
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                main.DATABASE_PATH = Path(directory) / "test.db"
+                main.initialize_database()
+                output = json.dumps([
+                    {"name": "论文提纲整理. 已完成. 已生成提纲正文", "fingerprint": "a" * 64},
+                    {"name": "失败示例. 失败. 详细错误", "fingerprint": "b" * 64},
+                    {"name": "仍在生成. 正在运行. 中间内容", "fingerprint": "c" * 64},
+                ])
+                with (
+                    patch.object(main.os, "name", "nt"),
+                    patch.object(main.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output)),
+                ):
+                    main.sync_chatgpt_desktop_task_notifications()
+                    main.sync_chatgpt_desktop_task_notifications()
+                with closing(main.connect()) as connection:
+                    rows = connection.execute(
+                        "SELECT source, level, title, message FROM notifications ORDER BY title"
+                    ).fetchall()
+                self.assertEqual([tuple(row) for row in rows], [
+                    ("chatgpt", "warning", "失败示例", "ChatGPT 桌面任务失败"),
+                    ("chatgpt", "success", "论文提纲整理", "已在 ChatGPT 桌面应用中完成"),
+                ])
+        finally:
+            main.DATABASE_PATH = original_path
+            self.chatgpt_ui_sync_patch.start()
 
     def test_mail_outline_syncs_new_mail_notifications(self):
         original_path = main.DATABASE_PATH
