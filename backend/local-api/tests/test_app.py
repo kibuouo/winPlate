@@ -1214,6 +1214,9 @@ class DatabaseTests(unittest.TestCase):
                     patch.dict(main.os.environ, {"LOCALAPPDATA": str(base)}),
                     patch.object(main.os, "name", "nt"),
                     patch.object(main, "windows_notification_database_path", return_value=windows_db),
+                    # Toast import is under test; keep desktop UI/log importers idle.
+                    patch.object(main, "chatgpt_desktop_task_candidates", return_value=[]),
+                    patch.object(main, "chatgpt_desktop_message_candidates", return_value=[]),
                 ):
                     summary = main.notification_summary()
                     self.assertEqual(summary["unreadCount"], 2)
@@ -1251,13 +1254,14 @@ class DatabaseTests(unittest.TestCase):
                     main.sync_chatgpt_desktop_task_notifications()
                 with closing(main.connect()) as connection:
                     rows = connection.execute(
-                        "SELECT source, level, title, message FROM notifications ORDER BY title"
+                        "SELECT source, level, title, message FROM notifications"
                     ).fetchall()
-                self.assertEqual([tuple(row) for row in rows], [
+                # Compare as a set: SQLite title collation can differ across OS builds.
+                self.assertEqual({tuple(row) for row in rows}, {
                     ("chatgpt", "warning", "失败示例", "详细错误"),
                     ("chatgpt", "success", "无摘要任务", "已在 ChatGPT 桌面应用中完成"),
                     ("chatgpt", "success", "论文提纲整理", "已生成提纲正文"),
-                ])
+                })
         finally:
             main.DATABASE_PATH = original_path
             self.chatgpt_ui_sync_patch.start()
@@ -1289,15 +1293,16 @@ class DatabaseTests(unittest.TestCase):
                     main.sync_chatgpt_desktop_task_notifications()
                 with closing(main.connect()) as connection:
                     rows = connection.execute(
-                        "SELECT id, source, level, title, message FROM notifications ORDER BY created_at"
+                        "SELECT id, source, level, title, message, created_at FROM notifications"
                     ).fetchall()
                 self.assertEqual(len(rows), 2)
-                self.assertEqual(rows[0]["source"], "chatgpt")
-                self.assertEqual(rows[0]["level"], "info")
-                self.assertEqual(rows[0]["title"], "ChatGPT 对话有新回复 · 6a5efcee")
-                self.assertIn("离开 ChatGPT 期间收到新回复", rows[0]["message"])
-                self.assertTrue(str(rows[0]["id"]).startswith("chatgpt-event:"))
-                self.assertIn("对话收到新消息", rows[1]["message"])
+                by_created = sorted(rows, key=lambda row: int(row["created_at"]))
+                self.assertTrue(all(row["source"] == "chatgpt" for row in by_created))
+                self.assertTrue(all(row["level"] == "info" for row in by_created))
+                self.assertTrue(all(row["title"] == "ChatGPT 对话有新回复 · 6a5efcee" for row in by_created))
+                self.assertTrue(all(str(row["id"]).startswith("chatgpt-event:") for row in by_created))
+                self.assertIn("离开 ChatGPT 期间收到新回复", by_created[0]["message"])
+                self.assertIn("对话收到新消息", by_created[1]["message"])
         finally:
             main.DATABASE_PATH = original_path
             self.chatgpt_ui_sync_patch.start()

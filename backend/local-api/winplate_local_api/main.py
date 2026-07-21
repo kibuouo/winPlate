@@ -834,18 +834,23 @@ def sync_openai_desktop_notifications(limit: int = 80) -> None:
 def chatgpt_desktop_task_candidates() -> list[dict[str, str]]:
     if os.name != "nt":
         return []
+    run_kwargs: dict = {
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "ignore",
+        "timeout": 4,
+        "check": False,
+    }
+    # creationflags is Windows-only; passing a non-zero value raises ValueError on POSIX.
+    if sys.platform == "win32":
+        run_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", CHATGPT_UI_AUTOMATION_SCRIPT],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=4,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **run_kwargs,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ValueError):
         return []
     if result.returncode != 0:
         return []
@@ -937,7 +942,8 @@ def sync_chatgpt_desktop_ui_task_notifications() -> None:
 def chatgpt_desktop_logs_root() -> Path:
     local_app_data = os.getenv("LOCALAPPDATA")
     if not local_app_data:
-        return Path()
+        # Never fall back to cwd: Path() exists and rglob would scan the working tree.
+        return Path(os.devnull).with_name("winplate-chatgpt-logs-missing")
     return (
         Path(local_app_data)
         / "Packages"
