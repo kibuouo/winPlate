@@ -1533,7 +1533,7 @@ function githubContent() {
           className: "github-page-heading",
           actions: `<div class="github-heading-actions">
             <button
-              class="refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
+              class="refresh-button module-refresh-button github-refresh-button ${githubRefreshInFlight ? "refreshing" : ""}"
               id="refresh-github"
               type="button"
               aria-label="刷新 GitHub 数据"
@@ -2761,18 +2761,20 @@ function mailContent() {
         title: "邮件大纲",
         description: `最近 ${mailOutline.windowDays || mailSettings.windowDays || 30} 天收件箱摘要。`,
         className: "mail-page-heading",
-        actions: `<div class="mail-actions">
-          <button class="mail-connect-button" id="connect-mail" type="button">${mailSettings.connected ? "重新连接" : "连接 QQ 邮箱"}</button>
-          <button
-            class="refresh-button mail-refresh-button ${mailRefreshInFlight ? "refreshing" : ""}"
-            id="refresh-mail"
-            type="button"
-            aria-label="刷新邮件大纲"
-            ${mailRefreshInFlight ? "disabled" : ""}
-          >
-            ${refreshIcon}
-            <span>${mailRefreshInFlight ? "刷新中" : "刷新"}</span>
-          </button>
+        actions: `<div class="mail-heading-actions">
+          <div class="mail-actions">
+            <button
+              class="refresh-button module-refresh-button mail-refresh-button ${mailRefreshInFlight ? "refreshing" : ""}"
+              id="refresh-mail"
+              type="button"
+              aria-label="刷新邮件大纲"
+              ${mailRefreshInFlight ? "disabled" : ""}
+            >
+              ${refreshIcon}
+              <span>${mailRefreshInFlight ? "刷新中" : "刷新"}</span>
+            </button>
+            <button class="mail-connect-button" id="connect-mail" type="button">${mailSettings.connected ? "重新连接" : "连接 QQ 邮箱"}</button>
+          </div>
         </div>`
       })}
       <div class="mail-status-bar">

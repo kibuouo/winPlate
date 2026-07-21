@@ -332,7 +332,13 @@ test("main modules share the notifications-style page heading", () => {
   assert.match(css, /\.health-page\s*\{[^}]*gap:\s*24px/);
   assert.match(css, /#page-content \{ padding: 42px 44px 48px; \}/);
   assert.match(css, /\.notifications-main-content #page-content \{ padding: 32px 32px 36px; \}/);
-  assert.match(css, /\.mail-actions \.mail-connect-button,\s*\.mail-actions \.mail-refresh-button \{[^}]*width: 92px;[^}]*height: 40px;/);
+  assert.match(css, /\.module-refresh-button,\s*\.github-heading-actions \.github-refresh-button,\s*\.mail-actions \.mail-refresh-button\s*\{[^}]*min-height:\s*34px;[^}]*padding:\s*8px 13px;[^}]*border-radius:\s*11px;/);
+  assert.match(css, /\.mail-actions \.mail-connect-button\s*\{[^}]*min-height:\s*34px;[^}]*padding:\s*8px 13px;/);
+  assert.match(css, /\.mail-heading-actions\s*\{[^}]*align-self:\s*center;/);
+  assert.match(css, /\.github-heading-actions\s*\{[^}]*align-self:\s*center;/);
+  assert.match(renderer, /class="refresh-button module-refresh-button github-refresh-button/);
+  assert.match(renderer, /class="refresh-button module-refresh-button mail-refresh-button/);
+  assert.doesNotMatch(css, /\.mail-actions \.mail-refresh-button \{[^}]*width:\s*92px;/);
   assert.doesNotMatch(css, /\.mail-page-heading h1\s*\{/);
   assert.doesNotMatch(css, /\.codex-page-header h1\s*\{/);
 });
@@ -1492,8 +1498,10 @@ test("manual GitHub and mail refreshes announce success and failure in the app",
   assert.match(renderer, /showRefreshNotice\("error", "邮件刷新失败", message\)/);
   assert.match(renderer, /showRefreshNotice\("success", "GitHub 刷新成功", "贡献数据已更新。"\)/);
   assert.match(renderer, /showRefreshNotice\("error", "GitHub 刷新失败", error\.message \|\| "请稍后重试。"\)/);
-  assert.match(css, /\.refresh-notice\.is-success,\s*\.refresh-notice\.is-error \{ border-color: var\(--border-strong\); \}/);
-  assert.doesNotMatch(css, /\.refresh-notice\.is-(?:success|error)\s*\{[^}]*border-left-color:/);
+  assert.match(css, /\.refresh-notice\.is-success,\s*\.refresh-notice\.is-error\s*\{[^}]*border-color:\s*color-mix\(in srgb, var\(--accent\)/);
+  assert.match(css, /\.refresh-notice\.is-success strong,\s*\.refresh-notice\.is-error strong \{ color: var\(--accent\); \}/);
+  assert.match(css, /\.refresh-notice\.is-success::before,\s*\.refresh-notice\.is-error::before\s*\{[^}]*background:\s*var\(--accent\)/);
+  assert.match(css, /\.refresh-notice::before\s*\{/);
   assert.match(css, /\.refresh-notice-region\s*\{[\s\S]*top:\s*50px;[\s\S]*left:\s*50%;[\s\S]*width:\s*min\(300px,[^;]+;[\s\S]*transform:\s*translateX\(-50%\);/);
   assert.match(css, /\.refresh-notice > div \{[^}]*display:\s*flex;/);
 });
