@@ -87,11 +87,17 @@ CHATGPT_TASK_STATUS_RE = re.compile(
     r"^(?P<title>.+?)[。.]\s*(?P<status>"
     r"正在运行|运行中|已完成|完成|成功|失败|已停止|已取消|错误|"
     r"running|completed|complete|done|succeeded|failed|stopped|cancelled|canceled|error"
-    r")(?:[。.]|\s|$)",
+    r")(?:[。.]|\s|$)(?P<summary>.*)$",
     re.IGNORECASE,
 )
 CHATGPT_RUNNING_STATUSES = {"正在运行", "运行中", "running"}
 CHATGPT_FAILURE_STATUSES = {"失败", "已停止", "已取消", "错误", "failed", "stopped", "cancelled", "canceled", "error"}
+CHATGPT_MESSAGE_UPDATE_MARKER = "chatgpt_conversation_message_update_applied"
+CHATGPT_EVENT_FIELD_RE = re.compile(
+    r"\b(conversationId|messageId|rendererWindowFocused)=([^\s]+)\b",
+    re.IGNORECASE,
+)
+CHATGPT_EVENT_LOOKBACK_MS = 3 * 24 * 60 * 60_000
 CHATGPT_UI_AUTOMATION_SCRIPT = r'''
 Add-Type -AssemblyName UIAutomationClient
 $process = Get-Process ChatGPT -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
@@ -862,13 +868,29 @@ def chatgpt_desktop_task_candidates() -> list[dict[str, str]]:
             continue
         title = clean_mail_text(match.group("title"), limit=180)
         status = match.group("status").casefold()
+        summary = clean_mail_text(match.group("summary"), limit=360)
         if not title or status in CHATGPT_RUNNING_STATUSES:
             continue
-        candidates.append({"title": title, "status": status, "fingerprint": fingerprint})
+        candidates.append({
+            "title": title,
+            "status": status,
+            "summary": summary,
+            "fingerprint": fingerprint,
+        })
     return candidates
 
 
-def sync_chatgpt_desktop_task_notifications() -> None:
+def chatgpt_task_message(status: str, summary: str = "", *, failed: bool = False) -> str:
+    cleaned = clean_mail_text(summary, limit=360)
+    if cleaned:
+        return cleaned
+    if failed:
+        return f"ChatGPT 桌面任务{status}"
+    return "已在 ChatGPT 桌面应用中完成"
+
+
+def sync_chatgpt_desktop_ui_task_notifications() -> None:
+    """Import completed/failed ChatGPT desktop work tasks via UI Automation."""
     candidates = chatgpt_desktop_task_candidates()
     if not candidates:
         return
@@ -889,10 +911,12 @@ def sync_chatgpt_desktop_task_notifications() -> None:
                 """,
                 (candidate["title"], imported_at),
             ).fetchone()
-            level = "warning" if candidate["status"] in CHATGPT_FAILURE_STATUSES else "success"
-            message = (
-                f"ChatGPT 桌面任务{candidate['status']}"
-                if level == "warning" else "已在 ChatGPT 桌面应用中完成"
+            failed = candidate["status"] in CHATGPT_FAILURE_STATUSES
+            level = "warning" if failed else "success"
+            message = chatgpt_task_message(
+                candidate["status"],
+                candidate.get("summary", ""),
+                failed=failed,
             )
             if not duplicate_toast:
                 connection.execute(
@@ -908,6 +932,135 @@ def sync_chatgpt_desktop_task_notifications() -> None:
                 (import_id, imported_at),
             )
         connection.commit()
+
+
+def chatgpt_desktop_logs_root() -> Path:
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if not local_app_data:
+        return Path()
+    return (
+        Path(local_app_data)
+        / "Packages"
+        / "OpenAI.Codex_2p2nqsd0c76g0"
+        / "LocalCache"
+        / "Local"
+        / "Codex"
+        / "Logs"
+    )
+
+
+def chatgpt_desktop_log_paths(limit: int = 30) -> list[Path]:
+    root = chatgpt_desktop_logs_root()
+    if not root.exists():
+        return []
+    try:
+        paths = [path for path in root.rglob("codex-desktop-*.log") if path.is_file()]
+        paths.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    except OSError:
+        return []
+    return paths[:max(1, min(80, int(limit or 30)))]
+
+
+def chatgpt_event_timestamp_ms(value: str) -> int | None:
+    try:
+        return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def chatgpt_chat_event_message(*, focused: bool) -> str:
+    if focused:
+        return "ChatGPT 对话收到新消息（桌面日志未暴露正文，请在 ChatGPT 中查看）"
+    return "离开 ChatGPT 期间收到新回复（桌面日志未暴露正文，请在 ChatGPT 中查看）"
+
+
+def chatgpt_desktop_message_candidates(limit: int = 80) -> list[dict[str, str | int | bool]]:
+    """Read regular ChatGPT chat message updates from Codex/ChatGPT desktop logs.
+
+    Desktop logs only expose conversation/message IDs, not reply text. They remain
+    the only reliable signal when Windows does not surface a ChatGPT toast.
+    """
+    if os.name != "nt":
+        return []
+    cutoff = utc_epoch_seconds() * 1000 - CHATGPT_EVENT_LOOKBACK_MS
+    candidates: dict[str, dict[str, str | int | bool]] = {}
+    for path in chatgpt_desktop_log_paths():
+        try:
+            with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
+                    if CHATGPT_MESSAGE_UPDATE_MARKER not in line:
+                        continue
+                    timestamp = chatgpt_event_timestamp_ms(line.split(" ", 1)[0])
+                    if timestamp is None or timestamp < cutoff:
+                        continue
+                    fields = {
+                        name.casefold(): value
+                        for name, value in CHATGPT_EVENT_FIELD_RE.findall(line)
+                    }
+                    conversation_id = str(fields.get("conversationid") or "").casefold()
+                    message_id = str(fields.get("messageid") or "").casefold()
+                    if not conversation_id or not message_id:
+                        continue
+                    if not re.fullmatch(r"[0-9a-f-]{36}", conversation_id):
+                        continue
+                    if not re.fullmatch(r"[0-9a-f-]{36}", message_id):
+                        continue
+                    focused = str(fields.get("rendererwindowfocused") or "").casefold() == "true"
+                    candidates[message_id] = {
+                        "conversationId": conversation_id,
+                        "messageId": message_id,
+                        "createdAt": timestamp,
+                        "focused": focused,
+                    }
+        except OSError:
+            continue
+    return sorted(
+        candidates.values(),
+        key=lambda item: int(item["createdAt"]),
+        reverse=True,
+    )[:max(1, min(200, int(limit or 80)))]
+
+
+def sync_chatgpt_desktop_chat_notifications() -> None:
+    """Import ChatGPT chat message updates from desktop logs (no reply body available)."""
+    candidates = chatgpt_desktop_message_candidates()
+    if not candidates:
+        return
+    imported_at = utc_epoch_seconds() * 1000
+    with closing(connect()) as connection:
+        for candidate in candidates:
+            conversation_id = str(candidate["conversationId"])
+            message_id = str(candidate["messageId"])
+            created_at = int(candidate["createdAt"])
+            focused = bool(candidate.get("focused"))
+            import_id = f"chatgpt-event:{message_id}"
+            if connection.execute("SELECT 1 FROM notification_imports WHERE id = ?", (import_id,)).fetchone():
+                continue
+            connection.execute(
+                """
+                INSERT INTO notifications
+                (id, source, level, title, message, unread, created_at, updated_at, external_url)
+                VALUES (?, 'chatgpt', 'info', ?, ?, 1, ?, ?, NULL)
+                """,
+                (
+                    import_id,
+                    f"ChatGPT 对话有新回复 · {conversation_id[:8]}",
+                    chatgpt_chat_event_message(focused=focused),
+                    created_at,
+                    imported_at,
+                ),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO notification_imports (id, source, imported_at) VALUES (?, 'chatgpt', ?)",
+                (import_id, imported_at),
+            )
+        connection.commit()
+
+
+def sync_chatgpt_desktop_task_notifications() -> None:
+    """Hybrid ChatGPT importer: work tasks (UI) + chat replies (desktop logs)."""
+    sync_chatgpt_desktop_ui_task_notifications()
+    sync_chatgpt_desktop_chat_notifications()
 
 
 def notification_summary(limit: int = 50) -> dict:

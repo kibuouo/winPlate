@@ -1229,7 +1229,7 @@ class DatabaseTests(unittest.TestCase):
             self.notification_sync_patch.start()
             self.chatgpt_ui_sync_patch.start()
 
-    def test_chatgpt_desktop_ui_imports_completed_tasks_without_reading_task_content(self):
+    def test_chatgpt_desktop_ui_imports_completed_tasks_with_status_summary(self):
         self.chatgpt_ui_sync_patch.stop()
         original_path = main.DATABASE_PATH
         try:
@@ -1239,11 +1239,13 @@ class DatabaseTests(unittest.TestCase):
                 output = json.dumps([
                     {"name": "论文提纲整理. 已完成. 已生成提纲正文", "fingerprint": "a" * 64},
                     {"name": "失败示例. 失败. 详细错误", "fingerprint": "b" * 64},
+                    {"name": "无摘要任务. 已完成", "fingerprint": "d" * 64},
                     {"name": "仍在生成. 正在运行. 中间内容", "fingerprint": "c" * 64},
                 ])
                 with (
                     patch.object(main.os, "name", "nt"),
                     patch.object(main.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output)),
+                    patch.object(main, "chatgpt_desktop_message_candidates", return_value=[]),
                 ):
                     main.sync_chatgpt_desktop_task_notifications()
                     main.sync_chatgpt_desktop_task_notifications()
@@ -1252,9 +1254,50 @@ class DatabaseTests(unittest.TestCase):
                         "SELECT source, level, title, message FROM notifications ORDER BY title"
                     ).fetchall()
                 self.assertEqual([tuple(row) for row in rows], [
-                    ("chatgpt", "warning", "失败示例", "ChatGPT 桌面任务失败"),
-                    ("chatgpt", "success", "论文提纲整理", "已在 ChatGPT 桌面应用中完成"),
+                    ("chatgpt", "warning", "失败示例", "详细错误"),
+                    ("chatgpt", "success", "无摘要任务", "已在 ChatGPT 桌面应用中完成"),
+                    ("chatgpt", "success", "论文提纲整理", "已生成提纲正文"),
                 ])
+        finally:
+            main.DATABASE_PATH = original_path
+            self.chatgpt_ui_sync_patch.start()
+
+    def test_chatgpt_desktop_logs_import_chat_message_updates(self):
+        self.chatgpt_ui_sync_patch.stop()
+        original_path = main.DATABASE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                main.DATABASE_PATH = base / "test.db"
+                main.initialize_database()
+                log_path = base / "codex-desktop-test.log"
+                log_path.write_text(
+                    "\n".join([
+                        "2026-07-21T05:20:51.130Z info chatgpt_pubsub_conversation_update_received",
+                        "2026-07-21T05:20:51.132Z info chatgpt_conversation_message_update_applied conversationId=6a5efcee-43d4-83ec-9832-a8e3184de36d messageId=aac220d5-2d70-4009-8f6e-ae2d8c299046 rendererWindowFocused=false",
+                        "2026-07-21T05:27:51.610Z info chatgpt_conversation_message_update_applied conversationId=6a5efcee-43d4-83ec-9832-a8e3184de36d messageId=d0155ef1-e392-4524-ab63-d883e1785c06 rendererWindowFocused=true",
+                    ]),
+                    encoding="utf-8",
+                )
+                with (
+                    patch.object(main.os, "name", "nt"),
+                    patch.object(main, "chatgpt_desktop_log_paths", return_value=[log_path]),
+                    patch.object(main, "chatgpt_desktop_task_candidates", return_value=[]),
+                    patch.object(main, "utc_epoch_seconds", return_value=1784613600),
+                ):
+                    main.sync_chatgpt_desktop_task_notifications()
+                    main.sync_chatgpt_desktop_task_notifications()
+                with closing(main.connect()) as connection:
+                    rows = connection.execute(
+                        "SELECT id, source, level, title, message FROM notifications ORDER BY created_at"
+                    ).fetchall()
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(rows[0]["source"], "chatgpt")
+                self.assertEqual(rows[0]["level"], "info")
+                self.assertEqual(rows[0]["title"], "ChatGPT 对话有新回复 · 6a5efcee")
+                self.assertIn("离开 ChatGPT 期间收到新回复", rows[0]["message"])
+                self.assertTrue(str(rows[0]["id"]).startswith("chatgpt-event:"))
+                self.assertIn("对话收到新消息", rows[1]["message"])
         finally:
             main.DATABASE_PATH = original_path
             self.chatgpt_ui_sync_patch.start()
