@@ -1,12 +1,22 @@
 # Local API boundary
 
 The importable FastAPI application lives in `winplate_local_api/`, with tests in
-`tests/`. From the repository root, use `npm run backend` to start it on
-`127.0.0.1:8765` and `npm run backend:test` to run its unit tests.
+`tests/`. It is the only process permitted to bind to `127.0.0.1:8765`; never
+expose it on a LAN interface.
 
-For the native macOS client, install the local runtime with
-`python3 -m pip install -r backend/local-api/requirements.txt`. The client
-prefers the repository `.venv` when it is available.
+From the repository root:
+
+```sh
+npm run venv:create
+npm run backend:install
+npm run backend
+npm run backend:test
+```
+
+The macOS packaging flow copies this API package and the repository `.venv`
+packages into `~/Applications/WinPlate.app`. The installed client then runs the
+bundled API with `/usr/bin/python3`, keeping normal app launches independent of
+the checkout path and the Documents folder.
 
 Runtime SQLite state is stored under `WINPLATE_DATA_DIR` when provided; Electron
 sets this to its writable user-data directory. Standalone launches fall back to

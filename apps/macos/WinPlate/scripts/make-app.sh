@@ -22,7 +22,7 @@ bin_path="$(swift build --package-path "$root" --show-bin-path)"
 binary="$bin_path/WinPlate"
 weather_icons="$root/../../windows-electron/assets/qweather-icons/icons"
 local_api_source="$root/../../../backend/local-api/winplate_local_api"
-python_packages="$root/../../../.venv/lib/python3.9/site-packages"
+python_runtime="$root/../../../.venv"
 
 if [[ ! -x "$binary" ]]; then
   print -u2 "WinPlate executable not found at $binary"
@@ -39,8 +39,22 @@ if [[ ! -d "$local_api_source" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$python_runtime/bin/python3" ]]; then
+  print -u2 "Python runtime not found at $python_runtime/bin/python3"
+  exit 1
+fi
+
+python_packages="$("$python_runtime/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+venv_python_version="$("$python_runtime/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+system_python_version="$(/usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+
 if [[ ! -d "$python_packages" ]]; then
   print -u2 "Python packages not found at $python_packages"
+  exit 1
+fi
+
+if [[ "$venv_python_version" != "$system_python_version" ]]; then
+  print -u2 "Python runtime version $venv_python_version does not match /usr/bin/python3 ($system_python_version)"
   exit 1
 fi
 
