@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -11,6 +12,15 @@ test('Electron packaging copies the local API below resources', () => {
     from: '../../backend/local-api',
     to: 'backend/local-api'
   }]);
+});
+
+test('backend logging configuration is present and parseable', () => {
+  const loggingConfigPath = path.join(repositoryRoot, 'backend', 'local-api', 'logging.json');
+  const loggingConfig = JSON.parse(fs.readFileSync(loggingConfigPath, 'utf8'));
+
+  assert.equal(loggingConfig.version, 1);
+  assert.equal(loggingConfig.handlers.default.stream, 'ext://sys.stderr');
+  assert.equal(loggingConfig.handlers.access.stream, 'ext://sys.stdout');
 });
 
 test('development starts the importable package with the repository virtualenv', () => {
