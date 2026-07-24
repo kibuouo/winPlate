@@ -69,6 +69,12 @@ final class AppState: ObservableObject {
         settings.loadSensitiveValues()
     }
 
+    func stop() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        backend.stop()
+    }
+
     deinit {
         refreshTask?.cancel()
         backend.stop()
@@ -107,11 +113,6 @@ final class AppState: ObservableObject {
         if !projectID.isEmpty { settings.weatherProjectID = projectID }
         if !credentialID.isEmpty { settings.weatherCredentialID = credentialID }
         if !privateKey.isEmpty { settings.weatherPrivateKey = privateKey }
-        guard settings.hasWeatherAlertCredentials else {
-            weatherAlertError = "请填写项目 ID、凭据 ID 和完整的 Ed25519 私钥 PEM"
-            isWeatherAlertConnected = false
-            return
-        }
         weatherAlertError = nil
         isWeatherAlertConnected = false
         backend.restart(
@@ -120,12 +121,15 @@ final class AppState: ObservableObject {
             weatherProjectID: settings.weatherProjectID,
             weatherCredentialID: settings.weatherCredentialID,
             weatherPrivateKey: settings.weatherPrivateKey,
-            overrideWeatherAlertCredentials: true,
+            overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
             qqMailAddress: settings.qqMailAddress,
             qqMailAuthCode: settings.qqMailAuthCode,
             overrideQQMailConfiguration: settings.qqMailAuthCode != nil
         )
-        testWeatherAlertConnectionWhenLocalAPIReady()
+        refreshWhenLocalAPIReady()
+        if settings.hasWeatherAlertCredentials {
+            testWeatherAlertConnectionWhenLocalAPIReady()
+        }
     }
 
     func testSavedWeatherAlertConnection() {
@@ -200,6 +204,7 @@ final class AppState: ObservableObject {
             if let statusValue = status.value {
                 snapshot = statusValue
                 if statusValue.weather.isAvailable { weatherUpdatedAt = Date() }
+                weatherError = statusValue.weather.error
             }
             let shouldRefreshAlerts = force || weatherAlertsUpdatedAt.map { Date().timeIntervalSince($0) > 300 } ?? true
             if snapshot.weather.isAvailable && shouldRefreshAlerts {
@@ -231,7 +236,7 @@ final class AppState: ObservableObject {
                 }
             }
             deepSeekError = deepSeekUsage.error
-            lastError = status.error ?? codexUsage.error ?? deepSeekUsage.error ?? weatherAlertError
+            lastError = status.error ?? weatherError ?? codexUsage.error ?? deepSeekUsage.error ?? weatherAlertError
             isRefreshing = false
         }
     }
@@ -264,6 +269,27 @@ final class AppState: ObservableObject {
             return
         }
         testQQMailConnectionWhenLocalAPIReady()
+    }
+
+    private func refreshWhenLocalAPIReady() {
+        Task { [weak self] in
+            guard let self else { return }
+            for attempt in 0..<8 {
+                guard !Task.isCancelled else { return }
+                if attempt > 0 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                let result = await self.api.status(force: true)
+                if let status = result.value {
+                    self.snapshot = status
+                    if status.weather.isAvailable { self.weatherUpdatedAt = Date() }
+                    self.weatherError = status.weather.error
+                    self.lastError = status.weather.error ?? result.error
+                    return
+                }
+                if result.error != "本地服务不可用" { return }
+            }
+        }
     }
 
     private func testQQMailConnectionWhenLocalAPIReady() {
@@ -403,6 +429,7 @@ final class AppState: ObservableObject {
             weatherAlertsUpdatedAt = Date()
         }
         weatherAlertError = result.error ?? result.value?.error
+        isWeatherAlertConnected = result.value != nil && weatherAlertError == nil
         return weatherAlertError
     }
 }

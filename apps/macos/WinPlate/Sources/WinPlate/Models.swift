@@ -8,6 +8,18 @@ enum MenuBarTemperatureFormatter {
     }
 }
 
+enum MenuBarWeatherIcon {
+    static func filename(for icon: String?) -> String {
+        guard
+            let icon,
+            icon.range(of: #"^\d{3,4}$"#, options: .regularExpression) != nil
+        else {
+            return "999"
+        }
+        return icon
+    }
+}
+
 struct ResultValue<Value> {
     let value: Value?
     let error: String?
@@ -37,12 +49,13 @@ struct WeatherSnapshot: Decodable {
     let location: String
     let icon: String?
     let forecast: [WeatherForecast]
+    let error: String?
 
     static let empty = WeatherSnapshot(source: "unavailable", temperature: nil, condition: "不可用", location: "--", icon: nil, forecast: [])
     var isAvailable: Bool { source == "qweather" && temperature?.isFinite == true }
 
-    init(source: String, temperature: Double?, condition: String, location: String, icon: String?, forecast: [WeatherForecast] = []) {
-        self.source = source; self.temperature = temperature; self.condition = condition; self.location = location; self.icon = icon; self.forecast = forecast
+    init(source: String, temperature: Double?, condition: String, location: String, icon: String?, forecast: [WeatherForecast] = [], error: String? = nil) {
+        self.source = source; self.temperature = temperature; self.condition = condition; self.location = location; self.icon = icon; self.forecast = forecast; self.error = error
     }
 
     init(from decoder: Decoder) throws {
@@ -52,6 +65,7 @@ struct WeatherSnapshot: Decodable {
         location = try container.decodeIfPresent(String.self, forKey: .location) ?? "--"
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         forecast = try container.decodeIfPresent([WeatherForecast].self, forKey: .forecast) ?? []
+        error = try container.decodeIfPresent(String.self, forKey: .error)
         if let number = try? container.decode(Double.self, forKey: .temperature) {
             temperature = number
         } else if let text = try? container.decode(String.self, forKey: .temperature) {
@@ -61,7 +75,7 @@ struct WeatherSnapshot: Decodable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case source, temperature, condition, location, icon, forecast }
+    private enum CodingKeys: String, CodingKey { case source, temperature, condition, location, icon, forecast, error }
 }
 
 struct WeatherForecast: Decodable, Identifiable {

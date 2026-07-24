@@ -18,6 +18,13 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(MenuBarTemperatureFormatter.title(for: .infinity), "--°")
     }
 
+    func testUsesQWeatherIconCodeOrFallbackAsset() {
+        XCTAssertEqual(MenuBarWeatherIcon.filename(for: "101"), "101")
+        XCTAssertEqual(MenuBarWeatherIcon.filename(for: "2204"), "2204")
+        XCTAssertEqual(MenuBarWeatherIcon.filename(for: "sunny"), "999")
+        XCTAssertEqual(MenuBarWeatherIcon.filename(for: nil), "999")
+    }
+
     func testDecodesWeatherForecastForTheMenuBarOverview() throws {
         let payload = """
         {

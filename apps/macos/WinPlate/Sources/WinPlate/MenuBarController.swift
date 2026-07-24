@@ -14,7 +14,7 @@ final class MenuBarController: NSObject {
 
     init(state: AppState) {
         self.state = state
-        statusItem = NSStatusBar.system.statusItem(withLength: 164)
+        statusItem = NSStatusBar.system.statusItem(withLength: 182)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 408, height: 392),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -99,6 +99,7 @@ final class MenuBarController: NSObject {
         let sevenDayQuota = codex.windows?.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%"
         statusSummary?.update(
             temperature: temperature,
+            weatherIcon: weather.isAvailable ? weather.icon : nil,
             fiveHour: codex.fiveHour,
             sevenDay: codex.windows?.sevenDay
         )
@@ -212,8 +213,10 @@ final class MenuBarController: NSObject {
 
 private final class MenuBarStatusSummary: NSView {
     private let temperatureLabel = MenuBarStatusSummary.label(size: 11, weight: .semibold, color: .labelColor)
+    private let weatherIconView = NSImageView()
     private let fiveHourRow = MenuBarQuotaRow(label: "5h")
     private let sevenDayRow = MenuBarQuotaRow(label: "7d")
+    private static var weatherIcons = [String: NSImage]()
 
     init(icon: NSImage?) {
         super.init(frame: .zero)
@@ -222,6 +225,11 @@ private final class MenuBarStatusSummary: NSView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentTintColor = .labelColor
         iconView.setContentHuggingPriority(.required, for: .horizontal)
+
+        weatherIconView.translatesAutoresizingMaskIntoConstraints = false
+        weatherIconView.contentTintColor = .labelColor
+        weatherIconView.setContentHuggingPriority(.required, for: .horizontal)
+        weatherIconView.setAccessibilityElement(false)
 
         let usageStack = NSStackView(views: [fiveHourRow, sevenDayRow])
         usageStack.orientation = .vertical
@@ -232,7 +240,7 @@ private final class MenuBarStatusSummary: NSView {
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [iconView, temperatureLabel, divider, usageStack])
+        let stack = NSStackView(views: [iconView, weatherIconView, temperatureLabel, divider, usageStack])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 5
@@ -242,6 +250,8 @@ private final class MenuBarStatusSummary: NSView {
         NSLayoutConstraint.activate([
             iconView.widthAnchor.constraint(equalToConstant: 15),
             iconView.heightAnchor.constraint(equalToConstant: 15),
+            weatherIconView.widthAnchor.constraint(equalToConstant: 13),
+            weatherIconView.heightAnchor.constraint(equalToConstant: 13),
             divider.widthAnchor.constraint(equalToConstant: 1),
             divider.heightAnchor.constraint(equalToConstant: 15),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -255,10 +265,30 @@ private final class MenuBarStatusSummary: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func update(temperature: String, fiveHour: UsageWindow?, sevenDay: UsageWindow?) {
+    func update(temperature: String, weatherIcon: String?, fiveHour: UsageWindow?, sevenDay: UsageWindow?) {
         temperatureLabel.stringValue = temperature
+        weatherIconView.image = Self.weatherIcon(for: weatherIcon)
         fiveHourRow.update(percentage: fiveHour?.remainingPct, resetText: fiveHour?.resetText)
         sevenDayRow.update(percentage: sevenDay?.remainingPct, resetText: sevenDay?.resetText)
+    }
+
+    private static func weatherIcon(for code: String?) -> NSImage? {
+        let filename = MenuBarWeatherIcon.filename(for: code)
+        if let image = weatherIcons[filename] { return image }
+        guard
+            let url = Bundle.main.url(
+                forResource: filename,
+                withExtension: "svg",
+                subdirectory: "QWeatherIcons"
+            ),
+            let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 13, height: 13)
+        weatherIcons[filename] = image
+        return image
     }
 
     fileprivate static func label(size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {

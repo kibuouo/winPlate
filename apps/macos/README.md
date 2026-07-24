@@ -14,18 +14,28 @@ cd apps/macos/WinPlate
 swift run WinPlate
 ```
 
+Run the test suite with the bundled Xcode-compatible wrapper:
+
+```sh
+cd apps/macos/WinPlate
+./scripts/test.sh
+```
+
 For a Finder- and Dock-recognized development bundle, run
-`./scripts/make-app.sh` and open `.build/WinPlate.app`.
+`./scripts/make-app.sh` and open `~/Applications/WinPlate.app`. Run the script
+again after source changes: SwiftPM updates its debug executable during
+`swift build` and `swift test`, but it does not automatically refresh an
+existing `.app` bundle. `.build/WinPlate.app` is a symlink to the installed
+app, so both launch paths always open the same version.
 
 `swift run` and Xcode's default Run action execute the Swift Package's bare
 executable, so macOS bundle resources such as `AppIcon.icns` are not applied.
-Use the generated `.build/WinPlate.app` when checking the Dock and Finder
-icon:
+Use the installed app when checking the Dock and Finder icon:
 
 ```sh
 cd apps/macos/WinPlate
 ./scripts/make-app.sh
-open .build/WinPlate.app
+open ~/Applications/WinPlate.app
 ```
 
 The client starts the local FastAPI service from this repository when run from

@@ -32,8 +32,6 @@ private struct MenuBarHeader: View {
                 .frame(width: 30, height: 30)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityHidden(true)
-            Text("WinPlate")
-                .font(.system(size: 19, weight: .bold))
             Spacer()
             HeaderIconButton(symbol: "rectangle.on.rectangle", label: "打开 WinPlate") {
                 NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
@@ -694,84 +692,135 @@ private struct SettingsForm: View {
         _settings = ObservedObject(wrappedValue: settings)
     }
 
+    private var hasMailDraft: Bool {
+        let address = qqMailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !qqMailAuthCode.isEmpty || address != settings.qqMailAddress
+    }
+
     var body: some View {
-        Form {
-            Section("应用") {
-                Toggle(
-                    "在菜单栏显示 WinPlate",
-                    isOn: Binding(
-                        get: { state.menuBarEnabled },
-                        set: { state.setMenuBarEnabled($0) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("应用")
+                    .font(.title2.weight(.bold))
+                SettingsCard(title: "WinPlate", symbol: "macwindow", description: "控制应用在菜单栏和登录后的运行方式。") {
+                    Toggle(
+                        "在菜单栏显示 WinPlate",
+                        isOn: Binding(
+                            get: { state.menuBarEnabled },
+                            set: { state.setMenuBarEnabled($0) }
+                        )
                     )
-                )
-                Toggle("登录时启动", isOn: $settings.launchAtLogin)
-                    .onChange(of: settings.launchAtLogin) { _, enabled in updateLoginItem(enabled) }
-                if let loginItemError { Text(loginItemError).font(.caption).foregroundStyle(.red) }
-            }
-            Section("DeepSeek") {
+                    Toggle("登录时启动", isOn: $settings.launchAtLogin)
+                        .onChange(of: settings.launchAtLogin) { _, enabled in updateLoginItem(enabled) }
+                    if let loginItemError {
+                        ConfigurationStatus(loginItemError, symbol: "exclamationmark.triangle.fill", color: .red)
+                    }
+                }
+
+                Text("服务连接")
+                    .font(.title2.weight(.bold))
+                    .padding(.top, 8)
+                SettingsCard(
+                    title: "DeepSeek",
+                    symbol: "sparkles",
+                    description: "配置聊天与智能摘要使用的服务地址和 API Key。"
+                ) {
                 SecureField(
                     settings.deepSeekAPIKey?.isEmpty == false ? "API Key（已配置，重新填写可覆盖）" : "API Key",
                     text: $deepSeekAPIKey
                 )
                 TextField("服务地址", text: $deepSeekBaseURL)
-                HStack {
-                    Text(settings.deepSeekAPIKey?.isEmpty == false ? "已配置" : "未配置")
-                        .font(.caption)
-                        .foregroundStyle(settings.deepSeekAPIKey?.isEmpty == false ? .green : .secondary)
-                    Spacer()
+                SettingsCardActions {
+                    ConfigurationStatus(
+                        settings.deepSeekAPIKey?.isEmpty == false ? "已配置" : "未配置",
+                        symbol: settings.deepSeekAPIKey?.isEmpty == false ? "checkmark.circle.fill" : "circle",
+                        color: settings.deepSeekAPIKey?.isEmpty == false ? .green : .secondary
+                    )
+                } actions: {
                     Button("保存 DeepSeek 配置") {
                         state.saveDeepSeekConfiguration(apiKey: deepSeekAPIKey, baseURL: deepSeekBaseURL)
                         deepSeekAPIKey = ""
                     }
+                    .buttonStyle(.borderedProminent)
                     .disabled(deepSeekAPIKey.isEmpty && settings.deepSeekAPIKey?.isEmpty != false)
                 }
                 Text("密钥仅存储在 macOS 钥匙串中，不会写入偏好设置或发送给本地 API。")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("天气") {
-                SecureField("QWeather API Key", text: $weatherAPIKey)
+                }
+                SettingsCard(
+                    title: "QWeather",
+                    symbol: "cloud.sun.fill",
+                    description: "实时天气使用 API Key；天气预警使用同一项目下的 JWT 凭据。"
+                ) {
+                SettingsFieldGroup(title: "天气数据") {
+                SecureField(
+                    settings.weatherAPIKey?.isEmpty == false
+                        ? "QWeather API Key（已配置，重新填写可覆盖）"
+                        : "QWeather API Key",
+                    text: $weatherAPIKey
+                )
                     .textContentType(.password)
                 TextField("API Host", text: $weatherAPIHost)
                     .textContentType(.URL)
-                Divider()
-                Text("天气预警（JWT）配置向导").font(.subheadline.weight(.medium))
-                Text("步骤 1：不用新建项目。请从 Windows 上已能显示预警的 QWeather 配置中复制同一组项目 ID、凭据 ID 和私钥。macOS 会单独保存在本机钥匙串。")
+                }
+                SettingsFieldGroup(title: "天气预警（JWT）") {
+                Text("复用 Windows 已验证的项目 ID、JWT 凭据 ID 和 Ed25519 私钥。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("步骤 2：项目 ID（从 Windows 复用）", text: $weatherProjectID)
-                TextField("步骤 3：凭据 ID（从 Windows 复用）", text: $weatherCredentialID)
+                TextField(
+                    settings.weatherProjectID?.isEmpty == false
+                        ? "项目 ID（已配置，重新填写可覆盖）"
+                        : "项目 ID",
+                    text: $weatherProjectID
+                )
+                TextField(
+                    settings.weatherCredentialID?.isEmpty == false
+                        ? "JWT 凭据 ID（已配置，重新填写可覆盖）"
+                        : "JWT 凭据 ID",
+                    text: $weatherCredentialID
+                )
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("步骤 4：Ed25519 私钥 PEM（完整多行粘贴）")
+                    Text("Ed25519 私钥 PEM")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextEditor(text: $weatherPrivateKey)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(minHeight: 82)
-                        .privacySensitive()
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $weatherPrivateKey)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(minHeight: 82)
+                            .privacySensitive()
+                        if weatherPrivateKey.isEmpty {
+                            Text(
+                                settings.weatherPrivateKey?.isEmpty == false
+                                    ? "私钥已配置，重新填写可覆盖"
+                                    : "粘贴完整 Ed25519 私钥 PEM"
+                            )
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 7)
+                            .allowsHitTesting(false)
+                        }
+                    }
                 }
-                HStack {
-                    Text(settings.weatherAPIKey?.isEmpty == false ? "天气已配置" : "天气未配置")
-                        .foregroundStyle(.secondary)
+                }
+                SettingsCardActions {
                     if state.isTestingWeatherAlertConnection {
-                        Label("正在验证预警…", systemImage: "arrow.triangle.2.circlepath")
-                            .foregroundStyle(.secondary)
+                        ConfigurationStatus("正在验证预警…", symbol: "arrow.triangle.2.circlepath", color: .secondary)
+                    } else if let error = state.weatherError {
+                        ConfigurationStatus(error, symbol: "exclamationmark.triangle.fill", color: .red)
                     } else if let error = state.weatherAlertError {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
-                            .lineLimit(2)
+                        ConfigurationStatus(error, symbol: "exclamationmark.triangle.fill", color: .red)
                     } else if state.isWeatherAlertConnected {
-                        Label("预警接口验证成功", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                        ConfigurationStatus("预警接口验证成功", symbol: "checkmark.circle.fill", color: .green)
                     } else {
-                        Text(settings.hasWeatherAlertCredentials ? "预警已保存，待验证" : "预警未配置")
-                            .foregroundStyle(.secondary)
+                        ConfigurationStatus(
+                            settings.hasWeatherAlertCredentials ? "预警已保存，待验证" : "预警未配置",
+                            symbol: settings.hasWeatherAlertCredentials ? "checkmark.circle" : "circle",
+                            color: .secondary
+                        )
                     }
-                    Spacer()
-                    Button("验证已保存配置") {
-                        state.testSavedWeatherAlertConnection()
-                    }
-                    .disabled(state.isTestingWeatherAlertConnection || !settings.hasWeatherAlertCredentials)
-                    Button("保存并验证预警") {
+                } actions: {
+                    Button {
                         state.saveWeatherConfiguration(
                             apiKey: weatherAPIKey,
                             apiHost: weatherAPIHost,
@@ -784,52 +833,83 @@ private struct SettingsForm: View {
                         weatherCredentialID = ""
                         weatherPrivateKey = ""
                     }
+                    label: {
+                        if state.isTestingWeatherAlertConnection {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("正在验证预警")
+                            }
+                        } else {
+                            Text("保存并验证预警")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
                     .disabled(state.isTestingWeatherAlertConnection)
                 }
-                Text("步骤 5：点“保存并验证预警”。私钥输入框会在保存后清空是正常的；它仅存储在 macOS 钥匙串中，并只会交给本机天气服务。若提示私钥格式无效，请确认粘贴的是对应凭据的完整 Ed25519 PEM，包含 BEGIN/END 行。")
+                Text("私钥保存后会清空，属于正常安全行为。请粘贴完整 PEM，并保留 BEGIN/END 行和换行。")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("QQ 邮箱") {
+                }
+                SettingsCard(
+                    title: "QQ 邮箱",
+                    symbol: "envelope.fill",
+                    description: "使用 QQ 邮箱的 IMAP/SMTP 授权码获取邮件。"
+                ) {
                 TextField("QQ 邮箱地址", text: $qqMailAddress)
                     .textContentType(.emailAddress)
-                SecureField("QQ 邮箱授权码", text: $qqMailAuthCode)
+                SecureField(
+                    settings.qqMailAuthCode?.isEmpty == false
+                        ? "QQ 邮箱授权码（已配置，重新填写可覆盖）"
+                        : "QQ 邮箱授权码",
+                    text: $qqMailAuthCode
+                )
                     .textContentType(.password)
-                HStack {
+                SettingsCardActions {
                     if state.isTestingMailConnection {
-                        Label("正在验证 IMAP…", systemImage: "arrow.triangle.2.circlepath")
-                            .foregroundStyle(.secondary)
+                        ConfigurationStatus("正在验证 IMAP…", symbol: "arrow.triangle.2.circlepath", color: .secondary)
                     } else if let error = state.mailConnectionError {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
-                            .lineLimit(2)
+                        ConfigurationStatus(error, symbol: "exclamationmark.triangle.fill", color: .red)
                     } else if state.isMailConnected {
-                        Label("IMAP 连接成功", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                        ConfigurationStatus("IMAP 连接成功", symbol: "checkmark.circle.fill", color: .green)
                     } else {
-                        Text(settings.qqMailAuthCode?.isEmpty == false ? "已保存授权码，尚未验证" : "未配置")
-                            .foregroundStyle(.secondary)
+                        ConfigurationStatus(
+                            settings.qqMailAuthCode?.isEmpty == false ? "已保存授权码，尚未验证" : "未配置",
+                            symbol: settings.qqMailAuthCode?.isEmpty == false ? "checkmark.circle" : "circle",
+                            color: .secondary
+                        )
                     }
-                    Spacer()
-                    Button("测试已保存连接") {
-                        state.testSavedQQMailConnection()
+                } actions: {
+                    Button {
+                        if hasMailDraft {
+                            state.saveQQMailConfiguration(address: qqMailAddress, authCode: qqMailAuthCode)
+                            qqMailAuthCode = ""
+                        } else {
+                            state.testSavedQQMailConnection()
+                        }
+                    } label: {
+                        if state.isTestingMailConnection {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("正在测试连接")
+                            }
+                        } else {
+                            Text(hasMailDraft ? "保存并测试连接" : "测试连接")
+                        }
                     }
-                    .disabled(state.isTestingMailConnection || settings.qqMailAuthCode?.isEmpty != false)
-                    Button("保存并测试连接") {
-                        state.saveQQMailConfiguration(address: qqMailAddress, authCode: qqMailAuthCode)
-                        qqMailAuthCode = ""
-                    }
-                    .disabled(state.isTestingMailConnection || qqMailAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || qqMailAuthCode.isEmpty)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        state.isTestingMailConnection
+                        || (hasMailDraft && (qqMailAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || qqMailAuthCode.isEmpty))
+                    )
                 }
                 Text("请在 QQ 邮箱网页端开启 IMAP/SMTP，并使用授权码而非登录密码。授权码仅存储在 macOS 钥匙串中。")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                Button("刷新状态") { state.refresh(force: true) }
+                }
+                Button("刷新所有状态", systemImage: "arrow.clockwise") { state.refresh(force: true) }
+                    .buttonStyle(.bordered)
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 520)
-        .padding()
+        .frame(width: 560)
+        .padding(24)
         .onAppear {
             deepSeekAPIKey = ""
             deepSeekBaseURL = settings.deepSeekBaseURL
@@ -851,5 +931,79 @@ private struct SettingsForm: View {
             loginItemError = "无法更新登录项：\(error.localizedDescription)"
             settings.launchAtLogin.toggle()
         }
+    }
+}
+
+private struct SettingsCard<Content: View>: View {
+    let title: String
+    let symbol: String
+    let description: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(title, systemImage: symbol)
+                .font(.headline)
+            Text(description)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Divider()
+            content
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct SettingsFieldGroup<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            content
+        }
+        .padding(14)
+        .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct SettingsCardActions<Status: View, Actions: View>: View {
+    @ViewBuilder let status: Status
+    @ViewBuilder let actions: Actions
+
+    init(@ViewBuilder status: () -> Status, @ViewBuilder actions: () -> Actions) {
+        self.status = status()
+        self.actions = actions()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            status
+            Spacer(minLength: 12)
+            actions
+        }
+    }
+}
+
+private struct ConfigurationStatus: View {
+    let text: String
+    let symbol: String
+    let color: Color
+
+    init(_ text: String, symbol: String, color: Color) {
+        self.text = text
+        self.symbol = symbol
+        self.color = color
+    }
+
+    var body: some View {
+        Label(text, systemImage: symbol)
+            .font(.caption)
+            .foregroundStyle(color)
+            .lineLimit(2)
     }
 }
