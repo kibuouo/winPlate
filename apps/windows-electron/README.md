@@ -1,3 +1,8 @@
-# Windows Electron app boundary
+# WinPlate for Windows
 
-This directory is the future boundary for the Windows Electron application. The existing Electron implementation remains at the repository root until its dedicated migration task moves it here.
+This is the Windows-only Electron client. It owns the Windows tray, floating
+window, native title bar controls, desktop registration, and Windows-specific
+notification integration.
+
+macOS is implemented independently in `apps/macos/WinPlate` with SwiftUI and
+AppKit. This workspace must not import or package macOS client code.

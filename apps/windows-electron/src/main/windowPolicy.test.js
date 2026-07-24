@@ -15,7 +15,7 @@ for (const [dark, backgroundColor] of [
   [false, "#ffffff"]
 ]) {
   test(`returns the Windows main-window policy for ${dark ? "dark" : "light"} mode`, () => {
-    const options = getMainWindowOptions("win32", {
+    const options = getMainWindowOptions({
       icon: "/tmp/icon.ico",
       dark,
       webPreferences
@@ -37,40 +37,3 @@ for (const [dark, backgroundColor] of [
     assert.equal(options.webPreferences, webPreferences);
   });
 }
-
-test("returns the native macOS main-window policy", () => {
-  const options = getMainWindowOptions("darwin", {
-    icon: "/tmp/icon.ico",
-    dark: true,
-    webPreferences
-  });
-
-  assert.deepEqual(options, {
-    width: 1040,
-    height: 720,
-    minWidth: 880,
-    minHeight: 580,
-    show: false,
-    title: "WinPlate",
-    frame: true,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 16 },
-    transparent: true,
-    backgroundColor: "#00000000",
-    vibrancy: "window",
-    visualEffectState: "followWindow",
-    webPreferences
-  });
-  assert.equal(options.webPreferences, webPreferences);
-});
-
-test("rejects unsupported main-window platforms", () => {
-  assert.throws(
-    () => getMainWindowOptions("linux", {
-      icon: "/tmp/icon.ico",
-      dark: true,
-      webPreferences
-    }),
-    new Error("Unsupported platform: linux")
-  );
-});

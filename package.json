@@ -1,0 +1,27 @@
+{
+  "name": "winplate",
+  "productName": "WinPlate",
+  "version": "0.2.0",
+  "private": true,
+  "description": "WinPlate platform workspace orchestrator.",
+  "workspaces": [
+    "apps/windows-electron",
+    "packages/core",
+    "packages/shared-types",
+    "packages/icons"
+  ],
+  "scripts": {
+    "start": "npm run start --workspace @winplate/windows-electron",
+    "dev": "npm run dev --workspace @winplate/windows-electron",
+    "electron": "npm run electron --workspace @winplate/windows-electron",
+    "backend": "node scripts/venvPython.js -m uvicorn winplate_local_api.main:api --app-dir backend/local-api --host 127.0.0.1 --port 8765 --reload --use-colors --log-config backend/local-api/logging.json",
+    "precheck": "npm run precheck --workspace @winplate/windows-electron",
+    "check": "npm run check --workspace @winplate/windows-electron && npm run test:layout && npm test --workspace @winplate/core --workspace @winplate/shared-types --workspace @winplate/icons",
+    "test:layout": "node --test scripts/workspaceLayout.test.js",
+    "check:syntax": "npm run check:syntax --workspace @winplate/windows-electron && node --check scripts/venvPython.js",
+    "test:unit": "node --test scripts/venvPython.test.js && npm run test:unit --workspace @winplate/windows-electron",
+    "venv:create": "python -m venv .venv",
+    "backend:install": "node scripts/venvPython.js -m pip install -r backend/local-api/requirements.txt",
+    "backend:test": "node scripts/venvPython.js -m unittest discover -s backend/local-api/tests -t backend/local-api -p \"test_*.py\""
+  }
+}

@@ -214,13 +214,11 @@ function hideTooltipWindow() {
 function createMainWindow(initialTheme = "dark") {
   const dark = initialTheme !== "light";
   if (isLiveNativeSurface(mainWindow)) {
-    if (process.platform === "win32") {
-      mainWindow.setBackgroundColor(dark ? "#202123" : "#ffffff");
-    }
+    mainWindow.setBackgroundColor(dark ? "#202123" : "#ffffff");
     return mainWindow;
   }
 
-  mainWindow = new BrowserWindow(getMainWindowOptions(process.platform, {
+  mainWindow = new BrowserWindow(getMainWindowOptions({
     icon: iconPath,
     dark,
     webPreferences: secureWebPreferences()
@@ -254,7 +252,6 @@ function createMainWindow(initialTheme = "dark") {
 
 function setMainWindowTheme(theme) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (process.platform !== "win32") return;
   const dark = theme !== "light";
   mainWindow.setBackgroundColor(dark ? "#202123" : "#ffffff");
   mainWindow.setBackgroundMaterial?.("none");

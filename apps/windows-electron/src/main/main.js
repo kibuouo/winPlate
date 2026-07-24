@@ -3,14 +3,11 @@ const {
   BrowserWindow,
   clipboard,
   ipcMain,
-  Menu,
-  nativeImage,
   nativeTheme,
   safeStorage,
   screen,
   session,
-  shell,
-  Tray
+  shell
 } = require("electron");
 const { execFile } = require("node:child_process");
 const http = require("node:http");
@@ -39,8 +36,6 @@ const {
 } = require("./windows");
 const { createActivationCoordinator } = require("./activationCoordinator");
 const { normalizeWeatherCoordinates } = require("./weatherCoordinates");
-const { createMacMenuBar } = require("@winplate/macos-electron-menubar");
-const macMenuBarPaths = require("@winplate/macos-electron-menubar/paths");
 const { startupPolicy } = require("./startupPolicy");
 const { createAppTray } = require("./tray");
 const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
@@ -53,14 +48,6 @@ const {
   readDeepSeekUsage
 } = require("./deepseekUsage");
 const { DEFAULT_MODEL: DEEPSEEK_CHAT_MODEL, callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
-const {
-  DEFAULT_APP_SETTINGS,
-  readAppSettings,
-  writeAppSettings,
-  applyLoginItemSetting
-} = require("./appSettings");
-const { readInitialAppSettings } = require("./appSettingsStartup");
-const { createAppPreferencesController } = require("./appPreferencesController");
 const {
   DEFAULT_SERVICE_SETTINGS,
   serviceSettingsFileExists,
@@ -89,7 +76,6 @@ const { readSettings, writeSettings } = require("./settingsStore");
 const MODULES = validateMainModules().map((module) => module.meta);
 
 let tray;
-let appPreferences = null;
 const activationCoordinator = createActivationCoordinator(showMainWindow);
 const execFileAsync = promisify(execFile);
 const STATUS_CACHE_TTL_MS = 5_000;
@@ -100,7 +86,6 @@ const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const LOCAL_API_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
-const macAppIconPath = assetPath("icon-macos.png");
 const processServiceEnvironment = Object.freeze({
   QWEATHER_API_KEY: process.env.QWEATHER_API_KEY,
   QWEATHER_API_HOST: process.env.QWEATHER_API_HOST,
@@ -388,6 +373,7 @@ if (!gotLock) {
   app.on("activate", activationCoordinator.onActivate);
 
   app.whenReady().then(async () => {
+    const policy = startupPolicy();
     const userDataPath = app.getPath("userData");
     const serviceSettingsMigration = await createServiceSettingsMigration({
       platform: process.platform,
@@ -420,9 +406,6 @@ if (!gotLock) {
       });
     } catch (error) {
       console.warn("WinPlate desktop app registration skipped:", error.message);
-    }
-    if (process.platform === "darwin") {
-      app.dock.setIcon(nativeImage.createFromPath(macAppIconPath));
     }
     session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === "geolocation");
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -540,43 +523,11 @@ if (!gotLock) {
     createMainWindow(initialTheme);
     setAppWindowOpacity(1);
     activationCoordinator.markReady();
-    const policy = startupPolicy();
-    const initialAppSettings = await readInitialAppSettings({
-      read: () => readAppSettings(userDataPath),
-      defaults: DEFAULT_APP_SETTINGS,
-      reportError: (message) => console.error(message)
-    });
-
-    appPreferences = createAppPreferencesController({
-      platform: policy.createMacMenuBar ? "darwin" : process.platform,
-      initialSettings: initialAppSettings,
-      createMenuBar: () => createMacMenuBar({
-        BrowserWindow,
-        Menu,
-        Tray,
-        nativeImage,
-        screen,
-        preloadPath: macMenuBarPaths.preloadPath,
-        rendererPath: macMenuBarPaths.rendererPath,
-        iconPath: assetPath("menu-bar-template.png"),
-        actions: {
-          showMainWindow,
-          quit: quitApplication
-        }
-      }),
-      applyLoginItem: (enabled) => applyLoginItemSetting(app, enabled),
-      showMainWindow,
-      reportError: (error) => console.error(error.message)
-    });
-    appPreferences.apply(appPreferences.getSettings());
-
     registerSettingsIpc({
       ipcMain,
       ownsMainWindowSender,
       ownsFloatingWindowSender,
-      getAppPreferences: () => appPreferences,
       userDataPath,
-      writeAppSettings,
       serviceSettingsLifecycle,
       afterServiceSettingsPersist: async (patch) => {
         if (Object.keys(patch).some((key) => serviceSettingsRequireBackendRestart.has(key))) {
@@ -621,16 +572,6 @@ if (!gotLock) {
     }
 
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
-    ipcMain.on("menubar:update-temperature", (event, payload) => {
-      if (appPreferences?.ownsSender(event.sender)) {
-        appPreferences.setTemperature(payload);
-      }
-    });
-    ipcMain.on("menubar:hide", (event) => {
-      if (appPreferences?.ownsSender(event.sender)) {
-        appPreferences.hide();
-      }
-    });
     ipcMain.on("github:open-profile", (_event, url) => {
       if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
         shell.openExternal(url);
@@ -1014,8 +955,6 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     setQuitting(true);
-    appPreferences?.destroy();
-    appPreferences = null;
     stopPythonService();
   });
   app.on("window-all-closed", (event) => event.preventDefault());

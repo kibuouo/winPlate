@@ -30,14 +30,6 @@ function normalizeGithub(github = {}, fallback = mockStatus.github) {
 let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
-const isMac = window.winplate.platform === "darwin";
-const APP_SETTING_KEYS = ["menuBarEnabled", "launchAtLogin"];
-let applicationSettings = {
-  menuBarEnabled: true,
-  launchAtLogin: false
-};
-let applicationSettingsBusy = false;
-const boundApplicationSettingsControls = new WeakSet();
 let activeSettingsSection = "settings-appearance";
 let activeSettingsService = "settings-github";
 let currentSection = "Dashboard";
@@ -230,75 +222,6 @@ function mailAutoRefreshLabel(seconds = mailAutoRefreshSeconds) {
   return `${minutes} 分 ${remainSeconds} 秒`;
 }
 
-function mergeApplicationSettings(settings) {
-  const nextSettings = { ...applicationSettings };
-  for (const key of APP_SETTING_KEYS) {
-    if (typeof settings?.[key] === "boolean") nextSettings[key] = settings[key];
-  }
-  return nextSettings;
-}
-
-function syncApplicationSettingsControls() {
-  document.querySelectorAll("[data-app-setting]").forEach((input) => {
-    const key = input.dataset.appSetting;
-    if (APP_SETTING_KEYS.includes(key)) {
-      input.checked = applicationSettings[key];
-      input.disabled = applicationSettingsBusy;
-    }
-  });
-}
-
-async function hydrateAppSettings() {
-  if (view !== "main" || !isMac || applicationSettingsBusy) return;
-  applicationSettingsBusy = true;
-  syncApplicationSettingsControls();
-  try {
-    applicationSettings = mergeApplicationSettings(await window.winplate.getAppSettings());
-  } catch (error) {
-    console.error("Failed to load application settings:", error?.message || String(error));
-  } finally {
-    applicationSettingsBusy = false;
-    syncApplicationSettingsControls();
-  }
-}
-
-function bindApplicationSettingsControls() {
-  if (!isMac || view !== "main") return;
-  syncApplicationSettingsControls();
-  document.querySelectorAll("[data-app-setting]").forEach((input) => {
-    if (boundApplicationSettingsControls.has(input)) return;
-    boundApplicationSettingsControls.add(input);
-    input.addEventListener("change", async () => {
-      const key = input.dataset.appSetting;
-      if (!APP_SETTING_KEYS.includes(key)) return;
-      if (applicationSettingsBusy) {
-        syncApplicationSettingsControls();
-        return;
-      }
-      const previousSettings = {
-        menuBarEnabled: applicationSettings.menuBarEnabled,
-        launchAtLogin: applicationSettings.launchAtLogin
-      };
-      applicationSettingsBusy = true;
-      applicationSettings = { ...applicationSettings, [key]: input.checked };
-      syncApplicationSettingsControls();
-      try {
-        const normalized = await window.winplate.saveAppSettings({
-          menuBarEnabled: applicationSettings.menuBarEnabled,
-          launchAtLogin: applicationSettings.launchAtLogin
-        });
-        applicationSettings = mergeApplicationSettings(normalized);
-      } catch (error) {
-        applicationSettings = previousSettings;
-        console.error("Failed to save application settings:", error?.message || String(error));
-      } finally {
-        applicationSettingsBusy = false;
-        syncApplicationSettingsControls();
-      }
-    });
-  });
-}
-
 function resolvedTheme() {
   return themePreference === "system"
     ? (themeMedia.matches ? "dark" : "light")
@@ -458,9 +381,8 @@ function settingsSidebarContent() {
   const items = [
     ["settings-appearance", "外观"],
     ["settings-general", "工作区"],
-    ["settings-services", "连接服务"],
-    ["settings-application", "应用"]
-  ].filter(([id]) => isMac || id !== "settings-application");
+    ["settings-services", "连接服务"]
+  ];
   return `
     <div class="settings-sidebar-heading">
       <button class="settings-back" data-section="Dashboard" type="button">← 返回应用</button>
@@ -2297,22 +2219,6 @@ function qweatherServiceCard(official, failures) {
     </article>`;
 }
 
-function macApplicationSettingsSection() {
-  return `<section class="settings-section application-settings-section" id="settings-application" data-settings-section>
-    <h2>Application</h2>
-    <div class="settings-panel application-settings-panel">
-      <label>
-        <span><strong>Menu bar status</strong><small>Show WinPlate in the macOS menu bar.</small></span>
-        <input type="checkbox" data-app-setting="menuBarEnabled" ${applicationSettings.menuBarEnabled ? "checked" : ""}>
-      </label>
-      <label>
-        <span><strong>Launch at login</strong><small>Start WinPlate when you sign in.</small></span>
-        <input type="checkbox" data-app-setting="launchAtLogin" ${applicationSettings.launchAtLogin ? "checked" : ""}>
-      </label>
-    </div>
-  </section>`;
-}
-
 function heartCard() {
   return `
     <article class="dashboard-card heart-card" data-module-id="heart" ${moduleHealthAttributes("heart")}>
@@ -2945,7 +2851,6 @@ function dashboardContent(section) {
     Heart: `<section class="health-page">${modulePageHeader({ title: "Health snapshot", description: `Recent reading from ${statusData.heart.source}.` })}${heartCard()}</section>`,
     QWeather: `${modulePageHeader({ title: "天气与服务状态", description: "实时天气、未来预报与 API 配额使用情况。" })}${qweatherCards}`,
     Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1></div>
-      ${isMac ? macApplicationSettingsSection() : ""}
       <section class="settings-section" id="settings-appearance" data-settings-section data-settings-label="外观">
         <div class="settings-section-heading"><div><p>外观</p><h2>主题</h2></div></div>
         <div class="settings-panel appearance-panel">${themeSelector()}${accentSelector()}</div>
@@ -3194,7 +3099,7 @@ function renderMain() {
   const previousScrollPosition = previousMainContent
     ? { top: previousMainContent.scrollTop, left: previousMainContent.scrollLeft }
     : null;
-  document.body.className = `main-body platform-${isMac ? "darwin" : "win32"}`;
+  document.body.className = "main-body platform-win32";
   applyMainTheme();
   const detailModules = window.WinPlateModuleRegistry.modulesForView("detail", appSettings.modules);
   const sectionLabels = new Map(detailModules.map((module) => [module.section, module.title]));
@@ -3210,7 +3115,7 @@ function renderMain() {
   const shellSidebarState = currentSection === "Settings" ? "settings" : sidebarCollapsed ? "collapsed" : "expanded";
   appRoot.innerHTML = `
     <div class="main-window-shell shell-sidebar-${shellSidebarState}">
-      ${isMac ? "" : `<header class="app-titlebar">
+      <header class="app-titlebar">
         <div class="titlebar-brand"><img src="../../assets/icon.png" alt=""></div>
         <div class="titlebar-drag-region" aria-hidden="true"></div>
         <div class="titlebar-weather" id="titlebar-weather">${titlebarWeatherContent()}</div>
@@ -3225,7 +3130,7 @@ function renderMain() {
           <button id="window-maximize" aria-label="${mainWindowMaximized ? "还原" : "最大化"}"><span class="${mainWindowMaximized ? "restore-icon" : ""}"></span></button>
           <button id="window-close" class="close" aria-label="关闭"><span></span></button>
         </div>
-      </header>`}
+      </header>
       <div class="workspace ${currentSection === "Settings" ? "settings-workspace" : ""} ${currentSection !== "Settings" && sidebarCollapsed ? "sidebar-collapsed" : ""}">
         <aside class="sidebar">
           ${currentSection === "Settings" ? settingsSidebarContent() : `<div class="sidebar-top">
@@ -4565,7 +4470,7 @@ registerRefreshTasks();
 document.addEventListener("keydown", handleNotificationDocumentKeydown);
 document.addEventListener("click", handleNotificationAcknowledgementClick);
 if (view === "main") renderMain();
-Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage(), hydrateAppSettings()]).then(async () => {
+Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage()]).then(async () => {
   if (view === "tooltip") return [];
   configureRefreshTasks();
   if (view === "main") renderMain();

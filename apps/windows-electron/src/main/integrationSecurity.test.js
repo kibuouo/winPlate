@@ -39,47 +39,19 @@ test("captures process overrides and builds the migration store before lifecycle
   assert.equal((main.match(/ipcMain\.handle\("deepseek:(?:get-settings|save-settings|usage)"/g) || []).length, 0);
 });
 
-test("app settings startup fallback runs after the main window and before preferences", () => {
+test("main process contains no macOS Electron bridge", () => {
   const main = readMain();
-  const window = main.indexOf("createMainWindow(initialTheme)");
-  const initialSettings = main.indexOf("await readInitialAppSettings({");
-  const preferences = main.indexOf("createAppPreferencesController({");
 
-  assert.notEqual(window, -1);
-  assert.notEqual(initialSettings, -1);
-  assert.notEqual(preferences, -1);
-  assert.equal(window < initialSettings && initialSettings < preferences, true);
-  assert.match(main, /defaults: DEFAULT_APP_SETTINGS/);
-  assert.match(main, /reportError: \(message\) => console\.error\(message\)/);
+  assert.doesNotMatch(main, /macos-electron-menubar|createMacMenuBar|menubar:update-temperature|menubar:hide|appPreferences/);
+  assert.match(main, /const policy = startupPolicy\(\);/);
 });
 
-test("menu IPC delegates exclusively through app preferences and teardown destroys it", () => {
+test("registers the Windows settings IPC boundary once", () => {
   const main = readMain();
-  const menuHandlers = main.slice(
-    main.indexOf('ipcMain.on("menubar:update-temperature"'),
-    main.indexOf('ipcMain.on("github:open-profile"')
-  );
-  const beforeQuit = main.slice(main.indexOf('app.on("before-quit"'));
-
-  assert.doesNotMatch(main, /let macMenuBar/);
-  assert.match(menuHandlers, /ownsSender\(event\.sender\)/);
-  assert.match(menuHandlers, /setTemperature\(payload\)/);
-  assert.match(menuHandlers, /\.hide\(\)/);
-  assert.doesNotMatch(menuHandlers, /createMacMenuBar|macMenuBar/);
-  assert.equal(beforeQuit.indexOf(".destroy()") < beforeQuit.indexOf("stopPythonService()"), true);
-  assert.match(beforeQuit, /appPreferences = null/);
-});
-
-test("registers the tested settings IPC boundary once after preferences exist", () => {
-  const main = readMain();
-  const preferences = main.indexOf("createAppPreferencesController({");
   const registration = main.indexOf("registerSettingsIpc({");
 
-  assert.notEqual(preferences, -1);
   assert.notEqual(registration, -1);
-  assert.equal(preferences < registration, true);
   assert.equal((main.match(/registerSettingsIpc\(\{/g) || []).length, 1);
-  assert.match(main, /getAppPreferences: \(\) => appPreferences/);
   assert.match(main, /ownsMainWindowSender/);
   assert.match(main, /serviceSettingsLifecycle/);
 });
@@ -190,14 +162,12 @@ test("settings save derives GitHub token state from service settings and refresh
   assert.match(settingsSaveHandler, /await notificationSummaryService\?\.refreshNow\(\{ force: true \}\);/);
 });
 
-test("selects startup policy once while retaining platform-specific window gates", () => {
+test("selects the Windows startup policy once and creates Windows-only surfaces", () => {
   const main = readMain();
 
   assert.equal((main.match(/startupPolicy\(\)/g) || []).length, 1);
   assert.match(main, /if \(policy\.createFloatingWindow\)/);
   assert.match(main, /if \(policy\.createWindowsTray\)/);
-  assert.match(main, /platform: policy\.createMacMenuBar \? "darwin" : process\.platform/);
   assert.match(main, /app\.on\("activate", activationCoordinator\.onActivate\)/);
-  assert.match(main, /showMainWindow,/);
-  assert.match(main, /createMenuBar: \(\) => createMacMenuBar\(/);
+  assert.doesNotMatch(main, /darwin|macOS|macos|MenuBar/);
 });

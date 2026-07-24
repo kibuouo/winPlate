@@ -1,5 +1,3 @@
-const { normalizeAppSettings } = require("./appSettings");
-
 function weatherSettingsResponse(settings, publicServiceSettings) {
   const publicSettings = publicServiceSettings(settings);
   return {
@@ -23,9 +21,7 @@ function registerSettingsIpc({
   ipcMain,
   ownsMainWindowSender,
   ownsFloatingWindowSender = () => false,
-  getAppPreferences,
   userDataPath,
-  writeAppSettings,
   serviceSettingsLifecycle,
   afterServiceSettingsPersist = async () => {},
   normalizeDeepSeekBaseUrl,
@@ -35,8 +31,6 @@ function registerSettingsIpc({
   publicServiceSettings,
   safeObject
 }) {
-  let appSettingsSaveQueue = Promise.resolve();
-
   function requireMainWindowSender(event) {
     if (!ownsMainWindowSender(event.sender)) {
       throw new Error("Unauthorized settings sender");
@@ -44,55 +38,13 @@ function registerSettingsIpc({
   }
 
   function requireUsageSender(event) {
-    const appPreferences = getAppPreferences();
-    const ownsMenuBarSender = Boolean(appPreferences?.ownsSender?.(event.sender));
     if (
       !ownsMainWindowSender(event.sender)
       && !ownsFloatingWindowSender(event.sender)
-      && !ownsMenuBarSender
     ) {
       throw new Error("Unauthorized usage sender");
     }
   }
-
-  ipcMain.handle("app:get-settings", (event) => {
-    requireMainWindowSender(event);
-    return getAppPreferences().getSettings();
-  });
-
-  async function saveAppSettings(payload) {
-    const appPreferences = getAppPreferences();
-    const previous = appPreferences.getSettings();
-    const merged = normalizeAppSettings({ ...previous, ...payload });
-    const written = await writeAppSettings(userDataPath, merged);
-    try {
-      appPreferences.apply(written, { strictLoginItem: true });
-      return appPreferences.getSettings();
-    } catch (applyError) {
-      let rollbackError;
-      try {
-        await writeAppSettings(userDataPath, previous);
-      } catch (error) {
-        rollbackError = error;
-      }
-      appPreferences.apply(previous);
-      if (rollbackError) {
-        throw new AggregateError(
-          [applyError, rollbackError],
-          "Failed to apply app settings and restore persisted settings"
-        );
-      }
-      throw applyError;
-    }
-  }
-
-  ipcMain.handle("app:save-settings", (event, payload) => {
-    requireMainWindowSender(event);
-    const safePayload = { ...safeObject(payload) };
-    const operation = appSettingsSaveQueue.then(() => saveAppSettings(safePayload));
-    appSettingsSaveQueue = operation.catch(() => undefined);
-    return operation;
-  });
 
   ipcMain.handle("weather:get-settings", (event) => {
     requireMainWindowSender(event);

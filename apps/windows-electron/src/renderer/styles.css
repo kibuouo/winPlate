@@ -549,28 +549,6 @@ html[data-theme="light"] .titlebar-weather-icon { filter: drop-shadow(0 3px 8px 
 @media (max-width: 760px) {
   .titlebar-weather-condition { display: none; }
 }
-.main-body.platform-darwin { background: transparent; }
-.main-body.platform-darwin .main-window-shell {
-  grid-template-rows: minmax(0, 1fr);
-  background: transparent;
-}
-.main-body.platform-darwin .workspace {
-  padding-top: 52px;
-  background: transparent;
-  -webkit-app-region: drag;
-}
-.main-body.platform-darwin .sidebar {
-  background: color-mix(in srgb, var(--sidebar-bg) 76%, transparent);
-  -webkit-backdrop-filter: blur(28px) saturate(135%);
-  backdrop-filter: blur(28px) saturate(135%);
-}
-.main-body.platform-darwin .sidebar,
-.main-body.platform-darwin .main-content {
-  -webkit-app-region: no-drag;
-}
-.main-body.platform-darwin .main-content {
-  background: color-mix(in srgb, var(--main-bg) 82%, transparent);
-}
 html[data-theme="light"] .main-body {
   --main-bg: #ffffff;
   --main-glow: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -1523,26 +1501,6 @@ html[data-theme="light"] .weather-forecast-icon {
 .settings-panel small { color: #71717a; }
 .settings-panel b { padding: 5px 9px; color: var(--text-soft); border-radius: 999px; background: var(--surface-raised); font-size: 10px; text-transform: uppercase; }
 .settings-panel b.enabled { color: #6ee7b7; background: rgba(16,185,129,.12); }
-.main-body.platform-darwin .application-settings-panel label {
-  min-height: 76px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--border);
-}
-.main-body.platform-darwin .application-settings-panel label:last-child { border-bottom: 0; }
-.main-body.platform-darwin .application-settings-panel input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-  accent-color: #8b5cf6;
-}
-.main-body.platform-darwin .application-settings-panel input[type="checkbox"]:focus-visible {
-  outline: 2px solid #a78bfa;
-  outline-offset: 3px;
-}
 .appearance-panel { overflow: visible; }
 .appearance-setting { min-height: 84px; }
 .theme-selector { display: flex; align-items: center; gap: 5px; padding: 0; background: transparent; }
