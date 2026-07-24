@@ -231,6 +231,7 @@ function createMainWindow(initialTheme = "dark") {
       createdWindow.show();
       createdWindow.focus();
       sendToWindow(createdWindow, "main:navigate", createdWindow.__pendingSection || "Dashboard");
+      sendToWindow(createdWindow, "status:refresh", null);
       createdWindow.__showWhenReady = false;
       createdWindow.__pendingSection = null;
     }
@@ -340,6 +341,7 @@ function showMainWindow(section = "Dashboard") {
   mainWindow.show();
   mainWindow.focus();
   sendToWindow(mainWindow, "main:navigate", targetNavigation);
+  sendToWindow(mainWindow, "status:refresh", null);
 }
 
 function showFloatingWindow() {

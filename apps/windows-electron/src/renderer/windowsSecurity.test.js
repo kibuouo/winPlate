@@ -55,6 +55,7 @@ test("renderer always renders the Windows titlebar and Windows platform class", 
   assert.match(source, /document\.body\.className = "main-body platform-win32"/);
   assert.match(source, /<header class="app-titlebar">/);
   assert.doesNotMatch(source, /applicationSettings|macApplicationSettingsSection|getAppSettings|saveAppSettings/);
+  assert.doesNotMatch(source, /bindApplicationSettingsControls/);
 });
 
 test("renderer CSP allows only the intended external image capability", () => {

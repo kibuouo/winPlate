@@ -4,9 +4,14 @@ const Module = require("node:module");
 const test = require("node:test");
 
 class FakeWebContents extends EventEmitter {
+  constructor() {
+    super();
+    this.sent = [];
+  }
+
   isDestroyed() { return false; }
   isLoading() { return false; }
-  send() {}
+  send(channel, payload) { this.sent.push({ channel, payload }); }
 }
 
 class FakeBrowserWindow extends EventEmitter {
@@ -68,4 +73,16 @@ test("Windows theme changes update the main window background", () => {
   windows.setMainWindowTheme("dark");
   const window = windows.createMainWindow();
   assert.deepEqual(window.backgroundColors, ["#ffffff", "#202123", "#202123"]);
+});
+
+test("showing the main window requests a full renderer refresh", () => {
+  const windows = loadWindows();
+  const window = windows.createMainWindow("dark");
+
+  windows.showMainWindow("GitHub");
+
+  assert.deepEqual(window.webContents.sent, [
+    { channel: "main:navigate", payload: "GitHub" },
+    { channel: "status:refresh", payload: null }
+  ]);
 });

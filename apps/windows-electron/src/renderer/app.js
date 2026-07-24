@@ -3186,7 +3186,6 @@ function renderMain() {
       updateProgressBars(document.querySelector("#page-content"));
       bindThemeControls();
       bindSettingsNavigation();
-      bindApplicationSettingsControls();
       bindProductSettings();
       bindGithubSettings();
       bindWeatherSettings();
@@ -3224,7 +3223,6 @@ function renderMain() {
   };
   bindThemeControls();
   bindSettingsNavigation();
-  bindApplicationSettingsControls();
   bindProductSettings();
   bindGithubSettings();
   bindWeatherSettings();
@@ -4489,7 +4487,7 @@ if (view !== "tooltip") {
       updateCurrentViewDom("weather");
       return;
     }
-    refreshController.refresh("status", { force: true, reason: "broadcast" }).catch(() => {});
+    refreshStatus().catch(() => {});
   });
   window.winplate?.onSettingsUpdated?.((settings) => {
     const nextAccent = ACCENT_COLORS[settings.appearance?.accent]
