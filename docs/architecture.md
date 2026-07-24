@@ -2,7 +2,7 @@
 
 WinPlate is a local-first monorepo. Platform lifecycle and UI belong in `apps/`; deterministic product rules belong in `packages/`; network, mail, weather, GitHub, and SQLite I/O belong in `backend/local-api/`.
 
-Dependencies point inward: platform apps may consume `packages/core`, `packages/shared-types`, and `packages/icons`; shared packages must not import Electron, SwiftUI, AppKit, FastAPI, SQLite, or filesystem persistence. The Electron macOS menu-bar workspace is a transition adapter consumed by the current Electron startup shell, not a general shared shell.
+Dependencies point inward: platform apps may consume `packages/core`, `packages/shared-types`, and `packages/icons`; shared packages must not import Electron, SwiftUI, AppKit, FastAPI, SQLite, or filesystem persistence. `apps/windows-electron` is Windows-only. `apps/macos/WinPlate` is an independent SwiftUI/AppKit client that uses a loopback HTTP boundary for the local API; neither platform imports the other's client code.
 
 The local API binds only to `127.0.0.1:8765`. It is not a hosted service and must not be exposed on a LAN interface. Credentials remain in privileged local processes and are never returned to renderer code. SQLite and caches remain implementation details of the local API.
 

@@ -1,5 +1,50 @@
-# macOS app boundary
+# WinPlate for macOS
 
-This directory owns the macOS application boundary. The current macOS experience is an Electron menubar transition; a future native implementation belongs under a dedicated SwiftUI/AppKit boundary here.
+`WinPlate/` is the native macOS client. It is a SwiftUI/AppKit application
+using a native main window, native settings, SF Symbols, system materials,
+Keychain storage, and the macOS login-item service. It does not embed Electron,
+HTML, a preload bridge, or a browser renderer.
 
-Health-data implementation is not part of this skeleton and requires a separate privacy and synchronization design before development.
+## Run locally
+
+Open `WinPlate/Package.swift` in Xcode and run the `WinPlate` scheme, or run:
+
+```sh
+cd apps/macos/WinPlate
+swift run WinPlate
+```
+
+For a Finder- and Dock-recognized development bundle, run
+`./scripts/make-app.sh` and open `.build/WinPlate.app`.
+
+`swift run` and Xcode's default Run action execute the Swift Package's bare
+executable, so macOS bundle resources such as `AppIcon.icns` are not applied.
+Use the generated `.build/WinPlate.app` when checking the Dock and Finder
+icon:
+
+```sh
+cd apps/macos/WinPlate
+./scripts/make-app.sh
+open .build/WinPlate.app
+```
+
+The client starts the local FastAPI service from this repository when run from
+the checkout. Set `WINPLATE_SKIP_LOCAL_API=1` when attaching to an already
+running local API. It only calls `http://127.0.0.1:8765`.
+
+Codex usage is queried through `codex app-server`; DeepSeek credentials are
+stored in the user's Keychain and are requested directly by the native client.
+Configure the QWeather API Key and the project-specific API Host in
+**设置 → 天气**. To show extreme-weather alerts, also enter the QWeather JWT
+project ID, credential ID, and Ed25519 private-key PEM in the same section.
+The host is shown in the QWeather Console; do not use a legacy shared host
+when the console has assigned a dedicated one. Credentials are stored in the
+macOS Keychain and passed only to the local FastAPI process when saved.
+
+QQ Mail uses IMAP over TLS. In **设置 → QQ 邮箱**, save the mailbox address and
+QQ Mail authorization code (not the account password); WinPlate then tests the
+IMAP connection and shows its exact result in Settings.
+The menu bar and dashboard degrade independently when a source is unavailable.
+
+Health-data implementation remains outside this client until its privacy and
+synchronization design is approved.

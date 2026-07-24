@@ -9,6 +9,7 @@ backend/**/.venv/
 *.db
 out/
 dist/
+**/.build/
 .worktrees/
 docs/superpowers/plans/
 .env
