@@ -705,7 +705,7 @@ class DatabaseTests(unittest.TestCase):
         }.get(name, default)
         with (
             patch.object(main, "environment_setting", side_effect=settings),
-            patch.object(main.jwt, "encode", side_effect=ValueError("MalformedFraming")),
+            patch.object(main.jwt, "encode", side_effect=main.jwt.InvalidKeyError("wrong key type")),
         ):
             with self.assertRaisesRegex(RuntimeError, "QWeather 私钥格式无效"):
                 main.qweather_jwt_request("/weatheralert/v1/current/22.32/114.17")
@@ -1027,6 +1027,39 @@ class DatabaseTests(unittest.TestCase):
         read_mail_outline.assert_not_called()
         self.assertEqual(result["availability"], "cached")
         self.assertEqual(result["items"][0]["subject"], "Cached")
+
+    def test_read_mail_outline_surfaces_imap_search_failure(self):
+        class FakeConnection:
+            def select(self, mailbox, readonly=False):
+                return "OK", [b""]
+
+            def uid(self, command, _charset, *criteria):
+                if criteria == ("UNSEEN",):
+                    return "OK", [b""]
+                return "NO", [b""]
+
+            def logout(self):
+                pass
+
+        with (
+            patch.object(main, "qq_imap_connection", return_value=FakeConnection()),
+            self.assertRaisesRegex(RuntimeError, "邮件查询失败"),
+        ):
+            main.read_mail_outline_from_qq()
+
+    def test_connect_mail_surfaces_inbox_open_failure(self):
+        class FakeConnection:
+            def select(self, mailbox, readonly=False):
+                return "NO", [b""]
+
+            def logout(self):
+                pass
+
+        with (
+            patch.object(main, "qq_imap_connection", return_value=FakeConnection()),
+            self.assertRaisesRegex(RuntimeError, "INBOX 打开失败"),
+        ):
+            main.connect_qq_mail()
 
     def test_push_notification_persists_unread_summary_and_mark_read(self):
         original_path = main.DATABASE_PATH

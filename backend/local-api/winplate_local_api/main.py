@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import gzip
 import imaplib
 import json
@@ -325,7 +327,9 @@ def qq_imap_connection(config: dict | None = None) -> imaplib.IMAP4_SSL:
 def connect_qq_mail() -> dict:
     connection = qq_imap_connection()
     try:
-        connection.select("INBOX", readonly=True)
+        status, _ = connection.select("INBOX", readonly=True)
+        if status != "OK":
+            raise RuntimeError("QQ 邮箱 INBOX 打开失败")
     finally:
         try:
             connection.logout()
@@ -1310,9 +1314,13 @@ def read_mail_outline_from_qq() -> tuple[list[dict], int]:
         status, _ = connection.select("INBOX", readonly=True)
         if status != "OK":
             raise RuntimeError("QQ 邮箱 INBOX 打开失败")
-        _unread_status, unread_payload = connection.uid("SEARCH", None, "UNSEEN")
+        unread_status, unread_payload = connection.uid("SEARCH", None, "UNSEEN")
+        if unread_status != "OK":
+            raise RuntimeError("QQ 邮箱未读邮件查询失败")
         unread_count = len(imap_ids(unread_payload))
-        _search_status, search_payload = connection.uid("SEARCH", None, "SINCE", since)
+        search_status, search_payload = connection.uid("SEARCH", None, "SINCE", since)
+        if search_status != "OK":
+            raise RuntimeError("QQ 邮箱邮件查询失败")
         candidates = imap_ids(search_payload)[-MAIL_CANDIDATE_RESULTS:]
         candidates.reverse()
         outlines = []
@@ -1663,6 +1671,8 @@ def qweather_request(path: str, params: dict[str, str]) -> dict:
                 getattr(response, "headers", {}).get("Content-Encoding", ""),
             )
     except HTTPError as error:
+        if error.code in {401, 403}:
+            raise RuntimeError("QWeather API Key 无效、未授权，或 API Host 与订阅不匹配") from error
         raise RuntimeError(f"QWeather API returned HTTP {error.code}") from error
     except (URLError, TimeoutError) as error:
         raise RuntimeError(f"QWeather API unavailable: {error}") from error
@@ -1770,7 +1780,10 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
             algorithm="EdDSA",
             headers={"kid": credential_id},
         )
-    except ValueError as error:
+    except Exception as error:
+        # PyJWT can raise InvalidKeyError (rather than ValueError) when a PEM
+        # uses the wrong key type.  Normalize all signing failures so the UI
+        # reports an actionable configuration error instead of FastAPI's 500.
         raise RuntimeError("QWeather 私钥格式无效，请重新粘贴完整的 Ed25519 PEM 私钥") from error
     query = f"?{urlencode(params or {})}" if params else ""
     request = Request(
