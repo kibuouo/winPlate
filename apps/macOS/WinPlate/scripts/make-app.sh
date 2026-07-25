@@ -20,7 +20,7 @@ mkdir -p "$CLANG_MODULE_CACHE_PATH"
 swift build --package-path "$root"
 bin_path="$(swift build --package-path "$root" --show-bin-path)"
 binary="$bin_path/WinPlate"
-weather_icons="$root/../../windows-electron/assets/qweather-icons/icons"
+weather_icons="$root/../../Windows/assets/qweather-icons/icons"
 local_api_source="$root/../../../backend/local-api/winplate_local_api"
 python_runtime="$root/../../../.venv"
 

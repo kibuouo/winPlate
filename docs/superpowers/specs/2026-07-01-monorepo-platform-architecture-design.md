@@ -20,10 +20,10 @@ WinPlate 将 Windows Electron、macOS、iOS 与 watchOS 客户端统一放在一
 ```text
 winPlate/
   apps/
-    windows-electron/
-    macos/
+    Windows/
+    macOS/
     ios/
-    watchos/
+    watchOS/
 
   packages/
     core/
@@ -49,15 +49,15 @@ winPlate/
 
 ## 目录职责
 
-### `apps/windows-electron`
+### `apps/Windows`
 
 保留现有 Electron 应用，包括主进程、preload、renderer、Windows 窗口与托盘、系统通知、开机启动以及本地后端进程管理。迁移以路径调整和行为保持为主，不同时进行界面重写。
 
-### `apps/macos`
+### `apps/macOS`
 
 承载 macOS 客户端。现有 Electron macOS 菜单栏实现先作为可运行的过渡实现和行为基准迁入；未来的 SwiftUI/AppKit 原生实现稳定并达到同等能力后，再单独设计过渡实现的退役方案。
 
-### `apps/ios` 与 `apps/watchos`
+### `apps/ios` 与 `apps/watchOS`
 
 为 Apple 健康数据授权、采集、同步和移动端展示预留平台边界。健康权限、数据所有权、设备同步协议及隐私策略须在实现前另行设计，本次不加入占位业务逻辑。
 
@@ -100,7 +100,7 @@ packages/shared-types 数据契约
 packages/core 归一化、摘要、分级
         |
         v
-apps/windows-electron | apps/macos | apps/ios | apps/watchos
+apps/Windows | apps/macOS | apps/ios | apps/watchOS
 ```
 
 本地 API 负责 I/O 和持久化，core 负责确定性业务规则，apps 负责平台生命周期、权限、系统集成和渲染。平台客户端不得复制摘要、分级或模块注册规则。
@@ -119,10 +119,10 @@ apps/windows-electron | apps/macos | apps/ios | apps/watchos
 
 1. 将 `codex/macos-menu-bar` 的独有提交整合进 `main`，先解决与 Windows 最新提交的差异。
 2. 建立 `apps`、`packages`、`backend/local-api` 的目录骨架和根工作区配置。
-3. 原样迁移现有 Electron 应用至 `apps/windows-electron`，修正脚本、资源、测试和 Python 启动路径。
+3. 原样迁移现有 Electron 应用至 `apps/Windows`，修正脚本、资源、测试和 Python 启动路径。
 4. 将 FastAPI 与相关模块迁入 `backend/local-api`，保持 localhost 端口、缓存和 SQLite 行为兼容。
 5. 从被验证的现有代码中逐步提取 `packages/core`、`packages/shared-types` 和 `packages/icons`；不先创建未被实际消费者使用的抽象。
-6. 将现有 Electron macOS 菜单栏代码迁入 `apps/macos` 的明确过渡区域，并记录原生 SwiftUI/AppKit 路线。
+6. 将现有 Electron macOS 菜单栏代码迁入 `apps/macOS` 的明确过渡区域，并记录原生 SwiftUI/AppKit 路线。
 7. 更新 `docs/architecture.md`、`docs/notification-center.md` 与 `docs/platform-roadmap.md`。
 8. 完成全量验收并确认提交可追溯后，删除远端 `codex/macos-menu-bar`。
 

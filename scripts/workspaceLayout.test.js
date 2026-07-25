@@ -6,11 +6,11 @@ const test = require('node:test');
 const repositoryRoot = path.resolve(__dirname, '..');
 
 const requiredBoundaries = [
-  'apps/windows-electron',
-  'apps/macos',
-  'apps/macos/WinPlate',
+  'apps/Windows',
+  'apps/macOS',
+  'apps/macOS/WinPlate',
   'apps/ios',
-  'apps/watchos',
+  'apps/watchOS',
   'packages/core',
   'packages/shared-types',
   'packages/icons',
@@ -18,14 +18,14 @@ const requiredBoundaries = [
 ];
 
 const expectedWorkspaces = [
-  'apps/windows-electron',
+  'apps/Windows',
   'packages/core',
   'packages/shared-types',
   'packages/icons',
 ];
 
 const expectedWorkspaceNames = new Map([
-  ['apps/windows-electron', '@winplate/windows-electron'],
+  ['apps/Windows', '@winplate/windows-electron'],
   ['packages/core', '@winplate/core'],
   ['packages/shared-types', '@winplate/shared-types'],
   ['packages/icons', '@winplate/icons'],
@@ -74,12 +74,12 @@ test('multi-platform workspace boundaries exist', () => {
 });
 
 test('Windows Electron source and assets live inside their application workspace', () => {
-  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/windows-electron/src/main/main.js')), true);
-  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/windows-electron/assets/icon.ico')), true);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/Windows/src/main/main.js')), true);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/Windows/assets/icon.ico')), true);
 });
 
 test('platform clients cannot import each other', () => {
-  const windowsRoot = path.join(repositoryRoot, 'apps/windows-electron');
+  const windowsRoot = path.join(repositoryRoot, 'apps/Windows');
   const sourceFiles = [];
   const collect = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -96,7 +96,7 @@ test('platform clients cannot import each other', () => {
     const content = fs.readFileSync(file, 'utf8');
     assert.doesNotMatch(content, /macos\/|electron-menubar|createMacMenuBar|platform-darwin|["']darwin["']/);
   }
-  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/macos/electron-menubar')), false);
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'apps/macOS/electron-menubar')), false);
 });
 
 test('README links every required architecture document', () => {

@@ -13,7 +13,7 @@ test('repository paths stay anchored when launched from the nested application d
   const previousCwd = process.cwd();
   const expectedRoot = path.resolve(__dirname, '..', '..', '..', '..');
 
-  process.chdir(path.join(expectedRoot, 'apps', 'windows-electron'));
+  process.chdir(path.join(expectedRoot, 'apps', 'Windows'));
   try {
     assert.equal(repositoryRoot, expectedRoot);
     assert.equal(
