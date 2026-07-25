@@ -294,23 +294,9 @@ final class AppSettingsStore: ObservableObject {
         hasLoadedSensitiveValues = true
         let context = LAContext()
         isLoadingSensitiveValues = true
-        let storedValues = Keychain.readSensitiveValues(context: context)
-        // Earlier versions wrote each secret separately.  Merge missing
-        // values lazily. Eagerly opening every legacy item can block startup
-        // when an item belongs to an older ad-hoc signing identity.
-        let values = SensitiveValues(
-            deepSeekAPIKey: storedValues?.deepSeekAPIKey
-                ?? Keychain.read(account: "deepseek-api-key", context: context),
-            weatherAPIKey: storedValues?.weatherAPIKey
-                ?? Keychain.read(account: "qweather-api-key", context: context),
-            weatherProjectID: storedValues?.weatherProjectID,
-            weatherCredentialID: storedValues?.weatherCredentialID,
-            weatherPrivateKey: storedValues?.weatherPrivateKey,
-            qqMailAuthCode: storedValues?.qqMailAuthCode
-                ?? Keychain.read(account: "qq-mail-auth-code", context: context)
-        )
-        applySensitiveValues(values)
-        if values.hasValue { Keychain.saveSensitiveValues(values) }
+        if let values = Keychain.readSensitiveValues(context: context) {
+            applySensitiveValues(values)
+        }
         isLoadingSensitiveValues = false
     }
 
@@ -530,7 +516,11 @@ final class LocalBackendSupervisor {
         )
     }
     func stop() {
-        if process?.isRunning == true { process?.terminate() }
+        if process?.isRunning == true {
+            process?.terminate()
+            process?.waitUntilExit()
+        }
+        process = nil
         outputLog?.closeFile()
         outputLog = nil
     }

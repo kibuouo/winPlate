@@ -692,6 +692,14 @@ private struct SettingsForm: View {
         _settings = ObservedObject(wrappedValue: settings)
     }
 
+    private var hasWeatherDraft: Bool {
+        !weatherAPIKey.isEmpty
+            || !weatherProjectID.isEmpty
+            || !weatherCredentialID.isEmpty
+            || !weatherPrivateKey.isEmpty
+            || weatherAPIHost != settings.weatherAPIHost
+    }
+
     private var hasMailDraft: Bool {
         let address = qqMailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         return !qqMailAuthCode.isEmpty || address != settings.qqMailAddress
@@ -764,7 +772,7 @@ private struct SettingsForm: View {
                     .textContentType(.URL)
                 }
                 SettingsFieldGroup(title: "天气预警（JWT）") {
-                Text("复用 Windows 已验证的项目 ID、JWT 凭据 ID 和 Ed25519 私钥。")
+                Text("复用已验证的项目 ID、JWT 凭据 ID 和 Ed25519 私钥。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 TextField(
@@ -821,34 +829,41 @@ private struct SettingsForm: View {
                     }
                 } actions: {
                     Button {
-                        state.saveWeatherConfiguration(
-                            apiKey: weatherAPIKey,
-                            apiHost: weatherAPIHost,
-                            projectID: weatherProjectID,
-                            credentialID: weatherCredentialID,
-                            privateKey: weatherPrivateKey
-                        )
-                        weatherAPIKey = ""
-                        weatherProjectID = ""
-                        weatherCredentialID = ""
-                        weatherPrivateKey = ""
-                    }
-                    label: {
+                        if hasWeatherDraft {
+                            state.saveWeatherConfiguration(
+                                apiKey: weatherAPIKey,
+                                apiHost: weatherAPIHost,
+                                projectID: weatherProjectID,
+                                credentialID: weatherCredentialID,
+                                privateKey: weatherPrivateKey
+                            )
+                            weatherAPIKey = ""
+                            weatherProjectID = ""
+                            weatherCredentialID = ""
+                            weatherPrivateKey = ""
+                        } else {
+                            state.testSavedWeatherAlertConnection()
+                        }
+                    } label: {
                         if state.isTestingWeatherAlertConnection {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
                                 Text("正在验证预警")
                             }
                         } else {
-                            Text("保存并验证预警")
+                            Text(hasWeatherDraft ? "保存并验证预警" : "验证预警")
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(state.isTestingWeatherAlertConnection)
+                    .disabled(
+                        state.isTestingWeatherAlertConnection
+                            || (!hasWeatherDraft && !settings.hasWeatherAlertCredentials)
+                    )
                 }
-                Text("私钥保存后会清空，属于正常安全行为。请粘贴完整 PEM，并保留 BEGIN/END 行和换行。")
+                Text("私钥保存后会清空，属于正常安全行为。留空会继续使用钥匙串中已保存的值。")
                     .font(.caption).foregroundStyle(.secondary)
                 }
+
                 SettingsCard(
                     title: "QQ 邮箱",
                     symbol: "envelope.fill",
