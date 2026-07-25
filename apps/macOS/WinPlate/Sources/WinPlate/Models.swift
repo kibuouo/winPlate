@@ -45,17 +45,76 @@ struct StatusSnapshot: Decodable {
 struct WeatherSnapshot: Decodable {
     let source: String
     let temperature: Double?
+    let feelsLike: Double?
     let condition: String
     let location: String
     let icon: String?
+    let humidity: Int?
+    let precipitation: Double?
+    let precipitationProbability: Int?
+    let visibility: Double?
+    let cloudCover: Int?
+    let windSpeed: Double?
+    let windDegrees: Int?
+    let windDirection: String
+    let windScale: String
+    let weatherSummary: String
+    let minutelySummary: String
+    let airQuality: WeatherAirQuality?
     let forecast: [WeatherForecast]
     let error: String?
 
-    static let empty = WeatherSnapshot(source: "unavailable", temperature: nil, condition: "不可用", location: "--", icon: nil, forecast: [])
+    static let empty = WeatherSnapshot(
+        source: "unavailable",
+        temperature: nil,
+        condition: "不可用",
+        location: "--",
+        icon: nil
+    )
     var isAvailable: Bool { source == "qweather" && temperature?.isFinite == true }
 
-    init(source: String, temperature: Double?, condition: String, location: String, icon: String?, forecast: [WeatherForecast] = [], error: String? = nil) {
-        self.source = source; self.temperature = temperature; self.condition = condition; self.location = location; self.icon = icon; self.forecast = forecast; self.error = error
+    init(
+        source: String,
+        temperature: Double?,
+        condition: String,
+        location: String,
+        icon: String?,
+        feelsLike: Double? = nil,
+        humidity: Int? = nil,
+        precipitation: Double? = nil,
+        precipitationProbability: Int? = nil,
+        visibility: Double? = nil,
+        cloudCover: Int? = nil,
+        windSpeed: Double? = nil,
+        windDegrees: Int? = nil,
+        windDirection: String = "",
+        windScale: String = "",
+        weatherSummary: String = "",
+        minutelySummary: String = "",
+        airQuality: WeatherAirQuality? = nil,
+        forecast: [WeatherForecast] = [],
+        error: String? = nil
+    ) {
+        self.source = source
+        self.temperature = temperature
+        self.feelsLike = feelsLike
+        self.condition = condition
+        self.location = location
+        self.icon = icon
+        self.humidity = humidity
+        self.precipitation = precipitation
+        self.precipitationProbability = precipitationProbability
+        self.visibility = visibility
+        self.cloudCover = cloudCover
+        self.windSpeed = windSpeed
+        self.windDegrees = windDegrees
+        self.windDirection = windDirection
+        self.windScale = windScale
+        self.weatherSummary = weatherSummary
+        self.minutelySummary = minutelySummary
+        self.airQuality = airQuality
+        self.forecast = forecast
+        self.error = error
     }
 
     init(from decoder: Decoder) throws {
@@ -66,16 +125,81 @@ struct WeatherSnapshot: Decodable {
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         forecast = try container.decodeIfPresent([WeatherForecast].self, forKey: .forecast) ?? []
         error = try container.decodeIfPresent(String.self, forKey: .error)
-        if let number = try? container.decode(Double.self, forKey: .temperature) {
-            temperature = number
-        } else if let text = try? container.decode(String.self, forKey: .temperature) {
-            temperature = Double(text)
-        } else {
-            temperature = nil
-        }
+        temperature = Self.decodeDouble(container, forKey: .temperature)
+        feelsLike = Self.decodeDouble(container, forKey: .feelsLike)
+        humidity = Self.decodeInt(container, forKey: .humidity)
+        precipitation = Self.decodeDouble(container, forKey: .precipitation)
+        precipitationProbability = Self.decodeInt(container, forKey: .precipitationProbability)
+        visibility = Self.decodeDouble(container, forKey: .visibility)
+        cloudCover = Self.decodeInt(container, forKey: .cloudCover)
+        windSpeed = Self.decodeDouble(container, forKey: .windSpeed)
+        windDegrees = Self.decodeInt(container, forKey: .windDegrees)
+        windDirection = try container.decodeIfPresent(String.self, forKey: .windDirection) ?? ""
+        windScale = try container.decodeIfPresent(String.self, forKey: .windScale) ?? ""
+        weatherSummary = try container.decodeIfPresent(String.self, forKey: .weatherSummary) ?? ""
+        minutelySummary = try container.decodeIfPresent(String.self, forKey: .minutelySummary) ?? ""
+        airQuality = try container.decodeIfPresent(WeatherAirQuality.self, forKey: .airQuality)
     }
 
-    private enum CodingKeys: String, CodingKey { case source, temperature, condition, location, icon, forecast, error }
+    private static func decodeDouble(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Double? {
+        if let number = try? container.decode(Double.self, forKey: key) { return number }
+        if let text = try? container.decode(String.self, forKey: key) { return Double(text) }
+        return nil
+    }
+
+    private static func decodeInt(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Int? {
+        if let number = try? container.decode(Int.self, forKey: key) { return number }
+        if let number = try? container.decode(Double.self, forKey: key) { return Int(number.rounded()) }
+        if let text = try? container.decode(String.self, forKey: key), let number = Double(text) {
+            return Int(number.rounded())
+        }
+        return nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, temperature, feelsLike, condition, location, icon
+        case humidity, precipitation, precipitationProbability, visibility
+        case cloudCover, windSpeed, windDegrees, windDirection, windScale
+        case weatherSummary, minutelySummary, airQuality, forecast, error
+    }
+}
+
+struct WeatherAirQuality: Decodable {
+    let aqi: Double?
+    let display: String
+    let category: String
+
+    var summary: String {
+        let value = display.isEmpty ? aqi.map { String(Int($0.rounded())) } ?? "--" : display
+        return category.isEmpty ? value : "\(value) · \(category)"
+    }
+
+    init(aqi: Double?, display: String, category: String) {
+        self.aqi = aqi
+        self.display = display
+        self.category = category
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let number = try? container.decode(Double.self, forKey: .aqi) {
+            aqi = number
+        } else if let text = try? container.decode(String.self, forKey: .aqi) {
+            aqi = Double(text)
+        } else {
+            aqi = nil
+        }
+        display = try container.decodeIfPresent(String.self, forKey: .display) ?? ""
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey { case aqi, display, category }
 }
 
 struct WeatherForecast: Decodable, Identifiable {
@@ -260,8 +384,27 @@ struct MailMessage: Decodable {
 struct NotificationSummary: Decodable {
     let items: [AppNotification]
     let unreadCount: Int
+    let latest: AppNotification?
+    let updatedAt: Int64?
 
-    static let empty = NotificationSummary(items: [], unreadCount: 0)
+    static let empty = NotificationSummary(items: [], unreadCount: 0, latest: nil, updatedAt: nil)
+
+    init(items: [AppNotification], unreadCount: Int, latest: AppNotification? = nil, updatedAt: Int64? = nil) {
+        self.items = items
+        self.unreadCount = unreadCount
+        self.latest = latest
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decodeIfPresent([AppNotification].self, forKey: .items) ?? []
+        unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount) ?? items.filter(\.unread).count
+        latest = try container.decodeIfPresent(AppNotification.self, forKey: .latest)
+        updatedAt = try container.decodeIfPresent(Int64.self, forKey: .updatedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey { case items, unreadCount, latest, updatedAt }
 }
 struct AppNotification: Decodable, Identifiable {
     let id: String

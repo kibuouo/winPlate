@@ -526,7 +526,9 @@ private struct OverviewWorkspace: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(title: "今日状态", subtitle: "来自本机服务与已配置账户的实时摘要") {
-                    Button { state.refresh(force: true) } label: { Label("刷新", systemImage: "arrow.clockwise") }.disabled(state.isRefreshing)
+                    NativeRefreshButton(title: "刷新所有状态", isRefreshing: state.isRefreshing) {
+                        state.refresh(force: true)
+                    }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
                     DashboardCard(title: "Codex", symbol: "terminal", status: state.codex.status) {
@@ -548,38 +550,15 @@ private struct OverviewWorkspace: View {
     }
 }
 
-private struct WeatherWorkspace: View {
-    @EnvironmentObject private var state: AppState
-    @State private var query = ""
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            PageHeader(title: "天气", subtitle: "搜索城市并保存为当前天气位置") { Button { state.refresh(force: true) } label: { Label("刷新", systemImage: "arrow.clockwise") } }
-            HStack {
-                TextField("城市，例如：上海", text: $query).onSubmit { state.searchWeatherLocations(query) }
-                Button("搜索") { state.searchWeatherLocations(query) }.disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .textFieldStyle(.roundedBorder)
-            if let error = state.weatherError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-            WeatherSection(weather: state.snapshot.weather, updatedAt: state.weatherUpdatedAt).background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
-            List(state.weatherLocations) { location in
-                Button { state.selectWeatherLocation(location) } label: {
-                    VStack(alignment: .leading) { Text(location.displayName); Text(location.id).font(.caption).foregroundStyle(.secondary) }
-                }.buttonStyle(.plain)
-            }
-            .overlay { if state.weatherLocations.isEmpty { ContentUnavailableView("搜索天气位置", systemImage: "magnifyingglass", description: Text("输入城市后选择结果，应用会保存该位置。")) } }
-        }.padding(28)
-    }
-}
-
 private struct GitHubWorkspace: View {
     @EnvironmentObject private var state: AppState
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            PageHeader(title: "GitHub", subtitle: "账户、仓库与最近同步状态") { Button { state.refreshGitHub() } label: { Label("同步", systemImage: "arrow.clockwise") } }
+            PageHeader(title: "GitHub", subtitle: "账户、仓库与最近同步状态") {
+                NativeRefreshButton(title: "同步 GitHub", isRefreshing: state.isRefreshingGitHub) {
+                    state.refreshGitHub()
+                }
+            }
             if let github = state.snapshot.github {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack { VStack(alignment: .leading) { Text(github.name).font(.title2.bold()); Text(github.username).foregroundStyle(.secondary) }; Spacer(); if let url = URL(string: github.profileUrl) { Link("打开主页", destination: url) } }
@@ -598,7 +577,11 @@ private struct MailWorkspace: View {
     @EnvironmentObject private var state: AppState
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            PageHeader(title: "邮件", subtitle: state.mail.error ?? "最近 30 天的 QQ 邮箱邮件") { Button { state.loadMail(force: true) } label: { Label("刷新", systemImage: "arrow.clockwise") } }
+            PageHeader(title: "邮件", subtitle: state.mail.error ?? "最近 30 天的 QQ 邮箱邮件") {
+                NativeRefreshButton(title: "刷新邮件", isRefreshing: state.isRefreshingMail) {
+                    state.loadMail(force: true)
+                }
+            }
             List(state.mail.items) { item in
                 Button { state.openMail(item) } label: {
                     HStack(alignment: .top, spacing: 12) { Circle().fill(item.unread ? Color.accentColor : Color.clear).frame(width: 8, height: 8).padding(.top, 5); VStack(alignment: .leading, spacing: 3) { Text(item.subject).lineLimit(1); Text(item.sender).font(.caption).foregroundStyle(.secondary); Text(item.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2) }; Spacer(); Text(Date(timeIntervalSince1970: TimeInterval(item.sentAt) / 1000).formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary) }
@@ -617,25 +600,79 @@ private struct MailWorkspace: View {
     }
 }
 
-private struct NotificationsWorkspace: View {
-    @EnvironmentObject private var state: AppState
+struct PageHeader<Actions: View>: View {
+    let title: String; let subtitle: String; @ViewBuilder let actions: Actions
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PageHeader(title: "通知", subtitle: "\(state.notifications.unreadCount) 条未读") { HStack { Button("全部标为已读") { state.markAllNotificationsRead() }.disabled(state.notifications.unreadCount == 0); Button { state.loadNotifications() } label: { Image(systemName: "arrow.clockwise") } } }
-            List(state.notifications.items) { notification in
-                Button { state.markNotificationRead(notification) } label: {
-                    HStack(alignment: .top, spacing: 10) { Circle().fill(notification.unread ? severityColor(notification.level) : Color.clear).frame(width: 8, height: 8).padding(.top, 5); VStack(alignment: .leading, spacing: 3) { Text(notification.title); Text(notification.message).font(.caption).foregroundStyle(.secondary).lineLimit(2); Text(notification.source.uppercased()).font(.caption2).foregroundStyle(.tertiary) } }
-                }.buttonStyle(.plain)
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .lineLimit(1)
+                Text(subtitle)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .overlay { if state.notifications.items.isEmpty { ContentUnavailableView("没有通知", systemImage: "bell", description: Text("本机 API 产生的状态和服务提醒会显示在这里。")) } }
-        }.padding(28)
+            .layoutPriority(1)
+            Spacer()
+            actions
+                .fixedSize()
+        }
     }
-    private func severityColor(_ level: String) -> Color { level == "critical" ? .red : level == "warning" ? .orange : .accentColor }
 }
 
-private struct PageHeader<Actions: View>: View {
-    let title: String; let subtitle: String; @ViewBuilder let actions: Actions
-    var body: some View { HStack { VStack(alignment: .leading, spacing: 4) { Text(title).font(.largeTitle.bold()); Text(subtitle).foregroundStyle(.secondary) }; Spacer(); actions } }
+struct NativeRefreshButton: View {
+    let title: String
+    let isRefreshing: Bool
+    var showsTitle = false
+    let action: () -> Void
+
+    @State private var isShowingMinimumFeedback = false
+
+    private var isActive: Bool {
+        isRefreshing || isShowingMinimumFeedback
+    }
+
+    var body: some View {
+        Button {
+            guard !isActive else { return }
+            withAnimation(.easeInOut(duration: 0.16)) {
+                isShowingMinimumFeedback = true
+            }
+            action()
+            Task {
+                try? await Task.sleep(for: .milliseconds(550))
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isShowingMinimumFeedback = false
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Group {
+                    if isActive {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                }
+                .frame(width: 15, height: 15)
+
+                if showsTitle {
+                    Text(isActive ? "正在刷新…" : title)
+                }
+            }
+            .frame(minWidth: showsTitle ? nil : 18, minHeight: 18)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(showsTitle ? .capsule : .circle)
+        .controlSize(.regular)
+        .disabled(isActive)
+        .help(isActive ? "\(title)中…" : title)
+        .accessibilityLabel(isActive ? "\(title)中" : title)
+        .keyboardShortcut("r", modifiers: .command)
+        .animation(.easeInOut(duration: 0.16), value: isActive)
+    }
 }
 
 private struct GitHubMetric: View {
@@ -745,7 +782,7 @@ private struct SettingsForm: View {
                         color: settings.deepSeekAPIKey?.isEmpty == false ? .green : .secondary
                     )
                 } actions: {
-                    Button("保存 DeepSeek 配置") {
+                    Button("保存配置") {
                         state.saveDeepSeekConfiguration(apiKey: deepSeekAPIKey, baseURL: deepSeekBaseURL)
                         deepSeekAPIKey = ""
                     }
@@ -813,16 +850,18 @@ private struct SettingsForm: View {
                 }
                 SettingsCardActions {
                     if state.isTestingWeatherAlertConnection {
-                        ConfigurationStatus("正在验证预警…", symbol: "arrow.triangle.2.circlepath", color: .secondary)
+                        ConfigurationStatus("正在测试…", symbol: "arrow.triangle.2.circlepath", color: .secondary)
                     } else if let error = state.weatherError {
                         ConfigurationStatus(error, symbol: "exclamationmark.triangle.fill", color: .red)
                     } else if let error = state.weatherAlertError {
                         ConfigurationStatus(error, symbol: "exclamationmark.triangle.fill", color: .red)
+                    } else if hasWeatherDraft {
+                        ConfigurationStatus("有未保存修改", symbol: "pencil.circle", color: .orange)
                     } else if state.isWeatherAlertConnected {
-                        ConfigurationStatus("预警接口验证成功", symbol: "checkmark.circle.fill", color: .green)
+                        ConfigurationStatus("已配置，测试成功", symbol: "checkmark.circle.fill", color: .green)
                     } else {
                         ConfigurationStatus(
-                            settings.hasWeatherAlertCredentials ? "预警已保存，待验证" : "预警未配置",
+                            settings.hasWeatherAlertCredentials ? "已配置，待测试" : "未配置",
                             symbol: settings.hasWeatherAlertCredentials ? "checkmark.circle" : "circle",
                             color: .secondary
                         )
@@ -844,14 +883,14 @@ private struct SettingsForm: View {
                         } else {
                             state.testSavedWeatherAlertConnection()
                         }
-                    } label: {
+                        } label: {
                         if state.isTestingWeatherAlertConnection {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
-                                Text("正在验证预警")
+                                Text("正在测试")
                             }
                         } else {
-                            Text(hasWeatherDraft ? "保存并验证预警" : "验证预警")
+                            Text("保存配置")
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -880,14 +919,16 @@ private struct SettingsForm: View {
                     .textContentType(.password)
                 SettingsCardActions {
                     if state.isTestingMailConnection {
-                        ConfigurationStatus("正在验证 IMAP…", symbol: "arrow.triangle.2.circlepath", color: .secondary)
+                        ConfigurationStatus("正在测试…", symbol: "arrow.triangle.2.circlepath", color: .secondary)
                     } else if let error = state.mailConnectionError {
                         ConfigurationStatus(error, symbol: "exclamationmark.triangle.fill", color: .red)
+                    } else if hasMailDraft {
+                        ConfigurationStatus("有未保存修改", symbol: "pencil.circle", color: .orange)
                     } else if state.isMailConnected {
-                        ConfigurationStatus("IMAP 连接成功", symbol: "checkmark.circle.fill", color: .green)
+                        ConfigurationStatus("已配置，测试成功", symbol: "checkmark.circle.fill", color: .green)
                     } else {
                         ConfigurationStatus(
-                            settings.qqMailAuthCode?.isEmpty == false ? "已保存授权码，尚未验证" : "未配置",
+                            settings.qqMailAuthCode?.isEmpty == false ? "已配置，待测试" : "未配置",
                             symbol: settings.qqMailAuthCode?.isEmpty == false ? "checkmark.circle" : "circle",
                             color: .secondary
                         )
@@ -904,10 +945,10 @@ private struct SettingsForm: View {
                         if state.isTestingMailConnection {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
-                                Text("正在测试连接")
+                                Text("正在测试")
                             }
                         } else {
-                            Text(hasMailDraft ? "保存并测试连接" : "测试连接")
+                            Text("保存配置")
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -919,8 +960,13 @@ private struct SettingsForm: View {
                 Text("请在 QQ 邮箱网页端开启 IMAP/SMTP，并使用授权码而非登录密码。授权码仅存储在 macOS 钥匙串中。")
                     .font(.caption).foregroundStyle(.secondary)
                 }
-                Button("刷新所有状态", systemImage: "arrow.clockwise") { state.refresh(force: true) }
-                    .buttonStyle(.bordered)
+                NativeRefreshButton(
+                    title: "刷新所有状态",
+                    isRefreshing: state.isRefreshing,
+                    showsTitle: true
+                ) {
+                    state.refresh(force: true)
+                }
             }
         }
         .frame(width: 560)

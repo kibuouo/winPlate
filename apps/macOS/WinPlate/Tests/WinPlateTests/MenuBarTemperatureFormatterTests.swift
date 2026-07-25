@@ -51,6 +51,57 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(weather.forecast.first?.temperatureText, "27–35°")
     }
 
+    func testDecodesWindowsWeatherDashboardFields() throws {
+        let payload = """
+        {
+          "source": "qweather",
+          "temperature": "35",
+          "feelsLike": 37,
+          "condition": "小雨",
+          "location": "江夏, 湖北",
+          "icon": "305",
+          "humidity": "81",
+          "precipitation": "0.3",
+          "precipitationProbability": 75,
+          "visibility": 12,
+          "cloudCover": 84,
+          "windSpeed": 18,
+          "windDegrees": 135,
+          "windDirection": "东南风",
+          "windScale": "3",
+          "weatherSummary": "今天白天阵雨，夜晚多云。",
+          "minutelySummary": "50分钟后开始下小雨",
+          "airQuality": {
+            "aqi": 32,
+            "display": "32",
+            "category": "优"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let weather = try JSONDecoder().decode(WeatherSnapshot.self, from: payload)
+
+        XCTAssertEqual(weather.temperature, 35)
+        XCTAssertEqual(weather.feelsLike, 37)
+        XCTAssertEqual(weather.humidity, 81)
+        XCTAssertEqual(weather.precipitation, 0.3)
+        XCTAssertEqual(weather.precipitationProbability, 75)
+        XCTAssertEqual(weather.airQuality?.summary, "32 · 优")
+        XCTAssertEqual(WeatherAssets.scene(for: weather), .rain)
+    }
+
+    func testWeatherSceneFallsBackToCondition() {
+        let weather = WeatherSnapshot(
+            source: "qweather",
+            temperature: 28,
+            condition: "雷阵雨",
+            location: "武汉",
+            icon: "999"
+        )
+
+        XCTAssertEqual(WeatherAssets.scene(for: weather), .storm)
+    }
+
     func testDecodesQWeatherAlertSummary() throws {
         let payload = """
         {

@@ -21,6 +21,9 @@ final class AppState: ObservableObject {
     @Published private(set) var codexError: String?
     @Published private(set) var deepSeekError: String?
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isRefreshingGitHub = false
+    @Published private(set) var isRefreshingMail = false
+    @Published private(set) var isRefreshingNotifications = false
     @Published private(set) var lastError: String?
     @Published private(set) var codexUpdatedAt: Date?
     @Published private(set) var deepSeekUpdatedAt: Date?
@@ -242,22 +245,28 @@ final class AppState: ObservableObject {
     }
 
     func refreshGitHub() {
+        guard !isRefreshingGitHub else { return }
+        isRefreshingGitHub = true
         Task {
             let result = await api.refreshGitHub()
             if let github = result.value {
                 snapshot = StatusSnapshot(weather: snapshot.weather, github: github)
             }
             lastError = result.error
+            isRefreshingGitHub = false
         }
     }
 
     func loadMail(force: Bool = false) {
+        guard !isRefreshingMail else { return }
+        isRefreshingMail = true
         Task {
             let result = await api.mail(force: force)
             mail = result.value ?? .unavailable(error: result.error, keeping: mail.items)
             mailConnectionError = result.value?.error ?? result.error
             if force { isMailConnected = result.value?.availability == "live" }
             lastError = mailConnectionError
+            isRefreshingMail = false
         }
     }
 
@@ -369,10 +378,13 @@ final class AppState: ObservableObject {
     func closeMail() { selectedMail = nil }
 
     func loadNotifications() {
+        guard !isRefreshingNotifications else { return }
+        isRefreshingNotifications = true
         Task {
             let result = await api.notifications()
             notifications = result.value ?? .empty
             lastError = result.error
+            isRefreshingNotifications = false
         }
     }
 

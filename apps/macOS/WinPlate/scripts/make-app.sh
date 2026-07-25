@@ -21,6 +21,7 @@ swift build --package-path "$root"
 bin_path="$(swift build --package-path "$root" --show-bin-path)"
 binary="$bin_path/WinPlate"
 weather_icons="$root/../../Windows/assets/qweather-icons/icons"
+weather_scenes="$root/../../Windows/assets/weather-scenes"
 local_api_source="$root/../../../backend/local-api/winplate_local_api"
 python_runtime="$root/../../../.venv"
 
@@ -31,6 +32,11 @@ fi
 
 if [[ ! -d "$weather_icons" ]]; then
   print -u2 "QWeather icon assets not found at $weather_icons"
+  exit 1
+fi
+
+if [[ ! -d "$weather_scenes" ]]; then
+  print -u2 "Weather scene assets not found at $weather_scenes"
   exit 1
 fi
 
@@ -64,6 +70,7 @@ cp "$binary" "$staging_bundle/Contents/MacOS/WinPlate"
 cp "$root/Resources/Info.plist" "$staging_bundle/Contents/Info.plist"
 cp "$root/Resources/AppIcon.icns" "$staging_bundle/Contents/Resources/AppIcon.icns"
 cp -R "$weather_icons" "$staging_bundle/Contents/Resources/QWeatherIcons"
+cp -R "$weather_scenes" "$staging_bundle/Contents/Resources/WeatherScenes"
 mkdir -p "$staging_bundle/Contents/Resources/LocalAPI"
 cp -R "$local_api_source" "$staging_bundle/Contents/Resources/LocalAPI/winplate_local_api"
 cp -R "$python_packages" "$staging_bundle/Contents/Resources/PythonPackages"
