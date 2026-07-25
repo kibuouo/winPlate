@@ -295,25 +295,19 @@ final class AppSettingsStore: ObservableObject {
         let context = LAContext()
         isLoadingSensitiveValues = true
         let storedValues = Keychain.readSensitiveValues(context: context)
-        let legacyValues = SensitiveValues(
-            deepSeekAPIKey: Keychain.read(account: "deepseek-api-key", context: context),
-            weatherAPIKey: Keychain.read(account: "qweather-api-key", context: context),
-            weatherProjectID: nil,
-            weatherCredentialID: nil,
-            weatherPrivateKey: nil,
-            qqMailAuthCode: Keychain.read(account: "qq-mail-auth-code", context: context)
-        )
         // Earlier versions wrote each secret separately.  Merge missing
-        // values even when a newer bundle already exists, otherwise adding
-        // JWT fields can make the previously saved QQ authorization code
-        // disappear from the native client.
+        // values lazily. Eagerly opening every legacy item can block startup
+        // when an item belongs to an older ad-hoc signing identity.
         let values = SensitiveValues(
-            deepSeekAPIKey: storedValues?.deepSeekAPIKey ?? legacyValues.deepSeekAPIKey,
-            weatherAPIKey: storedValues?.weatherAPIKey ?? legacyValues.weatherAPIKey,
+            deepSeekAPIKey: storedValues?.deepSeekAPIKey
+                ?? Keychain.read(account: "deepseek-api-key", context: context),
+            weatherAPIKey: storedValues?.weatherAPIKey
+                ?? Keychain.read(account: "qweather-api-key", context: context),
             weatherProjectID: storedValues?.weatherProjectID,
             weatherCredentialID: storedValues?.weatherCredentialID,
             weatherPrivateKey: storedValues?.weatherPrivateKey,
-            qqMailAuthCode: storedValues?.qqMailAuthCode ?? legacyValues.qqMailAuthCode
+            qqMailAuthCode: storedValues?.qqMailAuthCode
+                ?? Keychain.read(account: "qq-mail-auth-code", context: context)
         )
         applySensitiveValues(values)
         if values.hasValue { Keychain.saveSensitiveValues(values) }
@@ -420,6 +414,7 @@ private enum Keychain {
 
 final class LocalBackendSupervisor {
     private var process: Process?
+    private var outputLog: FileHandle?
     func startIfAvailable(
         weatherAPIKey: String? = nil,
         weatherAPIHost: String? = nil,
@@ -432,17 +427,37 @@ final class LocalBackendSupervisor {
         qqMailAuthCode: String? = nil,
         overrideQQMailConfiguration: Bool = false
     ) {
-        guard ProcessInfo.processInfo.environment["WINPLATE_SKIP_LOCAL_API"] != "1", let root = repositoryRoot() else { return }
+        guard ProcessInfo.processInfo.environment["WINPLATE_SKIP_LOCAL_API"] != "1" else {
+            fputs("WinPlate local API startup skipped by WINPLATE_SKIP_LOCAL_API\n", stderr)
+            return
+        }
         guard process?.isRunning != true else { return }
-        let backend = root.appendingPathComponent("backend/local-api")
-        guard FileManager.default.fileExists(atPath: backend.path) else { return }
-        let virtualEnvironmentPython = root.appendingPathComponent(".venv/bin/python3")
-        let python = FileManager.default.isExecutableFile(atPath: virtualEnvironmentPython.path)
-            ? virtualEnvironmentPython.path
-            : "python3"
-        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [python, "-m", "uvicorn", "winplate_local_api.main:api", "--host", "127.0.0.1", "--port", "8765"]
+        guard let backend = Bundle.main.resourceURL?.appendingPathComponent(
+            "LocalAPI",
+            isDirectory: true
+        ) else {
+            fputs("WinPlate bundled local API resource directory not found\n", stderr)
+            return
+        }
+        guard FileManager.default.fileExists(atPath: backend.path) else {
+            fputs("WinPlate bundled local API not found at \(backend.path)\n", stderr)
+            return
+        }
+        guard let pythonPackages = Bundle.main.resourceURL?.appendingPathComponent(
+            "PythonPackages",
+            isDirectory: true
+        ), FileManager.default.fileExists(atPath: pythonPackages.path) else {
+            fputs("WinPlate bundled Python packages not found\n", stderr)
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [
+            "-m", "uvicorn", "winplate_local_api.main:api",
+            "--host", "127.0.0.1", "--port", "8765"
+        ]
         var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONPATH"] = pythonPackages.path
         if overrideWeatherAPIKey {
             if let weatherAPIKey = weatherAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines), !weatherAPIKey.isEmpty {
                 environment["QWEATHER_API_KEY"] = weatherAPIKey
@@ -473,8 +488,17 @@ final class LocalBackendSupervisor {
             }
         }
         process.environment = environment
-        process.currentDirectoryURL = backend; process.standardOutput = Pipe(); process.standardError = Pipe()
-        try? process.run(); self.process = process
+        process.currentDirectoryURL = backend
+        outputLog?.closeFile()
+        outputLog = localAPILogFile()
+        process.standardOutput = outputLog
+        process.standardError = outputLog
+        do {
+            try process.run()
+            self.process = process
+        } catch {
+            fputs("WinPlate local API failed to start: \(error)\n", stderr)
+        }
     }
     func restart(
         weatherAPIKey: String?,
@@ -505,23 +529,28 @@ final class LocalBackendSupervisor {
             overrideQQMailConfiguration: overrideQQMailConfiguration
         )
     }
-    func stop() { if process?.isRunning == true { process?.terminate() } }
-    private func repositoryRoot() -> URL? {
-        let startingPoints = [
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-            Bundle.main.bundleURL
-        ]
-        for startingPoint in startingPoints {
-            var url = startingPoint
-            while url.path != "/" {
-                if FileManager.default.fileExists(
-                    atPath: url.appendingPathComponent("backend/local-api").path
-                ) {
-                    return url
-                }
-                url.deleteLastPathComponent()
-            }
+    func stop() {
+        if process?.isRunning == true { process?.terminate() }
+        outputLog?.closeFile()
+        outputLog = nil
+    }
+
+    private func localAPILogFile() -> FileHandle? {
+        guard let directory = FileManager.default.urls(
+            for: .libraryDirectory,
+            in: .userDomainMask
+        ).first?.appendingPathComponent("Logs/WinPlate", isDirectory: true) else {
+            return nil
         }
-        return nil
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent("local-api.log")
+            FileManager.default.createFile(atPath: file.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.seekToEnd()
+            return handle
+        } catch {
+            return nil
+        }
     }
 }

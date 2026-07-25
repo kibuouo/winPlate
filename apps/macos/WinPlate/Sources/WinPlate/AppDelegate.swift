@@ -71,6 +71,10 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        state.stop()
+    }
+
     @objc private func showMainWindow() { activateMainWindow() }
     @objc private func showSettingsWindow() { activateSettingsWindow() }
 
