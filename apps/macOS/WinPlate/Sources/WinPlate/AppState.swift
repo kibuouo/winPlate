@@ -31,6 +31,7 @@ final class AppState: ObservableObject {
     @Published private(set) var githubContributionDetail = GitHubContributionDetail.empty
     @Published private(set) var isLoadingGitHubContributionDetail = false
     @Published private(set) var githubContributionError: String?
+    @Published private(set) var selectedGitHubDateKey: String?
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
 
@@ -42,6 +43,8 @@ final class AppState: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var weatherAlertsUpdatedAt: Date?
     private var hasStarted = false
+    private var githubContributionRequestID = 0
+    private var githubContributionDetailCache: [String: GitHubContributionDetail] = [:]
 
     init() {
         menuBarEnabled = settings.menuBarEnabled
@@ -235,8 +238,15 @@ final class AppState: ObservableObject {
                         || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey })
                     {
                         selectedGitHubMonthKey = github.contributionMonths.last?.key
+                        selectedGitHubDateKey = nil
                     }
-                    if let monthKey = selectedGitHubMonthKey, githubContributionDetail.rangeKey != monthKey {
+                    if let dateKey = selectedGitHubDateKey {
+                        if githubContributionDetail.rangeKey != dateKey {
+                            await loadGitHubContributionDetail(date: dateKey)
+                        }
+                    } else if let monthKey = selectedGitHubMonthKey,
+                              githubContributionDetail.rangeKey != monthKey
+                    {
                         await loadGitHubContributionDetail(month: monthKey)
                     }
                 }
@@ -283,9 +293,8 @@ final class AppState: ObservableObject {
             let result = await api.refreshGitHub()
             if let github = result.value {
                 snapshot = StatusSnapshot(weather: snapshot.weather, github: github)
-                if selectedGitHubMonthKey == nil || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey }) {
-                    selectedGitHubMonthKey = github.contributionMonths.last?.key
-                }
+                // Fresh calendar data invalidates previous drill-down cache and day selection.
+                clearGitHubContributionCache(resetSelectionToCurrentMonth: true, github: github)
                 if let monthKey = selectedGitHubMonthKey {
                     await loadGitHubContributionDetail(month: monthKey)
                 }
@@ -296,25 +305,124 @@ final class AppState: ObservableObject {
     }
 
     func selectGitHubMonth(_ key: String) {
-        guard selectedGitHubMonthKey != key else { return }
+        let monthChanged = selectedGitHubMonthKey != key
         selectedGitHubMonthKey = key
-        Task { await loadGitHubContributionDetail(month: key) }
+        // Switching months always clears the day drill-down (design invariant).
+        if monthChanged || selectedGitHubDateKey != nil {
+            selectedGitHubDateKey = nil
+            Task { await loadGitHubContributionDetail(month: key) }
+        }
+    }
+
+    /// Toggle a calendar day: re-selecting the same day returns to the month summary.
+    func selectGitHubDate(_ dateKey: String) {
+        if selectedGitHubDateKey == dateKey {
+            clearGitHubDateSelection()
+            return
+        }
+        if dateKey.count >= 7 {
+            let monthKey = String(dateKey.prefix(7))
+            if selectedGitHubMonthKey != monthKey {
+                selectedGitHubMonthKey = monthKey
+            }
+        }
+        selectedGitHubDateKey = dateKey
+        Task { await loadGitHubContributionDetail(date: dateKey) }
+    }
+
+    func clearGitHubDateSelection() {
+        guard selectedGitHubDateKey != nil else { return }
+        selectedGitHubDateKey = nil
+        if let monthKey = selectedGitHubMonthKey {
+            Task { await loadGitHubContributionDetail(month: monthKey) }
+        }
     }
 
     func loadGitHubContributionDetail(month: String? = nil, date: String? = nil) async {
         let monthKey = month ?? selectedGitHubMonthKey
-        guard monthKey != nil || date != nil else { return }
+        let dateKey = date
+        guard dateKey != nil || monthKey != nil else { return }
+
+        if let dateKey {
+            selectedGitHubDateKey = dateKey
+        } else {
+            selectedGitHubDateKey = nil
+        }
+
+        let cacheKey = GitHubContributionFormatting.cacheKey(month: dateKey == nil ? monthKey : nil, date: dateKey)
+        if let cacheKey, let cached = githubContributionDetailCache[cacheKey] {
+            githubContributionDetail = cached
+            githubContributionError = cached.message.isEmpty ? nil : cached.message
+            isLoadingGitHubContributionDetail = false
+            return
+        }
+
+        // Show calendar-backed totals immediately while GraphQL detail loads.
+        if let fallback = contributionFallback(monthKey: monthKey, dateKey: dateKey) {
+            githubContributionDetail = fallback
+        }
+
+        githubContributionRequestID += 1
+        let requestID = githubContributionRequestID
         isLoadingGitHubContributionDetail = true
         githubContributionError = nil
-        let result = await api.githubContributions(month: date == nil ? monthKey : nil, date: date)
+
+        let result = await api.githubContributions(
+            month: dateKey == nil ? monthKey : nil,
+            date: dateKey
+        )
+
+        // Ignore stale responses when the user clicked another day/month quickly.
+        guard requestID == githubContributionRequestID else { return }
+
         if let detail = result.value {
             githubContributionDetail = detail
             githubContributionError = detail.message.isEmpty ? nil : detail.message
+            if let cacheKey {
+                githubContributionDetailCache[cacheKey] = detail
+            }
+        } else if let fallback = contributionFallback(
+            monthKey: monthKey,
+            dateKey: dateKey,
+            message: result.error ?? "提交明细暂时不可用"
+        ) {
+            githubContributionDetail = fallback
+            githubContributionError = result.error
         } else {
             githubContributionDetail = .empty
             githubContributionError = result.error
         }
         isLoadingGitHubContributionDetail = false
+    }
+
+    private func clearGitHubContributionCache(resetSelectionToCurrentMonth: Bool, github: GitHubSnapshot?) {
+        githubContributionDetailCache.removeAll()
+        selectedGitHubDateKey = nil
+        githubContributionRequestID += 1
+        if resetSelectionToCurrentMonth {
+            if let github {
+                if selectedGitHubMonthKey == nil
+                    || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey })
+                {
+                    selectedGitHubMonthKey = github.contributionMonths.last?.key
+                }
+            }
+        }
+    }
+
+    private func contributionFallback(
+        monthKey: String?,
+        dateKey: String?,
+        message: String = ""
+    ) -> GitHubContributionDetail? {
+        let months = snapshot.github?.contributionMonths ?? []
+        if let dateKey {
+            let monthPrefix = String(dateKey.prefix(7))
+            guard let month = months.first(where: { $0.key == monthPrefix }) else { return nil }
+            return .fallback(month: month, dateKey: dateKey, message: message)
+        }
+        guard let monthKey, let month = months.first(where: { $0.key == monthKey }) else { return nil }
+        return .fallback(month: month, message: message)
     }
 
     func loadMail(force: Bool = false) {

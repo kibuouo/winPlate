@@ -533,6 +533,56 @@ struct GitHubContributionDetail: Decodable {
     private enum CodingKeys: String, CodingKey {
         case rangeType, rangeKey, label, totalCount, repositoryCount, repositories, detailsAvailable, message
     }
+
+    var isDateRange: Bool { rangeType == "date" }
+
+    var displayLabel: String {
+        let localized = GitHubContributionFormatting.localizedLabel(rangeType: rangeType, rangeKey: rangeKey)
+        return localized.isEmpty ? label : localized
+    }
+
+    var summaryText: String {
+        if totalCount == 0 {
+            return isDateRange ? "这一天没有提交贡献。" : "本月暂无提交贡献。"
+        }
+        if repositories.isEmpty {
+            return "共 \(totalCount) 次提交"
+        }
+        return "共 \(totalCount) 次提交，分布在 \(repositoryCount) 个仓库"
+    }
+
+    /// Reliable fallback from cached calendar totals before GraphQL detail arrives.
+    static func fallback(
+        month: GitHubContributionMonth,
+        dateKey: String? = nil,
+        message: String = ""
+    ) -> GitHubContributionDetail {
+        if let dateKey {
+            let day = Int(dateKey.split(separator: "-").last ?? "0") ?? 0
+            let index = day - 1
+            let total = (index >= 0 && month.counts.indices.contains(index)) ? month.counts[index] : 0
+            return GitHubContributionDetail(
+                rangeType: "date",
+                rangeKey: dateKey,
+                label: GitHubContributionFormatting.localizedLabel(rangeType: "date", rangeKey: dateKey),
+                totalCount: total,
+                repositoryCount: 0,
+                repositories: [],
+                detailsAvailable: false,
+                message: message
+            )
+        }
+        return GitHubContributionDetail(
+            rangeType: "month",
+            rangeKey: month.key,
+            label: GitHubContributionFormatting.localizedLabel(rangeType: "month", rangeKey: month.key),
+            totalCount: month.commits,
+            repositoryCount: 0,
+            repositories: [],
+            detailsAvailable: false,
+            message: message
+        )
+    }
 }
 
 struct GitHubContributionRepository: Decodable, Identifiable, Hashable {
@@ -540,6 +590,19 @@ struct GitHubContributionRepository: Decodable, Identifiable, Hashable {
     let url: String
     let count: Int
     var id: String { nameWithOwner }
+
+    var shortName: String {
+        if let slash = nameWithOwner.lastIndex(of: "/") {
+            return String(nameWithOwner[nameWithOwner.index(after: slash)...])
+        }
+        return nameWithOwner
+    }
+
+    init(nameWithOwner: String, url: String, count: Int) {
+        self.nameWithOwner = nameWithOwner
+        self.url = url
+        self.count = count
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -549,6 +612,25 @@ struct GitHubContributionRepository: Decodable, Identifiable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey { case nameWithOwner, url, count }
+}
+
+enum GitHubContributionFormatting {
+    static func localizedLabel(rangeType: String, rangeKey: String) -> String {
+        if rangeType == "date" {
+            let parts = rangeKey.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3 else { return rangeKey }
+            return String(format: "%d年%d月%d日", parts[0], parts[1], parts[2])
+        }
+        let parts = rangeKey.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 2 else { return rangeKey }
+        return String(format: "%d年%d月", parts[0], parts[1])
+    }
+
+    static func cacheKey(month: String? = nil, date: String? = nil) -> String? {
+        if let date, !date.isEmpty { return "date:\(date)" }
+        if let month, !month.isEmpty { return "month:\(month)" }
+        return nil
+    }
 }
 
 struct MailOutline: Decodable {

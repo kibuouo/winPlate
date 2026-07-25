@@ -137,32 +137,28 @@ private struct GitHubContributionSection: View {
                     monthNavigation
                 }
 
-                HStack(alignment: .top, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        GitHubYearHeatmap(months: months, selectedKey: state.selectedGitHubMonthKey) { key in
-                            state.selectGitHubMonth(key)
-                        }
-                        GitHubMonthCalendar(month: month) { dateKey in
-                            Task { await state.loadGitHubContributionDetail(date: dateKey) }
-                        }
-                        HStack(spacing: 18) {
-                            GitHubStatChip(value: "\(month.commits)", label: "本月贡献")
-                            GitHubStatChip(value: "\(month.activeDays)", label: "活跃天")
-                            GitHubStatChip(value: "\(month.peakDaily)", label: "单日峰值")
-                            GitHubStatChip(value: "\(github.streakDays)", label: "连续天")
-                            Spacer()
-                            contributionLegend
-                        }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 18) {
+                        contributionCalendarColumn(month: month, github: github)
+                        GitHubContributionActivityPanel(
+                            detail: state.githubContributionDetail,
+                            isLoading: state.isLoadingGitHubContributionDetail,
+                            error: state.githubContributionError,
+                            selectedDateKey: state.selectedGitHubDateKey,
+                            onClearDate: { state.clearGitHubDateSelection() }
+                        )
+                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    GitHubMonthActivityPanel(
-                        month: month,
-                        detail: state.githubContributionDetail,
-                        isLoading: state.isLoadingGitHubContributionDetail,
-                        error: state.githubContributionError
-                    )
-                    .frame(width: 260)
+                    VStack(alignment: .leading, spacing: 16) {
+                        contributionCalendarColumn(month: month, github: github)
+                        GitHubContributionActivityPanel(
+                            detail: state.githubContributionDetail,
+                            isLoading: state.isLoadingGitHubContributionDetail,
+                            error: state.githubContributionError,
+                            selectedDateKey: state.selectedGitHubDateKey,
+                            onClearDate: { state.clearGitHubDateSelection() }
+                        )
+                    }
                 }
             } else {
                 ContentUnavailableView(
@@ -175,6 +171,30 @@ private struct GitHubContributionSection: View {
         }
         .padding(18)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func contributionCalendarColumn(month: GitHubContributionMonth, github: GitHubSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GitHubYearHeatmap(months: months, selectedKey: state.selectedGitHubMonthKey) { key in
+                state.selectGitHubMonth(key)
+            }
+            GitHubMonthCalendar(
+                month: month,
+                selectedDateKey: state.selectedGitHubDateKey
+            ) { dateKey in
+                state.selectGitHubDate(dateKey)
+            }
+            HStack(spacing: 18) {
+                GitHubStatChip(value: "\(month.commits)", label: "本月贡献")
+                GitHubStatChip(value: "\(month.activeDays)", label: "活跃天")
+                GitHubStatChip(value: "\(month.peakDaily)", label: "单日峰值")
+                GitHubStatChip(value: "\(github.streakDays)", label: "连续天")
+                Spacer()
+                contributionLegend
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var monthNavigation: some View {
@@ -280,14 +300,27 @@ private struct GitHubYearHeatmap: View {
 
 private struct GitHubMonthCalendar: View {
     let month: GitHubContributionMonth
+    let selectedDateKey: String?
     let onSelectDay: (String) -> Void
 
     private let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(month.label)
-                .font(.subheadline.weight(.semibold))
+            HStack {
+                Text(GitHubContributionFormatting.localizedLabel(rangeType: "month", rangeKey: month.key))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if selectedDateKey != nil {
+                    Text("点击已选日期可返回整月")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text("点击日期查看提交明细")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
                 ForEach(weekdays, id: \.self) { day in
@@ -298,22 +331,31 @@ private struct GitHubMonthCalendar: View {
                 }
                 ForEach(calendarCells) { cell in
                     if cell.isPlaceholder {
-                        Color.clear.frame(height: 28)
+                        Color.clear.frame(height: 30)
                     } else {
+                        let isSelected = selectedDateKey == cell.dateKey
                         Button {
                             onSelectDay(cell.dateKey)
                         } label: {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                                     .fill(GitHubContributionPalette.color(for: cell.level))
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .strokeBorder(
+                                        isSelected ? Color.accentColor : Color.clear,
+                                        lineWidth: 2
+                                    )
                                 Text("\(cell.day)")
-                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 11, weight: isSelected ? .bold : .semibold, design: .rounded))
                                     .foregroundStyle(cell.level >= 3 ? Color.white : Color.primary.opacity(0.85))
                             }
-                            .frame(height: 28)
+                            .frame(height: 30)
+                            .scaleEffect(isSelected ? 1.04 : 1)
                         }
                         .buttonStyle(.plain)
                         .help("\(cell.count) 次贡献 · \(cell.dateKey)")
+                        .accessibilityLabel("\(cell.dateKey)，\(cell.count) 次贡献")
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
             }
@@ -377,64 +419,164 @@ private struct CalendarCell: Identifiable {
     let isPlaceholder: Bool
 }
 
-private struct GitHubMonthActivityPanel: View {
-    let month: GitHubContributionMonth
+private struct GitHubContributionActivityPanel: View {
     let detail: GitHubContributionDetail
     let isLoading: Bool
     let error: String?
+    let selectedDateKey: String?
+    let onClearDate: () -> Void
+
+    private var maxRepoCount: Int {
+        detail.repositories.map(\.count).max() ?? 0
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("贡献活跃仓库")
-                .font(.subheadline.weight(.semibold))
-            Text(activityHeading)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("提交明细")
+                        .font(.subheadline.weight(.semibold))
+                    Text(detail.displayLabel.isEmpty ? "选择月份或日期" : detail.displayLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if selectedDateKey != nil {
+                    Button("整月", action: onClearDate)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("清除日期选择，返回整月汇总")
+                }
+            }
 
-            if isLoading {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+                    .frame(width: 28, height: 28)
+                    .background(Color.green.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(detail.summaryText)
+                        .font(.subheadline.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if isLoading {
+                        Text("正在加载仓库明细…")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else if detail.detailsAvailable {
+                        Text("已按仓库拆分")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Divider()
+
+            if isLoading && detail.repositories.isEmpty {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("加载仓库明细…").font(.caption).foregroundStyle(.secondary)
+                    Text("加载中…").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+            } else if detail.totalCount == 0 {
+                ContentUnavailableView {
+                    Label("无提交", systemImage: "calendar.badge.minus")
+                } description: {
+                    Text(detail.isDateRange ? "这一天没有提交贡献。" : "本月暂无提交贡献。")
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
             } else if !detail.repositories.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(detail.repositories.prefix(8)) { repo in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            if let url = URL(string: repo.url), !repo.url.isEmpty {
-                                Link(repo.nameWithOwner, destination: url)
-                                    .font(.caption.weight(.semibold))
-                                    .lineLimit(1)
-                            } else {
-                                Text(repo.nameWithOwner)
-                                    .font(.caption.weight(.semibold))
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 4)
-                            Text("\(repo.count)")
-                                .font(.caption.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(detail.repositories) { repo in
+                            GitHubContributionRepositoryRow(
+                                repository: repo,
+                                total: max(detail.totalCount, 1),
+                                peak: max(maxRepoCount, 1)
+                            )
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, minHeight: 140, maxHeight: 280, alignment: .topLeading)
             } else {
-                Text(error ?? (detail.message.isEmpty ? "该时段暂无按仓库汇总的提交。" : detail.message))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("共 \(detail.totalCount) 次提交")
+                        .font(.subheadline.weight(.semibold))
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
             }
             Spacer(minLength: 0)
         }
         .padding(14)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var activityHeading: String {
-        if !detail.label.isEmpty {
-            return "\(detail.totalCount) commits · \(detail.label)"
+    private var statusMessage: String {
+        if let error, !error.isEmpty { return error }
+        if !detail.message.isEmpty { return detail.message }
+        if !detail.detailsAvailable {
+            return "仓库级明细需要已配置的 GitHub Token。总数来自本地日历缓存，不会猜测仓库分布。"
         }
-        return "\(month.commits) commits · \(month.label)"
+        return "该时段暂无按仓库汇总的提交明细。"
+    }
+}
+
+private struct GitHubContributionRepositoryRow: View {
+    let repository: GitHubContributionRepository
+    let total: Int
+    let peak: Int
+
+    private var share: Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(repository.count) / Double(total))
+    }
+
+    private var bar: Double {
+        guard peak > 0 else { return 0 }
+        return min(1, Double(repository.count) / Double(peak))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let url = URL(string: repository.url), !repository.url.isEmpty {
+                    Link(destination: url) {
+                        Text(repository.shortName)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                    .help(repository.nameWithOwner)
+                } else {
+                    Text(repository.shortName)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .help(repository.nameWithOwner)
+                }
+                Spacer(minLength: 4)
+                Text("\(repository.count)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(String(format: "%.0f%%", share * 100))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 34, alignment: .trailing)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.06))
+                    Capsule()
+                        .fill(Color.green.opacity(0.75))
+                        .frame(width: max(4, geo.size.width * bar))
+                }
+            }
+            .frame(height: 5)
+        }
     }
 }
 

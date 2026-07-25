@@ -221,5 +221,38 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
 
         XCTAssertEqual(detail.totalCount, 10)
         XCTAssertEqual(detail.repositories.first?.count, 10)
+        XCTAssertEqual(detail.displayLabel, "2026年7月")
+        XCTAssertEqual(detail.repositories.first?.shortName, "winPlate")
+        XCTAssertTrue(detail.summaryText.contains("10"))
+    }
+
+    func testGitHubContributionFallbackUsesCalendarTotalsWithoutGuessingRepos() throws {
+        let monthPayload = """
+        {
+          "key": "2026-07",
+          "label": "July 2026",
+          "commits": 12,
+          "counts": [0, 4, 8],
+          "levels": [0, 3, 4]
+        }
+        """.data(using: .utf8)!
+        let month = try JSONDecoder().decode(GitHubContributionMonth.self, from: monthPayload)
+
+        let day = GitHubContributionDetail.fallback(month: month, dateKey: "2026-07-02")
+        XCTAssertEqual(day.rangeType, "date")
+        XCTAssertEqual(day.totalCount, 4)
+        XCTAssertTrue(day.repositories.isEmpty)
+        XCTAssertFalse(day.detailsAvailable)
+        XCTAssertEqual(day.displayLabel, "2026年7月2日")
+
+        let wholeMonth = GitHubContributionDetail.fallback(month: month)
+        XCTAssertEqual(wholeMonth.totalCount, 12)
+        XCTAssertEqual(wholeMonth.displayLabel, "2026年7月")
+    }
+
+    func testGitHubContributionCacheKey() {
+        XCTAssertEqual(GitHubContributionFormatting.cacheKey(date: "2026-07-24"), "date:2026-07-24")
+        XCTAssertEqual(GitHubContributionFormatting.cacheKey(month: "2026-07"), "month:2026-07")
+        XCTAssertNil(GitHubContributionFormatting.cacheKey())
     }
 }
