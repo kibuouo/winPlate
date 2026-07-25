@@ -412,35 +412,12 @@ private struct ForecastCell: View {
     }
 }
 
-private func menuBarStatus(_ status: String) -> String {
+func menuBarStatus(_ status: String) -> String {
     switch status {
     case "Normal": return "可用"
     case "Unconfigured": return "未配置"
     case "Insufficient": return "余额不足"
     default: return "不可用"
-    }
-}
-
-private struct UsageProgress: View {
-    let label: String
-    let usage: UsageWindow?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(label).font(.subheadline)
-                Spacer()
-                Text(usage?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%")
-                    .font(.subheadline.monospacedDigit().weight(.medium))
-            }
-            ProgressView(value: usage?.remainingPct ?? 0, total: 100)
-                .tint(.secondary)
-                .accessibilityLabel(label)
-                .accessibilityValue(usage?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用")
-            Text("重置：\(usage?.resetText ?? "--")")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
     }
 }
 
@@ -517,36 +494,6 @@ private enum WorkspaceDestination: CaseIterable, Hashable {
     }
     var symbol: String {
         switch self { case .overview: "rectangle.3.group"; case .weather: "cloud.sun"; case .github: "chevron.left.forwardslash.chevron.right"; case .mail: "envelope"; case .notifications: "bell"; case .settings: "gearshape" }
-    }
-}
-
-private struct OverviewWorkspace: View {
-    @EnvironmentObject private var state: AppState
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                PageHeader(title: "今日状态", subtitle: "来自本机服务与已配置账户的实时摘要") {
-                    NativeRefreshButton(title: "刷新所有状态", isRefreshing: state.isRefreshing) {
-                        state.refresh(force: true)
-                    }
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                    DashboardCard(title: "Codex", symbol: "terminal", status: state.codex.status) {
-                        UsageProgress(label: "5 小时剩余", usage: state.codex.fiveHour)
-                        UsageProgress(label: "7 天剩余", usage: state.codex.windows?.sevenDay)
-                        if let error = state.codexError { Text(error).font(.caption2).foregroundStyle(.red) }
-                    }
-                    DashboardCard(title: "DeepSeek", symbol: "sparkles", status: state.deepSeek.status) {
-                        Text(state.deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--").font(.title.monospacedDigit().weight(.semibold))
-                        Text("人民币余额").font(.caption).foregroundStyle(.secondary)
-                        if let error = state.deepSeekError { Text(error).font(.caption2).foregroundStyle(.red) }
-                    }
-                    DashboardCard(title: "天气", symbol: "cloud.sun", status: state.snapshot.weather.temperature == nil ? "Unavailable" : "Normal") { HStack { Text(state.menuBarTemperature).font(.title.monospacedDigit().weight(.semibold)); VStack(alignment: .leading) { Text(state.snapshot.weather.condition); Text(state.snapshot.weather.location).font(.caption).foregroundStyle(.secondary) } } }
-                    DashboardCard(title: "通知", symbol: "bell", status: state.notifications.unreadCount > 0 ? "Normal" : "Unavailable") { Text("\(state.notifications.unreadCount)").font(.title.monospacedDigit().weight(.semibold)); Text("未读通知").font(.caption).foregroundStyle(.secondary) }
-                }
-                if let error = state.lastError { Label(error, systemImage: "exclamationmark.triangle").font(.subheadline).foregroundStyle(.secondary) }
-            }.padding(28)
-        }
     }
 }
 
@@ -655,23 +602,6 @@ struct NativeRefreshButton: View {
 private struct MailDetail: View {
     let message: MailMessage
     var body: some View { VStack(alignment: .leading, spacing: 14) { Text(message.subject).font(.title2.bold()); Text(message.sender).foregroundStyle(.secondary); Divider(); ScrollView { Text(message.textBody.isEmpty ? "此邮件没有可显示的纯文本内容。" : message.textBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) } }.padding(24).frame(minWidth: 560, minHeight: 420) }
-}
-
-private struct DashboardCard<Content: View>: View {
-    let title: String; let symbol: String; let status: String; @ViewBuilder let content: Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label(title, systemImage: symbol).font(.headline)
-                Spacer()
-                Circle().fill(status == "Normal" ? Color.green : Color.secondary).frame(width: 8, height: 8)
-            }
-            content
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 154, alignment: .topLeading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
 }
 
 struct SettingsView: View {
