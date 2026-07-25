@@ -283,6 +283,8 @@ final class AppSettingsStore: ObservableObject {
     @Published var weatherAPIHost: String { didSet { defaults.set(weatherAPIHost, forKey: "weatherAPIHost") } }
     @Published var qqMailAddress: String { didSet { defaults.set(qqMailAddress, forKey: "qqMailAddress") } }
     @Published var qqMailAuthCode: String? { didSet { if !isLoadingSensitiveValues, oldValue != qqMailAuthCode { saveSensitiveValues() } } }
+    @Published var githubUsername: String { didSet { defaults.set(githubUsername, forKey: "githubUsername") } }
+    @Published var githubToken: String? { didSet { if !isLoadingSensitiveValues, oldValue != githubToken { saveSensitiveValues() } } }
     private let defaults = UserDefaults.standard
     private var isLoadingSensitiveValues = false
     private var hasLoadedSensitiveValues = false
@@ -299,6 +301,8 @@ final class AppSettingsStore: ObservableObject {
         weatherAPIHost = defaults.string(forKey: "weatherAPIHost") ?? "devapi.qweather.com"
         qqMailAddress = defaults.string(forKey: "qqMailAddress") ?? ""
         qqMailAuthCode = nil
+        githubUsername = defaults.string(forKey: "githubUsername") ?? "kibuouo"
+        githubToken = nil
     }
 
     func loadSensitiveValues() {
@@ -319,6 +323,7 @@ final class AppSettingsStore: ObservableObject {
         weatherCredentialID = values.weatherCredentialID
         weatherPrivateKey = values.weatherPrivateKey
         qqMailAuthCode = values.qqMailAuthCode
+        githubToken = values.githubToken
     }
 
     private func saveSensitiveValues() {
@@ -329,9 +334,15 @@ final class AppSettingsStore: ObservableObject {
                 weatherProjectID: weatherProjectID,
                 weatherCredentialID: weatherCredentialID,
                 weatherPrivateKey: weatherPrivateKey,
-                qqMailAuthCode: qqMailAuthCode
+                qqMailAuthCode: qqMailAuthCode,
+                githubToken: githubToken
             )
         )
+    }
+
+    var hasGitHubToken: Bool {
+        guard let githubToken else { return false }
+        return !githubToken.isEmpty
     }
 
     var deepSeekConfiguration: DeepSeekConfiguration {
@@ -353,9 +364,10 @@ private struct SensitiveValues: Codable {
     let weatherCredentialID: String?
     let weatherPrivateKey: String?
     let qqMailAuthCode: String?
+    let githubToken: String?
 
     var hasValue: Bool {
-        [deepSeekAPIKey, weatherAPIKey, weatherProjectID, weatherCredentialID, weatherPrivateKey, qqMailAuthCode].contains { value in
+        [deepSeekAPIKey, weatherAPIKey, weatherProjectID, weatherCredentialID, weatherPrivateKey, qqMailAuthCode, githubToken].contains { value in
             guard let value else { return false }
             return !value.isEmpty
         }
@@ -423,7 +435,10 @@ final class LocalBackendSupervisor {
         overrideWeatherAlertCredentials: Bool = false,
         qqMailAddress: String? = nil,
         qqMailAuthCode: String? = nil,
-        overrideQQMailConfiguration: Bool = false
+        overrideQQMailConfiguration: Bool = false,
+        githubToken: String? = nil,
+        overrideGitHubToken: Bool = false,
+        githubUsername: String? = nil
     ) {
         guard ProcessInfo.processInfo.environment["WINPLATE_SKIP_LOCAL_API"] != "1" else {
             fputs("WinPlate local API startup skipped by WINPLATE_SKIP_LOCAL_API\n", stderr)
@@ -485,6 +500,16 @@ final class LocalBackendSupervisor {
                 environment.removeValue(forKey: "QQ_MAIL_AUTH_CODE")
             }
         }
+        if overrideGitHubToken {
+            if let githubToken = githubToken?.trimmingCharacters(in: .whitespacesAndNewlines), !githubToken.isEmpty {
+                environment["GITHUB_TOKEN"] = githubToken
+            } else {
+                environment.removeValue(forKey: "GITHUB_TOKEN")
+            }
+        }
+        if let githubUsername = githubUsername?.trimmingCharacters(in: .whitespacesAndNewlines), !githubUsername.isEmpty {
+            environment["WINPLATE_GITHUB_USERNAME"] = githubUsername.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+        }
         process.environment = environment
         process.currentDirectoryURL = backend
         outputLog?.closeFile()
@@ -507,7 +532,10 @@ final class LocalBackendSupervisor {
         overrideWeatherAlertCredentials: Bool = false,
         qqMailAddress: String? = nil,
         qqMailAuthCode: String? = nil,
-        overrideQQMailConfiguration: Bool = false
+        overrideQQMailConfiguration: Bool = false,
+        githubToken: String? = nil,
+        overrideGitHubToken: Bool = false,
+        githubUsername: String? = nil
     ) {
         if let process, process.isRunning {
             process.terminate()
@@ -524,7 +552,10 @@ final class LocalBackendSupervisor {
             overrideWeatherAlertCredentials: overrideWeatherAlertCredentials,
             qqMailAddress: qqMailAddress,
             qqMailAuthCode: qqMailAuthCode,
-            overrideQQMailConfiguration: overrideQQMailConfiguration
+            overrideQQMailConfiguration: overrideQQMailConfiguration,
+            githubToken: githubToken,
+            overrideGitHubToken: overrideGitHubToken,
+            githubUsername: githubUsername
         )
     }
     func stop() {

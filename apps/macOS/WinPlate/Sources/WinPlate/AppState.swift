@@ -60,7 +60,10 @@ final class AppState: ObservableObject {
             overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
             qqMailAddress: settings.qqMailAddress,
             qqMailAuthCode: settings.qqMailAuthCode,
-            overrideQQMailConfiguration: settings.qqMailAuthCode != nil
+            overrideQQMailConfiguration: settings.qqMailAuthCode != nil,
+            githubToken: settings.githubToken,
+            overrideGitHubToken: settings.hasGitHubToken,
+            githubUsername: settings.githubUsername
         )
         refresh()
         refreshMailWhenLocalAPIReady()
@@ -70,6 +73,23 @@ final class AppState: ObservableObject {
                 self?.refresh()
             }
         }
+    }
+
+    private func restartLocalBackend() {
+        backend.restart(
+            weatherAPIKey: settings.weatherAPIKey,
+            weatherAPIHost: settings.weatherAPIHost,
+            weatherProjectID: settings.weatherProjectID,
+            weatherCredentialID: settings.weatherCredentialID,
+            weatherPrivateKey: settings.weatherPrivateKey,
+            overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
+            qqMailAddress: settings.qqMailAddress,
+            qqMailAuthCode: settings.qqMailAuthCode,
+            overrideQQMailConfiguration: settings.qqMailAuthCode != nil,
+            githubToken: settings.githubToken,
+            overrideGitHubToken: true,
+            githubUsername: settings.githubUsername
+        )
     }
 
     func loadSensitiveSettings() {
@@ -122,20 +142,28 @@ final class AppState: ObservableObject {
         if !privateKey.isEmpty { settings.weatherPrivateKey = privateKey }
         weatherAlertError = nil
         isWeatherAlertConnected = false
-        backend.restart(
-            weatherAPIKey: settings.weatherAPIKey,
-            weatherAPIHost: settings.weatherAPIHost,
-            weatherProjectID: settings.weatherProjectID,
-            weatherCredentialID: settings.weatherCredentialID,
-            weatherPrivateKey: settings.weatherPrivateKey,
-            overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
-            qqMailAddress: settings.qqMailAddress,
-            qqMailAuthCode: settings.qqMailAuthCode,
-            overrideQQMailConfiguration: settings.qqMailAuthCode != nil
-        )
+        restartLocalBackend()
         refreshWhenLocalAPIReady()
         if settings.hasWeatherAlertCredentials {
             testWeatherAlertConnectionWhenLocalAPIReady()
+        }
+    }
+
+    func saveGitHubConfiguration(username usernameValue: String, token tokenValue: String) {
+        let username = usernameValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+        let token = tokenValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.githubUsername = username.isEmpty ? "kibuouo" : username
+        // Empty token field means "keep the stored value", same as other secrets.
+        if !token.isEmpty {
+            settings.githubToken = token
+        }
+        restartLocalBackend()
+        refreshWhenLocalAPIReady()
+        // Force a GitHub refresh after the local API restarts with the new token.
+        Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            refreshGitHub()
         }
     }
 
@@ -173,17 +201,7 @@ final class AppState: ObservableObject {
         settings.qqMailAuthCode = authCode
         mailConnectionError = nil
         isMailConnected = false
-        backend.restart(
-            weatherAPIKey: settings.weatherAPIKey,
-            weatherAPIHost: settings.weatherAPIHost,
-            weatherProjectID: settings.weatherProjectID,
-            weatherCredentialID: settings.weatherCredentialID,
-            weatherPrivateKey: settings.weatherPrivateKey,
-            overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
-            qqMailAddress: settings.qqMailAddress,
-            qqMailAuthCode: settings.qqMailAuthCode,
-            overrideQQMailConfiguration: true
-        )
+        restartLocalBackend()
         testQQMailConnectionWhenLocalAPIReady()
     }
 

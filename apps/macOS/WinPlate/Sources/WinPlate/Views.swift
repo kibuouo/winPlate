@@ -688,6 +688,8 @@ private struct SettingsForm: View {
     @State private var loginItemError: String?
     @State private var deepSeekAPIKey = ""
     @State private var deepSeekBaseURL = ""
+    @State private var githubUsername = ""
+    @State private var githubToken = ""
     @State private var weatherAPIKey = ""
     @State private var weatherAPIHost = ""
     @State private var weatherProjectID = ""
@@ -763,6 +765,40 @@ private struct SettingsForm: View {
                 }
                 Text("密钥仅存储在 macOS 钥匙串中，不会写入偏好设置或发送给本地 API。")
                     .font(.caption).foregroundStyle(.secondary)
+                }
+                SettingsCard(
+                    title: "GitHub",
+                    symbol: "chevron.left.forwardslash.chevron.right",
+                    description: "用户名用于读取资料与贡献；Personal Access Token 用于 GraphQL 明细（仓库提交拆分）。"
+                ) {
+                    TextField("GitHub 用户名", text: $githubUsername)
+                        .textContentType(.username)
+                    SecureField(
+                        settings.hasGitHubToken
+                            ? "Personal Access Token（已配置，重新填写可覆盖）"
+                            : "Personal Access Token（可选，建议配置）",
+                        text: $githubToken
+                    )
+                    SettingsCardActions {
+                        ConfigurationStatus(
+                            settings.hasGitHubToken ? "已配置" : "未配置 Token（公开数据仍可用）",
+                            symbol: settings.hasGitHubToken ? "checkmark.circle.fill" : "circle",
+                            color: settings.hasGitHubToken ? .green : .secondary
+                        )
+                    } actions: {
+                        Button("保存配置") {
+                            state.saveGitHubConfiguration(username: githubUsername, token: githubToken)
+                            githubToken = ""
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            githubUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                && githubToken.isEmpty
+                                && !settings.hasGitHubToken
+                        )
+                    }
+                    Text("Token 仅写入钥匙串，并仅传给本机 127.0.0.1:8765 本地 API。可使用 `gh auth token` 生成的令牌（需 repo 等读权限）。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 SettingsCard(
                     title: "QWeather",
@@ -946,6 +982,8 @@ private struct SettingsForm: View {
         .onAppear {
             deepSeekAPIKey = ""
             deepSeekBaseURL = settings.deepSeekBaseURL
+            githubUsername = settings.githubUsername
+            githubToken = ""
             weatherAPIKey = ""
             weatherAPIHost = settings.weatherAPIHost
             weatherProjectID = ""
