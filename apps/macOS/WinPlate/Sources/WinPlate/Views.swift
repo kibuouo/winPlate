@@ -550,29 +550,6 @@ private struct OverviewWorkspace: View {
     }
 }
 
-private struct GitHubWorkspace: View {
-    @EnvironmentObject private var state: AppState
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            PageHeader(title: "GitHub", subtitle: "账户、仓库与最近同步状态") {
-                NativeRefreshButton(title: "同步 GitHub", isRefreshing: state.isRefreshingGitHub) {
-                    state.refreshGitHub()
-                }
-            }
-            if let github = state.snapshot.github {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack { VStack(alignment: .leading) { Text(github.name).font(.title2.bold()); Text(github.username).foregroundStyle(.secondary) }; Spacer(); if let url = URL(string: github.profileUrl) { Link("打开主页", destination: url) } }
-                    Divider()
-                    HStack(spacing: 36) { GitHubMetric(value: "\(github.repos)", label: "公开仓库"); GitHubMetric(value: "\(github.followers)", label: "关注者"); GitHubMetric(value: "★ \(github.stars)", label: github.language) }
-                    Text("最近项目：\(github.project)").font(.subheadline)
-                    if let message = github.stateMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
-                }.padding(22).background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
-            } else { ContentUnavailableView("尚未同步 GitHub", systemImage: "chevron.left.forwardslash.chevron.right", description: Text("请在后端环境中配置 GitHub Token 后同步。")) }
-            Spacer()
-        }.padding(28)
-    }
-}
-
 private struct MailWorkspace: View {
     @EnvironmentObject private var state: AppState
     var body: some View {
@@ -673,11 +650,6 @@ struct NativeRefreshButton: View {
         .keyboardShortcut("r", modifiers: .command)
         .animation(.easeInOut(duration: 0.16), value: isActive)
     }
-}
-
-private struct GitHubMetric: View {
-    let value: String; let label: String
-    var body: some View { VStack(alignment: .leading, spacing: 2) { Text(value).font(.title3.monospacedDigit().weight(.semibold)); Text(label).font(.caption).foregroundStyle(.secondary) } }
 }
 
 private struct MailDetail: View {

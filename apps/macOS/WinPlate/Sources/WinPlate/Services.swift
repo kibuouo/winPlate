@@ -13,6 +13,18 @@ actor LocalAPIClient {
         await request(path: "/api/github/refresh", method: "POST")
     }
 
+    func githubContributions(month: String? = nil, date: String? = nil) async -> ResultValue<GitHubContributionDetail> {
+        var items: [String] = []
+        if let month, !month.isEmpty {
+            items.append("month=\(month.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? month)")
+        }
+        if let date, !date.isEmpty {
+            items.append("date=\(date.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? date)")
+        }
+        let query = items.isEmpty ? "" : "?\(items.joined(separator: "&"))"
+        return await request(path: "/api/github/contributions\(query)")
+    }
+
     func mail(force: Bool) async -> ResultValue<MailOutline> {
         await request(path: force ? "/api/mail/refresh" : "/api/mail/outline", method: force ? "POST" : "GET")
     }

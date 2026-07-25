@@ -311,6 +311,7 @@ struct GitHubSnapshot: Decodable {
     let name: String
     let username: String
     let profileUrl: String
+    let avatarUrl: String
     let repos: Int
     let followers: Int
     let project: String
@@ -318,12 +319,81 @@ struct GitHubSnapshot: Decodable {
     let stars: Int
     let status: String
     let stateMessage: String?
+    let commitsThisMonth: Int
+    let streakDays: Int
+    let contributions30d: [Int]
+    let contributionMonth: String
+    let contributionMonths: [GitHubContributionMonth]
+    let repositories: [GitHubRepository]
+    let updatedAt: Int64?
+
+    static let empty = GitHubSnapshot(
+        name: "GitHub",
+        username: "",
+        profileUrl: "",
+        avatarUrl: "",
+        repos: 0,
+        followers: 0,
+        project: "--",
+        language: "--",
+        stars: 0,
+        status: "Unavailable",
+        stateMessage: nil,
+        commitsThisMonth: 0,
+        streakDays: 0,
+        contributions30d: [],
+        contributionMonth: "",
+        contributionMonths: [],
+        repositories: [],
+        updatedAt: nil
+    )
+
+    init(
+        name: String,
+        username: String,
+        profileUrl: String,
+        avatarUrl: String,
+        repos: Int,
+        followers: Int,
+        project: String,
+        language: String,
+        stars: Int,
+        status: String,
+        stateMessage: String?,
+        commitsThisMonth: Int,
+        streakDays: Int,
+        contributions30d: [Int],
+        contributionMonth: String,
+        contributionMonths: [GitHubContributionMonth],
+        repositories: [GitHubRepository],
+        updatedAt: Int64?
+    ) {
+        self.name = name
+        self.username = username
+        self.profileUrl = profileUrl
+        self.avatarUrl = avatarUrl
+        self.repos = repos
+        self.followers = followers
+        self.project = project
+        self.language = language
+        self.stars = stars
+        self.status = status
+        self.stateMessage = stateMessage
+        self.commitsThisMonth = commitsThisMonth
+        self.streakDays = streakDays
+        self.contributions30d = contributions30d
+        self.contributionMonth = contributionMonth
+        self.contributionMonths = contributionMonths
+        self.repositories = repositories
+        self.updatedAt = updatedAt
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? "GitHub"
         username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
         profileUrl = try c.decodeIfPresent(String.self, forKey: .profileUrl) ?? ""
+        avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl) ?? ""
         repos = try c.decodeIfPresent(Int.self, forKey: .repos) ?? 0
         followers = try c.decodeIfPresent(Int.self, forKey: .followers) ?? 0
         project = try c.decodeIfPresent(String.self, forKey: .project) ?? "--"
@@ -331,8 +401,154 @@ struct GitHubSnapshot: Decodable {
         stars = try c.decodeIfPresent(Int.self, forKey: .stars) ?? 0
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? "Unavailable"
         stateMessage = try c.decodeIfPresent(String.self, forKey: .stateMessage)
+        commitsThisMonth = try c.decodeIfPresent(Int.self, forKey: .commitsThisMonth) ?? 0
+        streakDays = try c.decodeIfPresent(Int.self, forKey: .streakDays) ?? 0
+        contributions30d = try c.decodeIfPresent([Int].self, forKey: .contributions30d) ?? []
+        contributionMonth = try c.decodeIfPresent(String.self, forKey: .contributionMonth) ?? ""
+        contributionMonths = try c.decodeIfPresent([GitHubContributionMonth].self, forKey: .contributionMonths) ?? []
+        repositories = try c.decodeIfPresent([GitHubRepository].self, forKey: .repositories) ?? []
+        updatedAt = try c.decodeIfPresent(Int64.self, forKey: .updatedAt)
     }
-    private enum CodingKeys: String, CodingKey { case name, username, profileUrl, repos, followers, project, language, stars, status, stateMessage }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, username, profileUrl, avatarUrl, repos, followers, project, language, stars, status, stateMessage
+        case commitsThisMonth, streakDays, contributions30d, contributionMonth, contributionMonths, repositories, updatedAt
+    }
+
+    var isAvailable: Bool {
+        status == "Live" || status == "Normal" || !username.isEmpty
+    }
+}
+
+struct GitHubContributionMonth: Decodable, Identifiable, Hashable {
+    let key: String
+    let label: String
+    let commits: Int
+    let counts: [Int]
+    let levels: [Int]
+
+    var id: String { key }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decodeIfPresent(String.self, forKey: .key) ?? ""
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? key
+        commits = try c.decodeIfPresent(Int.self, forKey: .commits) ?? 0
+        counts = try c.decodeIfPresent([Int].self, forKey: .counts) ?? []
+        levels = try c.decodeIfPresent([Int].self, forKey: .levels) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey { case key, label, commits, counts, levels }
+
+    var activeDays: Int { counts.filter { $0 > 0 }.count }
+    var peakDaily: Int { counts.max() ?? 0 }
+}
+
+struct GitHubRepository: Decodable, Identifiable, Hashable {
+    let name: String
+    let fullName: String
+    let description: String
+    let language: String
+    let stars: Int
+    let forks: Int
+    let url: String
+    let pushedAt: String
+    let isPrivate: Bool
+    let isFork: Bool
+
+    var id: String { fullName.isEmpty ? name : fullName }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        fullName = try c.decodeIfPresent(String.self, forKey: .fullName) ?? name
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        language = try c.decodeIfPresent(String.self, forKey: .language) ?? "Unknown"
+        stars = try c.decodeIfPresent(Int.self, forKey: .stars) ?? 0
+        forks = try c.decodeIfPresent(Int.self, forKey: .forks) ?? 0
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        pushedAt = try c.decodeIfPresent(String.self, forKey: .pushedAt) ?? ""
+        isPrivate = try c.decodeIfPresent(Bool.self, forKey: .isPrivate) ?? false
+        isFork = try c.decodeIfPresent(Bool.self, forKey: .isFork) ?? false
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, fullName, description, language, stars, forks, url, pushedAt, isPrivate, isFork
+    }
+}
+
+struct GitHubContributionDetail: Decodable {
+    let rangeType: String
+    let rangeKey: String
+    let label: String
+    let totalCount: Int
+    let repositoryCount: Int
+    let repositories: [GitHubContributionRepository]
+    let detailsAvailable: Bool
+    let message: String
+
+    static let empty = GitHubContributionDetail(
+        rangeType: "month",
+        rangeKey: "",
+        label: "",
+        totalCount: 0,
+        repositoryCount: 0,
+        repositories: [],
+        detailsAvailable: false,
+        message: ""
+    )
+
+    init(
+        rangeType: String,
+        rangeKey: String,
+        label: String,
+        totalCount: Int,
+        repositoryCount: Int,
+        repositories: [GitHubContributionRepository],
+        detailsAvailable: Bool,
+        message: String
+    ) {
+        self.rangeType = rangeType
+        self.rangeKey = rangeKey
+        self.label = label
+        self.totalCount = totalCount
+        self.repositoryCount = repositoryCount
+        self.repositories = repositories
+        self.detailsAvailable = detailsAvailable
+        self.message = message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rangeType = try c.decodeIfPresent(String.self, forKey: .rangeType) ?? "month"
+        rangeKey = try c.decodeIfPresent(String.self, forKey: .rangeKey) ?? ""
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        totalCount = try c.decodeIfPresent(Int.self, forKey: .totalCount) ?? 0
+        repositoryCount = try c.decodeIfPresent(Int.self, forKey: .repositoryCount) ?? 0
+        repositories = try c.decodeIfPresent([GitHubContributionRepository].self, forKey: .repositories) ?? []
+        detailsAvailable = try c.decodeIfPresent(Bool.self, forKey: .detailsAvailable) ?? false
+        message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rangeType, rangeKey, label, totalCount, repositoryCount, repositories, detailsAvailable, message
+    }
+}
+
+struct GitHubContributionRepository: Decodable, Identifiable, Hashable {
+    let nameWithOwner: String
+    let url: String
+    let count: Int
+    var id: String { nameWithOwner }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        nameWithOwner = try c.decodeIfPresent(String.self, forKey: .nameWithOwner) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
+    }
+
+    private enum CodingKeys: String, CodingKey { case nameWithOwner, url, count }
 }
 
 struct MailOutline: Decodable {

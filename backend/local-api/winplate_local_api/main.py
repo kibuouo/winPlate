@@ -2636,6 +2636,49 @@ def github_contribution_detail(
         return {**base, "message": "Repository details are temporarily unavailable."}
 
 
+def map_github_repository(repository: object) -> dict | None:
+    if not isinstance(repository, dict):
+        return None
+    name = repository.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    full_name = repository.get("full_name")
+    description = repository.get("description")
+    language = repository.get("language")
+    stars = repository.get("stargazers_count")
+    forks = repository.get("forks_count")
+    url = repository.get("html_url")
+    pushed_at = repository.get("pushed_at")
+    return {
+        "name": name.strip(),
+        "fullName": full_name.strip() if isinstance(full_name, str) and full_name.strip() else name.strip(),
+        "description": description.strip() if isinstance(description, str) else "",
+        "language": language if isinstance(language, str) and language.strip() else "Unknown",
+        "stars": max(0, int(stars)) if isinstance(stars, int) else 0,
+        "forks": max(0, int(forks)) if isinstance(forks, int) else 0,
+        "url": url if isinstance(url, str) else "",
+        "pushedAt": pushed_at if isinstance(pushed_at, str) else "",
+        "isPrivate": bool(repository.get("private")),
+        "isFork": bool(repository.get("fork")),
+    }
+
+
+def curated_github_repositories(repositories: list) -> list[dict]:
+    """Prefer recently pushed non-fork repos the user maintains; fill with forks if needed."""
+    owned: list[dict] = []
+    forks: list[dict] = []
+    for repository in repositories:
+        mapped = map_github_repository(repository)
+        if mapped is None:
+            continue
+        if mapped["isFork"]:
+            forks.append(mapped)
+        else:
+            owned.append(mapped)
+    selected = owned + forks
+    return selected[:12]
+
+
 def build_github_status(username: str) -> dict:
     encoded_username = quote(username, safe="")
     paths = {
@@ -2668,6 +2711,7 @@ def build_github_status(username: str) -> dict:
         else:
             contribution_summary = build_github_contribution_summary({}, now)
 
+    repository_cards = curated_github_repositories(repositories)
     repository = repositories[0] if repositories else {}
     display_name = profile.get("name") or profile.get("login") or username
     result = {
@@ -2683,6 +2727,7 @@ def build_github_status(username: str) -> dict:
         "language": repository.get("language") or "Unknown",
         "stars": repository.get("stargazers_count", 0),
         "updatedText": repository.get("pushed_at", ""),
+        "repositories": repository_cards,
         **contribution_summary,
         "updatedAt": int(time.time() * 1000),
     }

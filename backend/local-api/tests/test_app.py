@@ -188,7 +188,29 @@ class DatabaseTests(unittest.TestCase):
                 "followers": 42,
             },
             "/users/octocat/repos?sort=pushed&direction=desc&per_page=100": [
-                {"name": "hello-world", "language": "Python", "stargazers_count": 9, "pushed_at": "2026-06-12T00:00:00Z"}
+                {
+                    "name": "hello-world",
+                    "full_name": "octocat/hello-world",
+                    "description": "Demo",
+                    "language": "Python",
+                    "stargazers_count": 9,
+                    "forks_count": 2,
+                    "html_url": "https://github.com/octocat/hello-world",
+                    "pushed_at": "2026-06-12T00:00:00Z",
+                    "private": False,
+                    "fork": False,
+                },
+                {
+                    "name": "forked-tool",
+                    "full_name": "octocat/forked-tool",
+                    "language": "Go",
+                    "stargazers_count": 1,
+                    "forks_count": 0,
+                    "html_url": "https://github.com/octocat/forked-tool",
+                    "pushed_at": "2026-06-11T00:00:00Z",
+                    "private": False,
+                    "fork": True,
+                },
             ],
         }
         with (
@@ -205,6 +227,11 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["contributionMonths"][-1]["commits"], 5)
         self.assertEqual(result["commitsThisMonth"], 5)
         self.assertEqual(result["streakDays"], 2)
+        self.assertEqual(len(result["repositories"]), 2)
+        self.assertEqual(result["repositories"][0]["name"], "hello-world")
+        self.assertFalse(result["repositories"][0]["isFork"])
+        self.assertEqual(result["repositories"][1]["name"], "forked-tool")
+        self.assertTrue(result["repositories"][1]["isFork"])
 
     def test_build_github_status_keeps_live_profile_when_contributions_temporarily_fail(self):
         responses = {

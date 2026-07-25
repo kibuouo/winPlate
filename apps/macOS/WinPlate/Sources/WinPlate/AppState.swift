@@ -28,6 +28,10 @@ final class AppState: ObservableObject {
     @Published private(set) var codexUpdatedAt: Date?
     @Published private(set) var deepSeekUpdatedAt: Date?
     @Published private(set) var weatherUpdatedAt: Date?
+    @Published private(set) var githubContributionDetail = GitHubContributionDetail.empty
+    @Published private(set) var isLoadingGitHubContributionDetail = false
+    @Published private(set) var githubContributionError: String?
+    @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
 
     let settings = AppSettingsStore()
@@ -208,6 +212,16 @@ final class AppState: ObservableObject {
                 snapshot = statusValue
                 if statusValue.weather.isAvailable { weatherUpdatedAt = Date() }
                 weatherError = statusValue.weather.error
+                if let github = statusValue.github {
+                    if selectedGitHubMonthKey == nil
+                        || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey })
+                    {
+                        selectedGitHubMonthKey = github.contributionMonths.last?.key
+                    }
+                    if let monthKey = selectedGitHubMonthKey, githubContributionDetail.rangeKey != monthKey {
+                        await loadGitHubContributionDetail(month: monthKey)
+                    }
+                }
             }
             let shouldRefreshAlerts = force || weatherAlertsUpdatedAt.map { Date().timeIntervalSince($0) > 300 } ?? true
             if snapshot.weather.isAvailable && shouldRefreshAlerts {
@@ -251,10 +265,38 @@ final class AppState: ObservableObject {
             let result = await api.refreshGitHub()
             if let github = result.value {
                 snapshot = StatusSnapshot(weather: snapshot.weather, github: github)
+                if selectedGitHubMonthKey == nil || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey }) {
+                    selectedGitHubMonthKey = github.contributionMonths.last?.key
+                }
+                if let monthKey = selectedGitHubMonthKey {
+                    await loadGitHubContributionDetail(month: monthKey)
+                }
             }
             lastError = result.error
             isRefreshingGitHub = false
         }
+    }
+
+    func selectGitHubMonth(_ key: String) {
+        guard selectedGitHubMonthKey != key else { return }
+        selectedGitHubMonthKey = key
+        Task { await loadGitHubContributionDetail(month: key) }
+    }
+
+    func loadGitHubContributionDetail(month: String? = nil, date: String? = nil) async {
+        let monthKey = month ?? selectedGitHubMonthKey
+        guard monthKey != nil || date != nil else { return }
+        isLoadingGitHubContributionDetail = true
+        githubContributionError = nil
+        let result = await api.githubContributions(month: date == nil ? monthKey : nil, date: date)
+        if let detail = result.value {
+            githubContributionDetail = detail
+            githubContributionError = detail.message.isEmpty ? nil : detail.message
+        } else {
+            githubContributionDetail = .empty
+            githubContributionError = result.error
+        }
+        isLoadingGitHubContributionDetail = false
     }
 
     func loadMail(force: Bool = false) {

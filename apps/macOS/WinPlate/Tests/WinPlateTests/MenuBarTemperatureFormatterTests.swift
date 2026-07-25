@@ -149,4 +149,77 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
 
         XCTAssertFalse(result.connected)
     }
+
+    func testDecodesGitHubSnapshotWithHeatmapAndRepositories() throws {
+        let payload = """
+        {
+          "source": "github",
+          "name": "kibuouo",
+          "username": "@kibuouo",
+          "profileUrl": "https://github.com/kibuouo",
+          "avatarUrl": "https://avatars.githubusercontent.com/u/1?v=4",
+          "repos": 4,
+          "followers": 1,
+          "project": "winPlate",
+          "status": "Live",
+          "language": "Swift",
+          "stars": 2,
+          "commitsThisMonth": 12,
+          "streakDays": 3,
+          "contributions30d": [0, 1, 2],
+          "contributionMonth": "July",
+          "contributionMonths": [{
+            "key": "2026-07",
+            "label": "July 2026",
+            "commits": 12,
+            "counts": [0, 4, 8],
+            "levels": [0, 3, 4]
+          }],
+          "repositories": [{
+            "name": "winPlate",
+            "fullName": "kibuouo/winPlate",
+            "description": "desktop workspace",
+            "language": "Swift",
+            "stars": 2,
+            "forks": 0,
+            "url": "https://github.com/kibuouo/winPlate",
+            "pushedAt": "2026-07-25T00:00:00Z",
+            "isPrivate": false,
+            "isFork": false
+          }]
+        }
+        """.data(using: .utf8)!
+
+        let github = try JSONDecoder().decode(GitHubSnapshot.self, from: payload)
+
+        XCTAssertEqual(github.username, "@kibuouo")
+        XCTAssertEqual(github.commitsThisMonth, 12)
+        XCTAssertEqual(github.contributionMonths.first?.activeDays, 2)
+        XCTAssertEqual(github.repositories.first?.fullName, "kibuouo/winPlate")
+        XCTAssertTrue(github.isAvailable)
+    }
+
+    func testDecodesGitHubContributionDetail() throws {
+        let payload = """
+        {
+          "rangeType": "month",
+          "rangeKey": "2026-07",
+          "label": "July 2026",
+          "totalCount": 10,
+          "repositoryCount": 1,
+          "repositories": [{
+            "nameWithOwner": "kibuouo/winPlate",
+            "url": "https://github.com/kibuouo/winPlate",
+            "count": 10
+          }],
+          "detailsAvailable": true,
+          "message": ""
+        }
+        """.data(using: .utf8)!
+
+        let detail = try JSONDecoder().decode(GitHubContributionDetail.self, from: payload)
+
+        XCTAssertEqual(detail.totalCount, 10)
+        XCTAssertEqual(detail.repositories.first?.count, 10)
+    }
 }
