@@ -659,8 +659,8 @@ private struct MailDetail: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(message.subject.isEmpty ? "(无主题)" : message.subject)
                         .font(.title2.bold())
@@ -671,52 +671,54 @@ private struct MailDetail: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button("关闭") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-
-            HStack(spacing: 16) {
-                if !message.to.isEmpty {
-                    labeledMeta(title: "收件人", value: message.to)
+                HStack(spacing: 16) {
+                    if !message.to.isEmpty {
+                        labeledMeta(title: "收件人", value: message.to)
+                    }
+                    if !message.date.isEmpty {
+                        labeledMeta(title: "时间", value: message.date)
+                    }
+                    labeledMeta(title: "状态", value: message.unread ? "未读" : "已读")
                 }
-                if !message.date.isEmpty {
-                    labeledMeta(title: "时间", value: message.date)
-                }
-                labeledMeta(title: "状态", value: message.unread ? "未读" : "已读")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-            Divider()
+                Divider()
 
-            Group {
-                if message.hasHTMLBody {
-                    MailHTMLPreview(html: message.htmlBody)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                Group {
+                    if message.hasHTMLBody {
+                        MailHTMLPreview(html: message.htmlBody)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    } else if message.textBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView(
+                            "没有可展示的正文",
+                            systemImage: "doc.text",
+                            description: Text("这封邮件没有 HTML 或纯文本内容。")
                         )
-                } else if message.textBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    ContentUnavailableView(
-                        "没有可展示的正文",
-                        systemImage: "doc.text",
-                        description: Text("这封邮件没有 HTML 或纯文本内容。")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        Text(message.textBody)
-                            .font(.body)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            Text(message.textBody)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             }
+            .padding(24)
+            .frame(minWidth: 720, idealWidth: 860, minHeight: 520, idealHeight: 640)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
         }
-        .padding(24)
-        .frame(minWidth: 720, idealWidth: 860, minHeight: 520, idealHeight: 640)
     }
 
     private func labeledMeta(title: String, value: String) -> some View {

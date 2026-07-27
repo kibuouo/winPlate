@@ -1789,9 +1789,9 @@ html[data-theme="light"] .weather-forecast-icon {
   display: grid;
   place-items: center;
   padding: 28px 24px;
-  background: rgba(8, 10, 16, .58);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  background: rgba(8, 10, 16, .28);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   animation: mail-detail-fade-in .16s ease;
 }
 .mail-detail-sheet {
@@ -1960,7 +1960,7 @@ html:not([data-theme="light"]) .mail-detail-frame {
 }
 .mail-detail-sheet-footer button:disabled { cursor: default; opacity: .55; }
 html[data-theme="light"] .mail-detail-backdrop {
-  background: rgba(15, 23, 42, .38);
+  background: rgba(15, 23, 42, .16);
 }
 html[data-theme="light"] .mail-detail-sheet,
 html[data-theme="light"] .notification-detail-drawer {
