@@ -2393,56 +2393,44 @@ function mailLabelPills(labels = []) {
   }).join("");
 }
 
-function twitchLogoDataUri() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 42"><text x="0" y="32" fill="#9146ff" font-family="Arial Black, Arial, sans-serif" font-size="32" font-weight="900">Twitch</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
+const MAIL_PREVIEW_CSP = [
+  "default-src 'none'",
+  "script-src 'none'",
+  "object-src 'none'",
+  "connect-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "style-src 'unsafe-inline' https: http: data:",
+  "img-src https: http: data: cid: blob:",
+  "font-src https: http: data:",
+  "media-src https: http: data: blob:"
+].join("; ");
 
-function processMailHtmlDocument(body = "") {
-  const value = String(body || "");
-  if (typeof DOMParser === "undefined") {
-    return { styleBlocks: "", bodyHtml: value, bodyAttributes: "" };
+/** Inject a CSP meta tag only; keep the original HTML/CSS intact for native rendering. */
+function withMailPreviewCsp(html = "") {
+  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${MAIL_PREVIEW_CSP}">`;
+  const value = String(html || "");
+  if (!value.trim()) {
+    return `<!doctype html><html><head><meta charset="utf-8">${cspMeta}</head><body></body></html>`;
   }
-  try {
-    const document = new DOMParser().parseFromString(value, "text/html");
-    document.querySelectorAll("img").forEach((image) => {
-      const src = image.getAttribute("src") || "";
-      const width = Number(image.getAttribute("width") || image.style.width?.replace("px", ""));
-      const height = Number(image.getAttribute("height") || image.style.height?.replace("px", ""));
-      if (/^https:\/\/spade\.twitch\.tv\/track/i.test(src) || (width === 1 && height === 1)) {
-        image.remove();
-        return;
-      }
-      if (/^https:\/\/static-cdn\.jtvnw\.net\/growth-assets\/email_twitch_logo_uv/i.test(src)) {
-        image.src = twitchLogoDataUri();
-        image.alt = image.alt || "Twitch";
-      }
-      image.referrerPolicy = "no-referrer";
-      image.loading = "lazy";
-    });
-
-    // Keep embedded CSS from <style> tags (head + body) so email layouts render correctly.
-    const styleBlocks = Array.from(document.querySelectorAll("style"))
-      .map((node) => node.outerHTML)
-      .join("\n");
-    document.querySelectorAll("style").forEach((node) => node.remove());
-
-    const bodyAttributes = Array.from(document.body?.attributes || [])
-      .map((attr) => `${attr.name}="${escapeHtml(attr.value)}"`)
-      .join(" ");
-
-    return {
-      styleBlocks,
-      bodyHtml: document.body?.innerHTML || value,
-      bodyAttributes
-    };
-  } catch (error) {
-    return { styleBlocks: "", bodyHtml: value, bodyAttributes: "" };
+  if (/<head\b[^>]*>/i.test(value)) {
+    return value.replace(/<head\b[^>]*>/i, (match) => `${match}<meta charset="utf-8">${cspMeta}`);
   }
-}
-
-function prepareMailHtml(body = "") {
-  return processMailHtmlDocument(body).bodyHtml;
+  if (/<html\b[^>]*>/i.test(value)) {
+    return value.replace(
+      /<html\b[^>]*>/i,
+      (match) => `${match}<head><meta charset="utf-8">${cspMeta}</head>`
+    );
+  }
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  ${cspMeta}
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>${value}</body>
+</html>`;
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -2494,48 +2482,12 @@ async function syncMailReadStateInBackground(uid, requestId) {
 
 function mailIframeDocument(body = "", isPlainText = false) {
   if (isPlainText) {
-    return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src https: http: data: cid:;">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html, body { margin: 0; min-width: 0; background: #fff; color: #111827; color-scheme: light; }
-    .mail-plain-text {
-      margin: 0;
-      padding: 18px 20px;
-      color: inherit;
-      font: 13px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-  </style>
-</head>
-<body><pre class="mail-plain-text">${escapeHtml(body)}</pre></body>
-</html>`;
+    return withMailPreviewCsp(`
+<pre style="margin:0;padding:18px 20px;font:13px/1.65 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(body)}</pre>
+`);
   }
-
-  const { styleBlocks, bodyHtml, bodyAttributes } = processMailHtmlDocument(body);
-  const bodyAttrMarkup = bodyAttributes ? ` ${bodyAttributes}` : "";
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src https: http: data: cid:;">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html, body { margin: 0; min-width: 0; }
-    html, body { background: #fff; color: #111827; color-scheme: light; }
-    body { overflow-wrap: anywhere; word-break: break-word; }
-    img, video { max-width: 100%; height: auto; }
-    table { max-width: 100%; border-collapse: collapse; }
-    pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
-  </style>
-  ${styleBlocks}
-</head>
-<body${bodyAttrMarkup}>${bodyHtml}</body>
-</html>`;
+  // Native HTML email preview: original markup and CSS as delivered, CSP only.
+  return withMailPreviewCsp(body);
 }
 
 function mailDetailBody(message = {}) {
@@ -2694,8 +2646,13 @@ function mailItemCard(item) {
   const sender = item.sender || "未知发件人";
   const subject = item.subject || "(无主题)";
   const summary = item.summary || item.snippet || "暂无可用摘要";
+  const labelPills = mailLabelPills(labels);
   return `
-    <article class="mail-outline-item ${unread ? "unread" : ""} ${String(uid) === String(mailHighlightedUid || "") ? "focused" : ""}">
+    <article
+      class="mail-outline-item ${unread ? "unread" : ""} ${String(uid) === String(mailHighlightedUid || "") ? "focused" : ""} ${uid ? "clickable" : ""}"
+      data-mail-uid="${escapeHtml(uid)}"
+      ${uid ? `role="button" tabindex="0" aria-label="预览邮件：${escapeHtml(subject)}"` : ""}
+    >
       <div class="mail-outline-row">
         <strong class="mail-outline-sender">${escapeHtml(sender)}</strong>
         <h2 class="mail-outline-title">${escapeHtml(subject)}</h2>
@@ -2704,10 +2661,7 @@ function mailItemCard(item) {
         <p class="mail-outline-summary">${escapeHtml(summary)}</p>
         <time>${mailTimeLabel(item.sentAt)}</time>
       </div>
-      <footer>
-        <button class="mail-open-button" type="button" data-mail-uid="${escapeHtml(uid)}" ${uid ? "" : "disabled"}>${escapeHtml(item.action || "查看")}</button>
-        <div class="mail-labels">${mailLabelPills(labels)}</div>
-      </footer>
+      ${labelPills ? `<footer><div class="mail-labels">${labelPills}</div></footer>` : ""}
     </article>`;
 }
 
@@ -3605,6 +3559,7 @@ function bindMailControls() {
   if (pageContent && !pageContent.dataset.mailDelegationBound) {
     pageContent.dataset.mailDelegationBound = "true";
     pageContent.addEventListener("click", handleMailPageClick);
+    pageContent.addEventListener("keydown", handleMailPageKeydown);
   }
   const form = document.querySelector("#mail-settings-form");
   if (form) {
@@ -3693,9 +3648,8 @@ function bindMailControls() {
   };
 }
 
-async function openMailDetail(uid, triggerButton = null) {
+async function openMailDetail(uid) {
   if (!uid || (mailDetail.loading && String(mailDetail.uid) === String(uid))) return;
-  if (triggerButton) triggerButton.disabled = true;
   const requestId = `${uid}:${Date.now()}`;
   mailHighlightedUid = uid;
   mailDetail = { open: true, loading: true, uid, requestId, message: null, error: "" };
@@ -3732,7 +3686,6 @@ async function openMailDetail(uid, triggerButton = null) {
       error: error.message || "邮件正文加载失败"
     };
   } finally {
-    if (triggerButton) triggerButton.disabled = false;
     updateMainStatusDom();
   }
 }
@@ -3747,23 +3700,38 @@ async function handleMailPageClick(event) {
     return;
   }
 
-  const externalButton = target.closest(".mail-open-external-button");
-  if (externalButton) {
-    externalButton.disabled = true;
-    try {
-      await window.winplate.openMail();
-    } catch (error) {
-      console.error("Failed to open QQ mail:", error);
-    } finally {
-      externalButton.disabled = false;
+  // Clicks inside the open sheet (footer actions etc.) should not re-open list items.
+  if (target.closest(".mail-detail-sheet")) {
+    const externalButton = target.closest(".mail-open-external-button");
+    if (externalButton) {
+      externalButton.disabled = true;
+      try {
+        await window.winplate.openMail();
+      } catch (error) {
+        console.error("Failed to open QQ mail:", error);
+      } finally {
+        externalButton.disabled = false;
+      }
     }
     return;
   }
 
-  const openButton = target.closest(".mail-open-button");
-  if (openButton) {
-    await openMailDetail(openButton.dataset.mailUid || "", openButton);
+  const mailItem = target.closest(".mail-outline-item[data-mail-uid]");
+  if (mailItem?.dataset.mailUid) {
+    await openMailDetail(mailItem.dataset.mailUid);
   }
+}
+
+function handleMailPageKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const target = event.target instanceof Element ? event.target : null;
+  const mailItem = target?.closest?.(".mail-outline-item[data-mail-uid]");
+  if (!mailItem || !mailItem.dataset.mailUid) return;
+  if (target !== mailItem && !mailItem.contains(target)) return;
+  // Only when focus is on the card itself (role=button).
+  if (document.activeElement !== mailItem) return;
+  event.preventDefault();
+  openMailDetail(mailItem.dataset.mailUid);
 }
 
 async function copyTextToClipboard(text) {

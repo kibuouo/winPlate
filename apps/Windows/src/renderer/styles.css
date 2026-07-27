@@ -1661,6 +1661,21 @@ html[data-theme="light"] .weather-forecast-icon {
   background: linear-gradient(145deg, var(--surface-gradient-start), var(--surface-gradient-end));
   box-shadow: 0 12px 28px var(--shadow);
 }
+.mail-outline-item.clickable {
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.mail-outline-item.clickable:hover {
+  border-color: rgba(59, 130, 246, .36);
+  box-shadow: 0 16px 34px rgba(59, 130, 246, .1);
+}
+.mail-outline-item.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mail-outline-item.clickable:active {
+  transform: translateY(1px);
+}
 .mail-outline-item.unread { border-color: rgba(16, 185, 129, .28); }
 .mail-outline-item.focused { border-color: rgba(59, 130, 246, .42); box-shadow: 0 16px 34px rgba(59, 130, 246, .12); }
 .mail-outline-row,
@@ -1727,25 +1742,8 @@ html[data-theme="light"] .weather-forecast-icon {
   white-space: nowrap;
   padding-top: 2px;
 }
-.mail-open-button {
-  padding: 5px 9px;
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--surface-muted);
-  font-size: 10px;
-  font-weight: 750;
-  cursor: pointer;
-}
-.mail-open-button:hover {
-  border-color: rgba(16, 185, 129, .45);
-  background: rgba(16, 185, 129, .12);
-}
-.mail-open-button:disabled {
-  cursor: wait;
-  opacity: .65;
-}
 .mail-labels { min-width: 0; display: flex; justify-content: flex-end; gap: 6px; }
+.mail-outline-item footer { justify-content: flex-end; }
 .mail-labels span {
   max-width: 96px;
   overflow: hidden;
@@ -1929,10 +1927,8 @@ html[data-theme="light"] .weather-forecast-icon {
   min-height: 320px;
   max-height: min(52vh, 480px);
   border: 0;
-  background: #18191c;
-}
-html:not([data-theme="light"]) .mail-detail-frame {
-  filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.96);
+  background: #fff;
+  color-scheme: light;
 }
 .mail-detail-state,
 .mail-detail-empty { padding: 18px; color: var(--text-muted); font-size: 13px; }
@@ -1971,10 +1967,6 @@ html[data-theme="light"] .notification-detail-drawer {
 html[data-theme="light"] .mail-detail-body,
 html[data-theme="light"] .mail-detail-meta-inline {
   background: var(--mail-glass-panel-strong);
-}
-html[data-theme="light"] .mail-detail-frame {
-  background: rgba(255, 255, 255, .96);
-  filter: none;
 }
 .notification-detail-drawer header,
 .notification-detail-drawer footer { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
