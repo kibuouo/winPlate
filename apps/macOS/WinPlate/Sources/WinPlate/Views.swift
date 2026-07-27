@@ -973,7 +973,7 @@ private struct SettingsForm: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("应用")
                     .font(.title2.weight(.bold))
-                SettingsCard(title: "WinPlate", symbol: "macwindow", description: "控制应用在菜单栏和登录后的运行方式。") {
+                SettingsCard(title: "WinPlate", symbol: "macwindow") {
                     Toggle(
                         "在菜单栏显示 WinPlate",
                         isOn: Binding(
@@ -988,25 +988,14 @@ private struct SettingsForm: View {
                     }
                 }
 
-                SettingsCard(
-                    title: "外观",
-                    symbol: "paintpalette.fill",
-                    description: "使用浅色、深色，或匹配系统设置（与 Windows 端一致）。"
-                ) {
+                SettingsCard(title: "外观", symbol: "paintpalette.fill") {
                     AppearanceThemePicker(selection: $settings.appearanceTheme)
-                    Text(settings.appearanceTheme.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Text("服务连接")
                     .font(.title2.weight(.bold))
                     .padding(.top, 8)
-                SettingsCard(
-                    title: "DeepSeek",
-                    symbol: "sparkles",
-                    description: "配置聊天与智能摘要使用的服务地址和 API Key。"
-                ) {
+                SettingsCard(title: "DeepSeek", symbol: "sparkles") {
                 SecureField(
                     settings.deepSeekAPIKey?.isEmpty == false ? "API Key（已配置，重新填写可覆盖）" : "API Key",
                     text: $deepSeekAPIKey
@@ -1026,25 +1015,19 @@ private struct SettingsForm: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(deepSeekAPIKey.isEmpty && settings.deepSeekAPIKey?.isEmpty != false)
                 }
-                Text("密钥仅存储在 macOS 钥匙串中，不会写入偏好设置或发送给本地 API。")
-                    .font(.caption).foregroundStyle(.secondary)
                 }
-                SettingsCard(
-                    title: "GitHub",
-                    symbol: "chevron.left.forwardslash.chevron.right",
-                    description: "用户名用于读取资料与贡献；Personal Access Token 用于 GraphQL 明细（仓库提交拆分）。"
-                ) {
+                SettingsCard(title: "GitHub", symbol: "chevron.left.forwardslash.chevron.right") {
                     TextField("GitHub 用户名", text: $githubUsername)
                         .textContentType(.username)
                     SecureField(
                         settings.hasGitHubToken
                             ? "Personal Access Token（已配置，重新填写可覆盖）"
-                            : "Personal Access Token（可选，建议配置）",
+                            : "Personal Access Token（可选）",
                         text: $githubToken
                     )
                     SettingsCardActions {
                         ConfigurationStatus(
-                            settings.hasGitHubToken ? "已配置" : "未配置 Token（公开数据仍可用）",
+                            settings.hasGitHubToken ? "已配置" : "未配置",
                             symbol: settings.hasGitHubToken ? "checkmark.circle.fill" : "circle",
                             color: settings.hasGitHubToken ? .green : .secondary
                         )
@@ -1060,14 +1043,8 @@ private struct SettingsForm: View {
                                 && !settings.hasGitHubToken
                         )
                     }
-                    Text("Token 仅写入钥匙串，并仅传给本机 127.0.0.1:8765 本地 API。可使用 `gh auth token` 生成的令牌（需 repo 等读权限）。")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
-                SettingsCard(
-                    title: "QWeather",
-                    symbol: "cloud.sun.fill",
-                    description: "实时天气使用 API Key；天气预警使用同一项目下的 JWT 凭据。"
-                ) {
+                SettingsCard(title: "QWeather", symbol: "cloud.sun.fill") {
                 SettingsFieldGroup(title: "天气数据") {
                 SecureField(
                     settings.weatherAPIKey?.isEmpty == false
@@ -1080,9 +1057,6 @@ private struct SettingsForm: View {
                     .textContentType(.URL)
                 }
                 SettingsFieldGroup(title: "天气预警（JWT）") {
-                Text("复用已验证的项目 ID、JWT 凭据 ID 和 Ed25519 私钥。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 TextField(
                     settings.weatherProjectID?.isEmpty == false
                         ? "项目 ID（已配置，重新填写可覆盖）"
@@ -1170,15 +1144,9 @@ private struct SettingsForm: View {
                             || (!hasWeatherDraft && !settings.hasWeatherAlertCredentials)
                     )
                 }
-                Text("私钥保存后会清空，属于正常安全行为。留空会继续使用钥匙串中已保存的值。")
-                    .font(.caption).foregroundStyle(.secondary)
                 }
 
-                SettingsCard(
-                    title: "QQ 邮箱",
-                    symbol: "envelope.fill",
-                    description: "使用 QQ 邮箱的 IMAP/SMTP 授权码获取邮件。"
-                ) {
+                SettingsCard(title: "QQ 邮箱", symbol: "envelope.fill") {
                 TextField("QQ 邮箱地址", text: $qqMailAddress)
                     .textContentType(.emailAddress)
                 SecureField(
@@ -1271,16 +1239,18 @@ private struct SettingsForm: View {
 private struct SettingsCard<Content: View>: View {
     let title: String
     let symbol: String
-    let description: String
+    var description: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label(title, systemImage: symbol)
                 .font(.headline)
-            Text(description)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if let description, !description.isEmpty {
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Divider()
             content
         }
