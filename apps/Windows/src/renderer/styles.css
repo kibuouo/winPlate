@@ -1930,6 +1930,13 @@ html[data-theme="light"] .weather-forecast-icon {
   background: #fff;
   color-scheme: light;
 }
+/* Smart dark mail: invert white HTML emails, keep photos correct via in-document re-invert. */
+.mail-detail-frame.theme-dark,
+html[data-theme="dark"] .mail-detail-frame:not(.theme-light) {
+  background: #111113;
+  color-scheme: dark;
+  filter: invert(1) hue-rotate(180deg) brightness(.96) contrast(.97);
+}
 .mail-detail-state,
 .mail-detail-empty { padding: 18px; color: var(--text-muted); font-size: 13px; }
 .mail-detail-state.error { color: #fca5a5; }

@@ -239,6 +239,10 @@ function applyMainTheme() {
   document.documentElement.style.setProperty("--window-opacity", String(appSettings.appearance.opacity));
   document.documentElement.style.setProperty("--window-opacity-percent", `${Math.round(appSettings.appearance.opacity * 100)}%`);
   if (view === "main") window.winplate.setWindowTheme(theme);
+  // Rebuild open mail preview so dark/light srcdoc chrome stays in sync.
+  if (view === "main" && mailDetail.open) {
+    updateMainStatusDom();
+  }
 }
 
 function escapeHtml(value) {
@@ -2406,27 +2410,42 @@ const MAIL_PREVIEW_CSP = [
   "media-src https: http: data: blob:"
 ].join("; ");
 
-/** Inject a CSP meta tag only; keep the original HTML/CSS intact for native rendering. */
-function withMailPreviewCsp(html = "") {
+/** Dark-mode helpers: outer iframe uses invert; media is re-inverted to keep photos natural. */
+function mailPreviewDarkModeStyle() {
+  return `<style id="winplate-mail-dark-mode">
+img, picture, video, canvas, svg:not(:root) {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
+</style>`;
+}
+
+function mailPreviewHeadInjection(isDark = false) {
   const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${MAIL_PREVIEW_CSP}">`;
+  const colorScheme = isDark ? "dark" : "light";
+  const darkStyle = isDark ? mailPreviewDarkModeStyle() : "";
+  return `<meta charset="utf-8">${cspMeta}<meta name="color-scheme" content="${colorScheme}">${darkStyle}`;
+}
+
+/** Inject CSP (+ optional dark-mode media fix); keep original HTML/CSS for native rendering. */
+function withMailPreviewCsp(html = "", { isDark = false } = {}) {
+  const headBits = mailPreviewHeadInjection(isDark);
   const value = String(html || "");
   if (!value.trim()) {
-    return `<!doctype html><html><head><meta charset="utf-8">${cspMeta}</head><body></body></html>`;
+    return `<!doctype html><html><head>${headBits}</head><body></body></html>`;
   }
   if (/<head\b[^>]*>/i.test(value)) {
-    return value.replace(/<head\b[^>]*>/i, (match) => `${match}<meta charset="utf-8">${cspMeta}`);
+    return value.replace(/<head\b[^>]*>/i, (match) => `${match}${headBits}`);
   }
   if (/<html\b[^>]*>/i.test(value)) {
     return value.replace(
       /<html\b[^>]*>/i,
-      (match) => `${match}<head><meta charset="utf-8">${cspMeta}</head>`
+      (match) => `${match}<head>${headBits}</head>`
     );
   }
   return `<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  ${cspMeta}
+  ${headBits}
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>${value}</body>
@@ -2481,21 +2500,26 @@ async function syncMailReadStateInBackground(uid, requestId) {
 }
 
 function mailIframeDocument(body = "", isPlainText = false) {
+  const isDark = resolvedTheme() === "dark";
   if (isPlainText) {
+    const plainColor = isDark ? "#e4e4e7" : "#111827";
+    const plainBg = isDark ? "#18181b" : "#ffffff";
     return withMailPreviewCsp(`
-<pre style="margin:0;padding:18px 20px;font:13px/1.65 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(body)}</pre>
-`);
+<pre style="margin:0;padding:18px 20px;background:${plainBg};color:${plainColor};font:13px/1.65 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(body)}</pre>
+`, { isDark: false });
   }
-  // Native HTML email preview: original markup and CSS as delivered, CSP only.
-  return withMailPreviewCsp(body);
+  // Native HTML email: keep original CSS; dark mode is handled by frame invert + media re-invert.
+  return withMailPreviewCsp(body, { isDark });
 }
 
 function mailDetailBody(message = {}) {
+  const themeClass = resolvedTheme() === "dark" ? " theme-dark" : " theme-light";
   if (message.htmlBody) {
-    return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
+    return `<iframe class="mail-detail-frame${themeClass}" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
   }
   if (message.textBody) {
-    return `<iframe class="mail-detail-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
+    // Plain text already uses explicit dark/light colors; do not invert the frame.
+    return `<iframe class="mail-detail-frame theme-light" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
   }
   return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
 }
