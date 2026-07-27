@@ -107,6 +107,45 @@
       </section>`;
   }
 
+  /**
+   * Capsule hover preview — product-style single surface.
+   * Neutral glass card; severity only via pill + micro accent (no loud fills).
+   */
+  function renderCapsuleTooltip(digest) {
+    const value = normalizeDigest(digest);
+    const severityLabel = value.severity === "danger"
+      ? "紧急"
+      : value.severity === "warning"
+        ? "关注"
+        : "正常";
+    const items = digestSummaryItems(value.summary).slice(0, 3);
+    const body = items.length
+      ? `<ul class="notification-capsule-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+      : `<p class="notification-capsule-empty">${escapeHtml(value.summary || "当前没有需要关注的新通知。")}</p>`;
+    const unreadLabel = value.unreadCount > 99 ? "99+" : String(value.unreadCount);
+    return `
+      <article class="notification-capsule-card severity-${escapeHtml(value.severity)}" role="tooltip" aria-label="通知预览">
+        <header class="notification-capsule-header">
+          <div class="notification-capsule-meta">
+            <span class="notification-capsule-pill" aria-hidden="true">
+              ${global.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("sparkles")}
+              <span>摘要</span>
+            </span>
+            <span class="notification-capsule-level">${severityLabel}</span>
+          </div>
+          ${value.unreadCount
+            ? `<span class="notification-capsule-badge" aria-label="${value.unreadCount} 条未读">${unreadLabel}</span>`
+            : `<span class="notification-capsule-badge is-clear">0</span>`}
+        </header>
+        <h2 class="notification-capsule-title">${escapeHtml(value.headline)}</h2>
+        <div class="notification-capsule-body">${body}</div>
+        <footer class="notification-capsule-footer">
+          <span>打开通知中心</span>
+          <span aria-hidden="true">→</span>
+        </footer>
+      </article>`;
+  }
+
   function renderRawNotifications(items, { expanded = false, sourceLabel, levelLabel, relativeTime } = {}) {
     const list = Array.isArray(items) ? items : [];
     // Baseline markup remains <details class="notification-raw-section"> when collapsed.
@@ -231,6 +270,7 @@
     selectDigestItems,
     renderDigestDrawerList,
     renderDigestCard,
+    renderCapsuleTooltip,
     digestSummaryItems,
     renderDigestSummary,
     renderGroups,

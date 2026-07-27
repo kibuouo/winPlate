@@ -1827,7 +1827,7 @@ function renderFloating() {
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
               ${sidebarCodexIcon}
-              <span class="module-label">Agent</span>
+              <span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
               ${quotaStatusLamp(statusData.codex.remainingPct)}
@@ -2199,10 +2199,7 @@ function renderTooltip(data = {}) {
   }
 
   if (data.type === "notifications") {
-    appRoot.innerHTML = `
-      <article class="notifications-tooltip" role="tooltip" aria-label="通知预览">
-        ${window.WinPlateNotificationDigest.renderDigestCard(data.digest, { compact: true })}
-      </article>`;
+    appRoot.innerHTML = window.WinPlateNotificationDigest.renderCapsuleTooltip(data.digest);
     return;
   }
 
@@ -3438,7 +3435,7 @@ function updateFloatingStatusDom(moduleIds = null) {
               <span class="github-summary">GitHub</span>
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
-              ${sidebarCodexIcon}<span class="module-label">Agent</span>
+              ${sidebarCodexIcon}<span class="module-label">Codex</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
               ${quotaStatusLamp(statusData.codex.remainingPct)}

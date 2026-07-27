@@ -19,7 +19,7 @@ const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
-const NOTIFICATION_TOOLTIP_SIZE = { width: 320, height: 238 };
+const NOTIFICATION_TOOLTIP_SIZE = { width: 300, height: 216 };
 let floatingPinned = false;
 function isLiveNativeSurface(surface) {
   if (!surface) return false;

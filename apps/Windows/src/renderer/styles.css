@@ -2694,50 +2694,163 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   color: #facc15;
 }
 
-.notifications-tooltip {
+/* ── Capsule notification preview (product card) ──
+   Single surface · neutral zinc glass · severity via pill + badge */
+.notification-capsule-card {
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
-  padding: 14px;
+  min-height: 0;
+  padding: 14px 16px 12px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
-  color: #f8fafc;
-  border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 18px;
-  background: rgba(24, 24, 27, .94);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, .32);
+  overflow: hidden;
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 16px;
+  background: rgba(24, 24, 27, .96);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .36);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
-.notifications-tooltip header {
+.notification-capsule-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
-.notifications-tooltip header strong { font-size: 13px; }
-.notifications-tooltip header span { color: #93c5fd; font-size: 11px; font-weight: 800; }
-.notifications-tooltip .notification-digest-card.compact {
-  height: 100%;
-  padding: 14px;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  align-content: center;
+.notification-capsule-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.notification-capsule-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 8px 0 6px;
+  color: #d4d4d8;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .05);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.notification-capsule-pill .notification-icon,
+.notification-capsule-pill .smart-notification-icon {
+  width: 12px;
+  height: 12px;
+  opacity: .85;
+}
+.notification-capsule-level {
+  color: #a1a1aa;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+.notification-capsule-card.severity-danger .notification-capsule-level { color: #e8b4b4; }
+.notification-capsule-card.severity-warning .notification-capsule-level { color: #d6c48a; }
+.notification-capsule-card.severity-info .notification-capsule-level { color: #9bb8a8; }
+.notification-capsule-badge {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fafafa;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  font-size: 11px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.notification-capsule-badge.is-clear {
+  color: #71717a;
+  background: rgba(255, 255, 255, .06);
+}
+.notification-capsule-card.severity-danger .notification-capsule-badge:not(.is-clear) {
+  color: #fff5f5;
+  background: rgba(248, 113, 113, .22);
+}
+.notification-capsule-card.severity-warning .notification-capsule-badge:not(.is-clear) {
+  color: #fffbeb;
+  background: rgba(250, 204, 21, .18);
+}
+.notification-capsule-card.severity-info .notification-capsule-badge:not(.is-clear) {
+  color: #ecfdf5;
+  background: rgba(52, 211, 153, .16);
+}
+.notification-capsule-title {
+  margin: 0;
+  min-width: 0;
   overflow: hidden;
-  color: #f8fafc;
-  border-color: rgba(255, 255, 255, .1);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, .04);
-  box-shadow: none;
+  color: #fafafa;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
-.notifications-tooltip .notification-digest-card.compact.severity-danger { border-color: rgba(248, 113, 113, .48); background: rgba(127, 29, 29, .3); box-shadow: inset 0 0 22px rgba(239, 68, 68, .08); }
-.notifications-tooltip .notification-digest-card.compact.severity-warning { border-color: rgba(250, 204, 21, .43); background: rgba(113, 63, 18, .29); box-shadow: inset 0 0 22px rgba(234, 179, 8, .07); }
-.notifications-tooltip .notification-digest-card.compact.severity-info { border-color: rgba(52, 211, 153, .38); background: rgba(5, 150, 105, .22); box-shadow: inset 0 0 22px rgba(16, 185, 129, .06); }
-.notifications-tooltip .notification-digest-card.compact h2 { font-size: 15px; }
-.notifications-tooltip .notification-digest-card.compact .notification-digest-summary { min-height: 0; overflow: hidden; color: #a1a1aa; font-size: 11px; line-height: 1.5; }
-.notifications-tooltip .notification-digest-card.compact .notification-digest-summary ul { gap: 5px; overflow: hidden; }
-.notifications-tooltip .notification-digest-card.compact .notification-digest-summary li { gap: 7px; }
-.notifications-tooltip .notification-digest-card.compact .notification-digest-summary li::before { width: 4px; height: 4px; }
-.notifications-tooltip .notification-digest-card.compact.severity-danger .notification-digest-count { color: #fca5a5; }
-.notifications-tooltip .notification-digest-card.compact.severity-warning .notification-digest-count { color: #fde68a; }
-.notifications-tooltip .notification-digest-card.compact.severity-info .notification-digest-count { color: #6ee7b7; }
+.notification-capsule-body {
+  min-height: 0;
+  overflow: hidden;
+}
+.notification-capsule-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  list-style: none;
+}
+.notification-capsule-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 5px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: #a1a1aa;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.notification-capsule-list li::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  margin-top: .5em;
+  border-radius: 999px;
+  background: #52525b;
+}
+.notification-capsule-card.severity-danger .notification-capsule-list li::before { background: rgba(248, 113, 113, .55); }
+.notification-capsule-card.severity-warning .notification-capsule-list li::before { background: rgba(250, 204, 21, .5); }
+.notification-capsule-card.severity-info .notification-capsule-list li::before { background: rgba(52, 211, 153, .45); }
+.notification-capsule-empty {
+  margin: 0;
+  color: #71717a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.notification-capsule-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
 .notifications-tooltip-list {
   min-height: 0;
   display: grid;
