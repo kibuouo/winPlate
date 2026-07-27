@@ -610,9 +610,17 @@ class DatabaseTests(unittest.TestCase):
                 "QWEATHER_API_HOST": "example.com",
             }.get(name, default)),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", return_value=response),
+            patch.object(main, "qweather_urlopen", return_value=response),
         ):
             self.assertEqual(main.qweather_request("/test", {}), payload)
+
+    def test_qweather_transport_bypasses_inherited_proxies(self):
+        request = main.Request("https://example.com/weather")
+        with patch.object(main, "build_opener") as build_opener:
+            main.qweather_urlopen(request, timeout=4)
+        proxy_handler = build_opener.call_args.args[0]
+        self.assertEqual(proxy_handler.proxies, {})
+        build_opener.return_value.open.assert_called_once_with(request, timeout=4)
 
     def test_qweather_request_counts_success_and_network_failure(self):
         original_path = main.DATABASE_PATH
@@ -628,9 +636,9 @@ class DatabaseTests(unittest.TestCase):
                 "QWEATHER_API_HOST": "example.com",
             }.get(name, default)
             with patch.object(main, "environment_setting", side_effect=settings):
-                with patch.object(main, "urlopen", return_value=response):
+                with patch.object(main, "qweather_urlopen", return_value=response):
                     main.qweather_request("/success", {})
-                with patch.object(main, "urlopen", side_effect=URLError("offline")):
+                with patch.object(main, "qweather_urlopen", side_effect=URLError("offline")):
                     with self.assertRaises(RuntimeError):
                         main.qweather_request("/failure", {})
             self.assertEqual(main.qweather_usage()["used"], 2)
@@ -677,7 +685,7 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", return_value=response) as mock_urlopen,
+            patch.object(main, "qweather_urlopen", return_value=response) as mock_urlopen,
         ):
             result = main.qweather_official_stats()
         request = mock_urlopen.call_args.args[0]
@@ -716,7 +724,7 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", return_value=response),
+            patch.object(main, "qweather_urlopen", return_value=response),
         ):
             result = main.qweather_official_stats()
         self.assertEqual(result["total"], 5)
@@ -758,7 +766,7 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", side_effect=error),
+            patch.object(main, "qweather_urlopen", side_effect=error),
         ):
             with self.assertRaisesRegex(
                 RuntimeError,

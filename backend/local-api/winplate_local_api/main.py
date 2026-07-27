@@ -25,7 +25,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 import uvicorn
 import jwt
@@ -1665,7 +1665,7 @@ def qweather_request(path: str, params: dict[str, str]) -> dict:
     )
     record_qweather_request()
     try:
-        with urlopen(request, timeout=10) as response:
+        with qweather_urlopen(request, timeout=10) as response:
             payload = _decode_qweather_json(
                 response.read(),
                 getattr(response, "headers", {}).get("Content-Encoding", ""),
@@ -1764,6 +1764,11 @@ def _decode_qweather_json(body: bytes, content_encoding: str = "") -> dict:
     return payload
 
 
+def qweather_urlopen(request: Request, timeout: int = 10):
+    """Send QWeather requests directly, independent of inherited OS proxies."""
+    return build_opener(ProxyHandler({})).open(request, timeout=timeout)
+
+
 def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeout: int = 10) -> dict:
     project_id = environment_setting("QWEATHER_PROJECT_ID")
     credential_id = environment_setting("QWEATHER_CREDENTIAL_ID")
@@ -1797,7 +1802,7 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
     )
     record_qweather_request()
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with qweather_urlopen(request, timeout=timeout) as response:
             return _decode_qweather_json(
                 response.read(),
                 getattr(response, "headers", {}).get("Content-Encoding", ""),
