@@ -193,6 +193,16 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(message.textBody, "plain only")
     }
 
+    func testAppearanceThemeMatchesWindowsOptions() {
+        XCTAssertEqual(AppearanceTheme.allCases.map(\.rawValue), ["light", "dark", "system"])
+        XCTAssertEqual(AppearanceTheme.light.title, "浅色")
+        XCTAssertEqual(AppearanceTheme.dark.title, "深色")
+        XCTAssertEqual(AppearanceTheme.system.title, "系统")
+        XCTAssertNil(AppearanceTheme.system.nsAppearance)
+        XCTAssertEqual(AppearanceTheme.light.nsAppearance?.name, .aqua)
+        XCTAssertEqual(AppearanceTheme.dark.nsAppearance?.name, .darkAqua)
+    }
+
     func testDecodesGitHubSnapshotWithHeatmapAndRepositories() throws {
         let payload = """
         {

@@ -1,6 +1,52 @@
+import AppKit
 import Foundation
 import LocalAuthentication
 import Security
+
+/// App-wide appearance preference, matching the Windows light / dark / system options.
+enum AppearanceTheme: String, CaseIterable, Identifiable {
+    case light
+    case dark
+    case system
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .light: "浅色"
+        case .dark: "深色"
+        case .system: "系统"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .light: "sun.max.fill"
+        case .dark: "moon.fill"
+        case .system: "laptopcomputer"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .light: "始终使用浅色外观"
+        case .dark: "始终使用深色外观"
+        case .system: "跟随 macOS 系统外观"
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        case .system: nil
+        }
+    }
+
+    static func apply(_ theme: AppearanceTheme) {
+        NSApp.appearance = theme.nsAppearance
+    }
+}
 
 actor LocalAPIClient {
     private let baseURL = URL(string: "http://127.0.0.1:8765")!
@@ -274,6 +320,13 @@ struct DeepSeekConfiguration: Sendable {
 final class AppSettingsStore: ObservableObject {
     @Published var menuBarEnabled: Bool { didSet { defaults.set(menuBarEnabled, forKey: "menuBarEnabled") } }
     @Published var launchAtLogin: Bool { didSet { defaults.set(launchAtLogin, forKey: "launchAtLogin") } }
+    @Published var appearanceTheme: AppearanceTheme {
+        didSet {
+            guard oldValue != appearanceTheme else { return }
+            defaults.set(appearanceTheme.rawValue, forKey: "appearanceTheme")
+            AppearanceTheme.apply(appearanceTheme)
+        }
+    }
     @Published var deepSeekBaseURL: String { didSet { defaults.set(deepSeekBaseURL, forKey: "deepSeekBaseURL") } }
     @Published var deepSeekAPIKey: String? { didSet { if !isLoadingSensitiveValues, oldValue != deepSeekAPIKey { saveSensitiveValues() } } }
     @Published var weatherAPIKey: String? { didSet { if !isLoadingSensitiveValues, oldValue != weatherAPIKey { saveSensitiveValues() } } }
@@ -292,6 +345,8 @@ final class AppSettingsStore: ObservableObject {
     init() {
         menuBarEnabled = defaults.object(forKey: "menuBarEnabled") as? Bool ?? true
         launchAtLogin = defaults.bool(forKey: "launchAtLogin")
+        let storedTheme = defaults.string(forKey: "appearanceTheme") ?? AppearanceTheme.system.rawValue
+        appearanceTheme = AppearanceTheme(rawValue: storedTheme) ?? .system
         deepSeekBaseURL = defaults.string(forKey: "deepSeekBaseURL") ?? "https://api.deepseek.com"
         deepSeekAPIKey = nil
         weatherAPIKey = nil
@@ -303,6 +358,11 @@ final class AppSettingsStore: ObservableObject {
         qqMailAuthCode = nil
         githubUsername = defaults.string(forKey: "githubUsername") ?? "kibuouo"
         githubToken = nil
+        AppearanceTheme.apply(appearanceTheme)
+    }
+
+    func applyAppearanceTheme() {
+        AppearanceTheme.apply(appearanceTheme)
     }
 
     func loadSensitiveValues() {

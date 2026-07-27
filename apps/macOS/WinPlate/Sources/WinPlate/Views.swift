@@ -657,6 +657,9 @@ struct NativeRefreshButton: View {
 private struct MailDetail: View {
     let message: MailMessage
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDark: Bool { colorScheme == .dark }
 
     var body: some View {
         NavigationStack {
@@ -687,7 +690,7 @@ private struct MailDetail: View {
 
                 Group {
                     if message.hasHTMLBody {
-                        MailHTMLPreview(html: message.htmlBody)
+                        MailHTMLPreview(html: message.htmlBody, isDark: isDark)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay(
@@ -705,6 +708,7 @@ private struct MailDetail: View {
                         ScrollView {
                             Text(message.textBody)
                                 .font(.body)
+                                .foregroundStyle(.primary)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -736,6 +740,7 @@ private struct MailDetail: View {
 /// Renders email HTML while preserving embedded `<style>` / inline CSS.
 private struct MailHTMLPreview: NSViewRepresentable {
     let html: String
+    var isDark: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -756,9 +761,13 @@ private struct MailHTMLPreview: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let document = Self.makePreviewDocument(from: html)
+        let document = Self.makePreviewDocument(from: html, isDark: isDark)
         guard document != context.coordinator.lastDocument else { return }
         context.coordinator.lastDocument = document
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.layer?.backgroundColor = (isDark
+            ? NSColor(calibratedWhite: 0.07, alpha: 1)
+            : NSColor.white).cgColor
         webView.loadHTMLString(document, baseURL: nil)
     }
 
@@ -781,25 +790,54 @@ private struct MailHTMLPreview: NSViewRepresentable {
         }
     }
 
-    static func makePreviewDocument(from rawHTML: String) -> String {
-        let baseCSS = """
-        html, body {
-          margin: 0;
-          min-width: 0;
-          background: #ffffff;
-          color: #111827;
-          color-scheme: light;
+    static func makePreviewDocument(from rawHTML: String, isDark: Bool) -> String {
+        // Dark mode uses the same smart-invert approach as Windows so white HTML
+        // emails become dark without rewriting message CSS.
+        let baseCSS: String
+        if isDark {
+            baseCSS = """
+            html {
+              margin: 0;
+              min-width: 0;
+              background: #ffffff;
+              color-scheme: dark;
+              filter: invert(1) hue-rotate(180deg) brightness(.96) contrast(.97);
+            }
+            body {
+              margin: 0;
+              padding: 16px 18px;
+              overflow-wrap: anywhere;
+              word-break: break-word;
+            }
+            img, picture, video, canvas, svg:not(:root) {
+              filter: invert(1) hue-rotate(180deg) !important;
+              max-width: 100%;
+              height: auto;
+            }
+            table { max-width: 100%; border-collapse: collapse; }
+            pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
+            a { color: #2563eb; }
+            """
+        } else {
+            baseCSS = """
+            html, body {
+              margin: 0;
+              min-width: 0;
+              background: #ffffff;
+              color: #111827;
+              color-scheme: light;
+            }
+            body {
+              padding: 16px 18px;
+              overflow-wrap: anywhere;
+              word-break: break-word;
+            }
+            img, video { max-width: 100%; height: auto; }
+            table { max-width: 100%; border-collapse: collapse; }
+            pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
+            a { color: #2563eb; }
+            """
         }
-        body {
-          padding: 16px 18px;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-        }
-        img, video { max-width: 100%; height: auto; }
-        table { max-width: 100%; border-collapse: collapse; }
-        pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
-        a { color: #2563eb; }
-        """
 
         let trimmed = rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -843,6 +881,48 @@ private struct MailHTMLPreview: NSViewRepresentable {
         <body>\(trimmed)</body>
         </html>
         """
+    }
+}
+
+private struct AppearanceThemePicker: View {
+    @Binding var selection: AppearanceTheme
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(AppearanceTheme.allCases) { theme in
+                Button {
+                    selection = theme
+                } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: theme.symbolName)
+                            .font(.system(size: 18, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                            .frame(height: 22)
+                        Text(theme.title)
+                            .font(.caption.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(selection == theme ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.04))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(
+                                selection == theme ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.12),
+                                lineWidth: selection == theme ? 1.5 : 1
+                            )
+                    )
+                    .foregroundStyle(selection == theme ? Color.accentColor : Color.primary)
+                }
+                .buttonStyle(.plain)
+                .help(theme.detail)
+                .accessibilityLabel(theme.title)
+                .accessibilityAddTraits(selection == theme ? .isSelected : [])
+            }
+        }
     }
 }
 
@@ -906,6 +986,17 @@ private struct SettingsForm: View {
                     if let loginItemError {
                         ConfigurationStatus(loginItemError, symbol: "exclamationmark.triangle.fill", color: .red)
                     }
+                }
+
+                SettingsCard(
+                    title: "外观",
+                    symbol: "paintpalette.fill",
+                    description: "使用浅色、深色，或匹配系统设置（与 Windows 端一致）。"
+                ) {
+                    AppearanceThemePicker(selection: $settings.appearanceTheme)
+                    Text(settings.appearanceTheme.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Text("服务连接")

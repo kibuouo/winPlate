@@ -2410,25 +2410,16 @@ const MAIL_PREVIEW_CSP = [
   "media-src https: http: data: blob:"
 ].join("; ");
 
-/** Dark-mode helpers: outer iframe uses invert; media is re-inverted to keep photos natural. */
-function mailPreviewDarkModeStyle() {
-  return `<style id="winplate-mail-dark-mode">
-img, picture, video, canvas, svg:not(:root) {
-  filter: invert(1) hue-rotate(180deg) !important;
-}
-</style>`;
-}
-
-function mailPreviewHeadInjection(isDark = false) {
-  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${MAIL_PREVIEW_CSP}">`;
-  const colorScheme = isDark ? "dark" : "light";
-  const darkStyle = isDark ? mailPreviewDarkModeStyle() : "";
-  return `<meta charset="utf-8">${cspMeta}<meta name="color-scheme" content="${colorScheme}">${darkStyle}`;
-}
-
-/** Inject CSP (+ optional dark-mode media fix); keep original HTML/CSS for native rendering. */
-function withMailPreviewCsp(html = "", { isDark = false } = {}) {
-  const headBits = mailPreviewHeadInjection(isDark);
+/**
+ * Inject CSP only. HTML mail is always rendered in its designed light palette
+ * (no invert) so text contrast and images stay correct in any app theme.
+ */
+function withMailPreviewCsp(html = "") {
+  const headBits = [
+    `<meta charset="utf-8">`,
+    `<meta http-equiv="Content-Security-Policy" content="${MAIL_PREVIEW_CSP}">`,
+    `<meta name="color-scheme" content="light">`
+  ].join("");
   const value = String(html || "");
   if (!value.trim()) {
     return `<!doctype html><html><head>${headBits}</head><body></body></html>`;
@@ -2502,24 +2493,24 @@ async function syncMailReadStateInBackground(uid, requestId) {
 function mailIframeDocument(body = "", isPlainText = false) {
   const isDark = resolvedTheme() === "dark";
   if (isPlainText) {
+    // Plain text has no designer palette — adapt colors to the app theme.
     const plainColor = isDark ? "#e4e4e7" : "#111827";
     const plainBg = isDark ? "#18181b" : "#ffffff";
     return withMailPreviewCsp(`
 <pre style="margin:0;padding:18px 20px;background:${plainBg};color:${plainColor};font:13px/1.65 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(body)}</pre>
-`, { isDark: false });
+`);
   }
-  // Native HTML email: keep original CSS; dark mode is handled by frame invert + media re-invert.
-  return withMailPreviewCsp(body, { isDark });
+  // HTML mail: original markup/CSS only (never invert — keeps text and photos readable).
+  return withMailPreviewCsp(body);
 }
 
 function mailDetailBody(message = {}) {
-  const themeClass = resolvedTheme() === "dark" ? " theme-dark" : " theme-light";
   if (message.htmlBody) {
-    return `<iframe class="mail-detail-frame${themeClass}" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
+    return `<iframe class="mail-detail-frame theme-html" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
   }
   if (message.textBody) {
-    // Plain text already uses explicit dark/light colors; do not invert the frame.
-    return `<iframe class="mail-detail-frame theme-light" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
+    const themeClass = resolvedTheme() === "dark" ? "theme-plain-dark" : "theme-plain-light";
+    return `<iframe class="mail-detail-frame ${themeClass}" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
   }
   return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
 }

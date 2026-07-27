@@ -1929,13 +1929,25 @@ html[data-theme="light"] .weather-forecast-icon {
   border: 0;
   background: #fff;
   color-scheme: light;
+  /* Never invert mail content — filter invert made text unreadable and photos negative. */
+  filter: none;
 }
-/* Smart dark mail: invert white HTML emails, keep photos correct via in-document re-invert. */
-.mail-detail-frame.theme-dark,
-html[data-theme="dark"] .mail-detail-frame:not(.theme-light) {
-  background: #111113;
+.mail-detail-frame.theme-html {
+  background: #fff;
+  color-scheme: light;
+}
+.mail-detail-frame.theme-plain-light {
+  background: #fff;
+  color-scheme: light;
+}
+.mail-detail-frame.theme-plain-dark {
+  background: #18181b;
   color-scheme: dark;
-  filter: invert(1) hue-rotate(180deg) brightness(.96) contrast(.97);
+}
+html[data-theme="dark"] .mail-detail-body {
+  /* Dark chrome around the preview; HTML body itself stays original/light. */
+  background: color-mix(in srgb, var(--mail-glass-panel-strong) 88%, #000);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
 }
 .mail-detail-state,
 .mail-detail-empty { padding: 18px; color: var(--text-muted); font-size: 13px; }

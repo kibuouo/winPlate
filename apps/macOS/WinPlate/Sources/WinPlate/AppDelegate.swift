@@ -19,6 +19,7 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard claimPrimaryInstance() else { return }
         state.loadSensitiveSettings()
+        state.settings.applyAppearanceTheme()
         state.start()
         NSApp.setActivationPolicy(.regular)
         NotificationCenter.default.addObserver(
@@ -102,8 +103,9 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
             let controller = NSHostingController(rootView: rootView)
             let window = NSWindow(contentViewController: controller)
             window.title = "WinPlate 设置"
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.setContentSize(NSSize(width: 560, height: 430))
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.setContentSize(NSSize(width: 560, height: 520))
+            window.minSize = NSSize(width: 480, height: 420)
             window.isReleasedWhenClosed = false
             settingsWindow = window
         }
