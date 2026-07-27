@@ -48,12 +48,13 @@ test("weather resolution is represented as decreased risk, never a high-risk ale
   assert.doesNotMatch(digest.headline, /高危|紧急/);
 });
 
-test("maps source semantics to danger, warning, and info", () => {
-  const item = (source, title, level = "info", meta = {}) => ({ source, title, body: "", level, meta });
+test("maps source semantics to the requested notification tiers", () => {
+  const item = (source, title, level = "info", metadata = {}) =>
+    normalizeRawNotification({ source, title, level, metadata });
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警")), "danger");
-  assert.equal(severityForNotification(item("qweather", "暴雨橙色预警")), "danger");
+  assert.equal(severityForNotification(item("qweather", "暴雨橙色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "高温黄色预警")), "warning");
-  assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "warning");
+  assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "info");
   assert.equal(severityForNotification(item("qweather", "天气转多云")), "info");
   assert.equal(severityForNotification(item("mail", "新邮件：Launch")), "info");
   assert.equal(severityForNotification(item("codex", "Codex 任务完成")), "info");
@@ -87,6 +88,60 @@ test("a newly issued orange alert is published, not misclassified as upgraded", 
   });
   assert.equal(issued.meta.lifecycle, "issued");
   assert.equal(createLocalDigest([issued], 300).headline, "有新的天气预警需要关注");
+});
+
+test("preserves the QWeather alert color for the renderer", () => {
+  const weather = normalizeRawNotification({
+    id: "qweather:yellow",
+    source: "qweather",
+    title: "暴雨预警",
+    level: "warning",
+    unread: true,
+    createdAt: 200,
+    metadata: { severity: "yellow" }
+  });
+  assert.equal(weather.meta.severity, "yellow");
+  assert.equal(createLocalDigest([weather], 300).alertColor, "yellow");
+  assert.equal(createLocalDigest([{
+    ...weather,
+    level: "success",
+    meta: { ...weather.meta, lifecycle: "resolved", alertColor: "green" }
+  }], 300).alertColor, "green");
+});
+
+test("normalizes QWeather alert colors into the requested notification tiers", () => {
+  const sample = (severity) => normalizeRawNotification({
+    id: `qweather:${severity}`,
+    source: "qweather",
+    title: `${severity} alert`,
+    level: "critical",
+    unread: true,
+    metadata: { severity }
+  });
+  assert.deepEqual(
+    ["red", "orange", "yellow", "blue", "green"].map((severity) => {
+      const item = sample(severity);
+      return [item.meta.alertColor, item.level];
+    }),
+    [["red", "critical"], ["yellow", "warning"], ["yellow", "warning"], ["blue", "info"], ["green", "success"]]
+  );
+  const mail = normalizeRawNotification({ source: "mail", title: "New mail", level: "critical" });
+  assert.deepEqual([mail.meta.alertColor, mail.level], ["blue", "info"]);
+  assert.deepEqual(
+    [
+      normalizeRawNotification({ source: "codex", title: "Done", level: "success" }).meta.alertColor,
+      normalizeRawNotification({ source: "chatgpt", title: "Reply", level: "info" }).meta.alertColor,
+      normalizeRawNotification({ source: "system", title: "Failure", level: "warning" }).meta.alertColor
+    ],
+    ["green", "green", "yellow"]
+  );
+  const orangeWithGenericSeverity = normalizeRawNotification({
+    source: "qweather",
+    title: "强对流橙色预警",
+    level: "critical",
+    metadata: { severity: "severe" }
+  });
+  assert.deepEqual([orangeWithGenericSeverity.meta.alertColor, orangeWithGenericSeverity.level], ["yellow", "warning"]);
 });
 
 test("deduplicates by source and dedupeKey and builds the requested groups", () => {

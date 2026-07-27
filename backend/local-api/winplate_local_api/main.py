@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .modules.registry import public_modules
+from .notification_manager import NotificationManager
 
 
 def resolve_database_path(
@@ -507,32 +508,15 @@ def persist_mail_outline(items: list[dict]) -> None:
 
 
 def normalize_notification_source(source: str) -> str:
-    value = re.sub(r"[^a-z0-9_-]+", "-", str(source or "").strip().lower()).strip("-")
-    return value[:32] or "external"
+    return NotificationManager.normalize_source(source)
 
 
 def normalize_notification_level(level: str) -> str:
-    value = str(level or "info").strip().lower()
-    return value if value in {"info", "success", "warning", "critical"} else "info"
+    return NotificationManager.normalize_level(level)
 
 
 def notification_row_to_item(row: sqlite3.Row) -> dict:
-    try:
-        metadata = json.loads(row["metadata"] or "{}")
-    except (KeyError, TypeError, json.JSONDecodeError):
-        metadata = {}
-    return {
-        "id": row["id"],
-        "source": row["source"],
-        "level": row["level"],
-        "title": row["title"],
-        "message": row["message"] or "",
-        "unread": bool(row["unread"]),
-        "createdAt": int(row["created_at"]),
-        "updatedAt": int(row["updated_at"]),
-        "externalUrl": row["external_url"] or None,
-        "metadata": metadata if isinstance(metadata, dict) else {},
-    }
+    return NotificationManager.row_to_item(row)
 
 
 def normalize_digest_severity(severity: str) -> str:
@@ -638,69 +622,6 @@ def notification_digest_records(limit: int = 20) -> dict:
     }
 
 
-def upsert_notification(
-    *,
-    notification_id: str,
-    source: str,
-    title: str,
-    message: str = "",
-    level: str = "info",
-    created_at: int | None = None,
-    external_url: str | None = None,
-    metadata: dict | None = None,
-    unread: bool | None = None,
-) -> dict:
-    normalized_source = normalize_notification_source(source)
-    safe_title = clean_mail_text(title, limit=180) or "WinPlate 通知"
-    safe_message = clean_mail_text(message, limit=360)
-    safe_level = normalize_notification_level(level)
-    safe_metadata = metadata if isinstance(metadata, dict) else {}
-    metadata_json = json.dumps(safe_metadata, ensure_ascii=False, separators=(",", ":"))
-    now = utc_epoch_seconds() * 1000
-    created = int(created_at or now)
-    insert_unread = 1 if unread is None else int(bool(unread))
-    unread_update_sql = "" if unread is None else ", unread = excluded.unread"
-    with closing(connect()) as connection:
-        connection.execute(
-            f"""
-            INSERT INTO notifications
-            (id, source, level, title, message, unread, created_at, updated_at, external_url, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                source = excluded.source,
-                level = excluded.level,
-                title = excluded.title,
-                message = excluded.message,
-                updated_at = excluded.updated_at,
-                external_url = excluded.external_url,
-                metadata = excluded.metadata
-                {unread_update_sql}
-            """,
-            (
-                notification_id,
-                normalized_source,
-                safe_level,
-                safe_title,
-                safe_message,
-                insert_unread,
-                created,
-                now,
-                external_url,
-                metadata_json,
-            ),
-        )
-        row = connection.execute(
-            """
-            SELECT id, source, level, title, message, unread, created_at, updated_at, external_url, metadata
-            FROM notifications
-            WHERE id = ?
-            """,
-            (notification_id,),
-        ).fetchone()
-        connection.commit()
-    return notification_row_to_item(row)
-
-
 def sync_mail_notifications(items: list[dict]) -> None:
     for item in items:
         message_id = item.get("messageId")
@@ -708,16 +629,14 @@ def sync_mail_notifications(items: list[dict]) -> None:
             continue
         notification_id = f"mail:{message_id}"
         if not bool(item.get("unread")):
-            with closing(connect()) as connection:
-                connection.execute("DELETE FROM notifications WHERE id = ?", (notification_id,))
-                connection.commit()
+            notification_manager.remove(notification_id)
             continue
-        upsert_notification(
+        notification_manager.publish(
             notification_id=notification_id,
             source="mail",
             level="info",
-            title=f"新邮件：{item.get('subject') or '(无主题)'}",
-            message=str(item.get("sender") or item.get("summary") or ""),
+            title=clean_mail_text(f"新邮件：{item.get('subject') or '(无主题)'}", limit=180),
+            message=clean_mail_text(str(item.get("sender") or item.get("summary") or ""), limit=360),
             created_at=int(item.get("sentAt") or 0) or None,
             external_url=(
                 "https://mail.qq.com/"
@@ -801,36 +720,25 @@ def sync_openai_desktop_notifications(limit: int = 80) -> None:
                 continue
             arrival = windows_filetime_to_epoch_ms(row["ArrivalTime"])
             import_id = f"windows-toast:{source}:{row['Id']}:{row['ArrivalTime']}"
-            already_imported = connection.execute(
-                "SELECT 1 FROM notification_imports WHERE id = ?",
-                (import_id,),
-            ).fetchone()
-            if already_imported:
+            if notification_manager.was_imported(connection, import_id):
                 continue
             title = texts[0]
             message = "\n".join(texts[1:]) if len(texts) > 1 else ""
-            connection.execute(
-                """
-                INSERT INTO notifications
-                (id, source, level, title, message, unread, created_at, updated_at, external_url)
-                VALUES (?, ?, 'success', ?, ?, 1, ?, ?, NULL)
-                ON CONFLICT(id) DO UPDATE SET
-                    title = excluded.title,
-                    message = excluded.message,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    import_id,
-                    source,
-                    clean_mail_text(title, limit=180) or "OpenAI 任务完成",
-                    clean_mail_text(message, limit=360),
-                    arrival,
-                    imported_at,
-                ),
+            notification_manager.publish(
+                notification_id=import_id,
+                source=source,
+                level="success",
+                title=clean_mail_text(title, limit=180) or "OpenAI 任务完成",
+                message=clean_mail_text(message, limit=360),
+                created_at=arrival,
+                metadata={"importSource": "windows-toast"},
+                connection=connection,
             )
-            connection.execute(
-                "INSERT OR IGNORE INTO notification_imports (id, source, imported_at) VALUES (?, ?, ?)",
-                (import_id, source, imported_at),
+            notification_manager.record_import(
+                connection,
+                import_id=import_id,
+                source=source,
+                imported_at=imported_at,
             )
         connection.commit()
 
@@ -907,7 +815,7 @@ def sync_chatgpt_desktop_ui_task_notifications() -> None:
     with closing(connect()) as connection:
         for candidate in candidates:
             import_id = f"chatgpt-ui:{candidate['fingerprint']}"
-            if connection.execute("SELECT 1 FROM notification_imports WHERE id = ?", (import_id,)).fetchone():
+            if notification_manager.was_imported(connection, import_id):
                 continue
             # The desktop app can publish the same completion as a Codex toast. Prefer that
             # source when it carries the identical task title, otherwise preserve this as a
@@ -928,17 +836,21 @@ def sync_chatgpt_desktop_ui_task_notifications() -> None:
                 failed=failed,
             )
             if not duplicate_toast:
-                connection.execute(
-                    """
-                    INSERT INTO notifications
-                    (id, source, level, title, message, unread, created_at, updated_at, external_url)
-                    VALUES (?, 'chatgpt', ?, ?, ?, 1, ?, ?, NULL)
-                    """,
-                    (import_id, level, candidate["title"], message, imported_at, imported_at),
+                notification_manager.publish(
+                    notification_id=import_id,
+                    source="chatgpt",
+                    level=level,
+                    title=candidate["title"],
+                    message=message,
+                    created_at=imported_at,
+                    metadata={"importSource": "chatgpt-ui"},
+                    connection=connection,
                 )
-            connection.execute(
-                "INSERT OR IGNORE INTO notification_imports (id, source, imported_at) VALUES (?, 'chatgpt', ?)",
-                (import_id, imported_at),
+            notification_manager.record_import(
+                connection,
+                import_id=import_id,
+                source="chatgpt",
+                imported_at=imported_at,
             )
         connection.commit()
 
@@ -1044,25 +956,27 @@ def sync_chatgpt_desktop_chat_notifications() -> None:
             created_at = int(candidate["createdAt"])
             focused = bool(candidate.get("focused"))
             import_id = f"chatgpt-event:{message_id}"
-            if connection.execute("SELECT 1 FROM notification_imports WHERE id = ?", (import_id,)).fetchone():
+            if notification_manager.was_imported(connection, import_id):
                 continue
-            connection.execute(
-                """
-                INSERT INTO notifications
-                (id, source, level, title, message, unread, created_at, updated_at, external_url)
-                VALUES (?, 'chatgpt', 'info', ?, ?, 1, ?, ?, NULL)
-                """,
-                (
-                    import_id,
-                    f"ChatGPT 对话有新回复 · {conversation_id[:8]}",
-                    chatgpt_chat_event_message(focused=focused),
-                    created_at,
-                    imported_at,
-                ),
+            notification_manager.publish(
+                notification_id=import_id,
+                source="chatgpt",
+                level="info",
+                title=f"ChatGPT 对话有新回复 · {conversation_id[:8]}",
+                message=chatgpt_chat_event_message(focused=focused),
+                created_at=created_at,
+                metadata={
+                    "importSource": "chatgpt-log",
+                    "conversationId": conversation_id,
+                    "messageId": message_id,
+                },
+                connection=connection,
             )
-            connection.execute(
-                "INSERT OR IGNORE INTO notification_imports (id, source, imported_at) VALUES (?, 'chatgpt', ?)",
-                (import_id, imported_at),
+            notification_manager.record_import(
+                connection,
+                import_id=import_id,
+                source="chatgpt",
+                imported_at=imported_at,
             )
         connection.commit()
 
@@ -1076,37 +990,11 @@ def sync_chatgpt_desktop_task_notifications() -> None:
 def notification_summary(limit: int = 50) -> dict:
     sync_openai_desktop_notifications()
     sync_chatgpt_desktop_task_notifications()
-    safe_limit = max(1, min(50, int(limit or 50)))
-    with closing(connect()) as connection:
-        rows = connection.execute(
-            """
-            SELECT id, source, level, title, message, unread, created_at, updated_at, external_url, metadata
-            FROM notifications
-            ORDER BY unread DESC, created_at DESC, updated_at DESC
-            LIMIT ?
-            """,
-            (safe_limit,),
-        ).fetchall()
-        unread_count = connection.execute(
-            "SELECT COUNT(*) AS count FROM notifications WHERE unread = 1"
-        ).fetchone()["count"]
-    items = [notification_row_to_item(row) for row in rows]
-    latest = next((item for item in items if item["unread"]), items[0] if items else None)
-    return {
-        "items": items,
-        "latest": latest,
-        "unreadCount": int(unread_count),
-        "updatedAt": utc_epoch_seconds() * 1000,
-    }
+    return notification_manager.summary(limit)
 
 
 def set_mail_notification_unread_state(uid: str, unread: bool) -> None:
-    with closing(connect()) as connection:
-        connection.execute(
-            "UPDATE notifications SET unread = ?, updated_at = ? WHERE id = ?",
-            (1 if unread else 0, utc_epoch_seconds() * 1000, f"mail:{uid}"),
-        )
-        connection.commit()
+    notification_manager.set_unread(f"mail:{uid}", unread)
 
 
 def apply_mail_seen_flag(connection: imaplib.IMAP4_SSL, uid: str, seen: bool) -> None:
@@ -1144,12 +1032,7 @@ def mark_notification_read(notification_id: str) -> dict:
     if safe_notification_id.startswith("mail:"):
         mark_mail_notification_read(safe_notification_id.split(":", 1)[1])
         return notification_summary()
-    with closing(connect()) as connection:
-        connection.execute(
-            "UPDATE notifications SET unread = 0, updated_at = ? WHERE id = ?",
-            (utc_epoch_seconds() * 1000, safe_notification_id),
-        )
-        connection.commit()
+    notification_manager.mark_read(safe_notification_id)
     return notification_summary()
 
 
@@ -1159,52 +1042,28 @@ def mark_development_notifications_read(notification_ids: list[str]) -> dict:
     ids = [str(value or "").strip() for value in notification_ids]
     if not ids or any(not value for value in ids) or len(set(ids)) != len(ids):
         raise RuntimeError("开发通知标识无效")
-    placeholders = ", ".join("?" for _ in ids)
-    with closing(connect()) as connection:
-        rows = connection.execute(
-            f"SELECT id, source FROM notifications WHERE id IN ({placeholders})",
-            ids,
-        ).fetchall()
-        if len(rows) != len(ids) or any(row["source"] not in {"codex", "chatgpt"} for row in rows):
-            raise RuntimeError("只能批量标记开发通知")
-        connection.execute(
-            f"UPDATE notifications SET unread = 0, updated_at = ? WHERE id IN ({placeholders})",
-            [utc_epoch_seconds() * 1000, *ids],
-        )
-        connection.commit()
+    try:
+        notification_manager.mark_many_read(ids, allowed_sources={"codex", "chatgpt"})
+    except RuntimeError as error:
+        raise RuntimeError("只能批量标记开发通知") from error
     return notification_summary()
 
 
 def mark_all_notifications_read() -> dict:
-    with closing(connect()) as connection:
-        mail_notification_ids = [
-            row["id"]
-            for row in connection.execute(
-                "SELECT id FROM notifications WHERE unread = 1 AND source = 'mail'"
-            ).fetchall()
-        ]
+    mail_notification_ids = notification_manager.unread_ids(source="mail")
     for notification_id in mail_notification_ids:
         mark_mail_notification_read(str(notification_id).split(":", 1)[1])
-    with closing(connect()) as connection:
-        connection.execute(
-            "UPDATE notifications SET unread = 0, updated_at = ? WHERE unread = 1",
-            (utc_epoch_seconds() * 1000,),
-        )
-        connection.commit()
+    notification_manager.mark_all_read()
     return notification_summary()
 
 
 def clear_notifications() -> dict:
-    with closing(connect()) as connection:
-        connection.execute("DELETE FROM notifications")
-        connection.commit()
+    notification_manager.clear()
     return notification_summary()
 
 
 def clear_read_notifications() -> dict:
-    with closing(connect()) as connection:
-        connection.execute("DELETE FROM notifications WHERE unread = 0")
-        connection.commit()
+    notification_manager.clear_read()
     return notification_summary()
 
 
@@ -1212,11 +1071,11 @@ def push_notification(payload: NotificationPayload) -> dict:
     source = normalize_notification_source(payload.source)
     now = utc_epoch_seconds() * 1000
     notification_id = payload.id or f"{source}:{now}"
-    return upsert_notification(
+    return notification_manager.publish(
         notification_id=notification_id,
         source=source,
-        title=payload.title,
-        message=payload.message or "",
+        title=clean_mail_text(payload.title, limit=180),
+        message=clean_mail_text(payload.message or "", limit=360),
         level=payload.level,
         created_at=payload.createdAt,
         external_url=payload.externalUrl,
@@ -1452,6 +1311,12 @@ def connect() -> sqlite3.Connection:
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+notification_manager = NotificationManager(
+    connect=connect,
+    now_ms=lambda: utc_epoch_seconds() * 1000,
+)
 
 
 def initialize_database() -> None:
@@ -2329,7 +2194,7 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         }
         normalized.append(normalized_alert)
         if alert_id:
-            upsert_notification(
+            notification_manager.publish(
                 notification_id=f"qweather:{alert_id}",
                 source="qweather",
                 level=level,

@@ -18,31 +18,10 @@ const PRIORITY_BY_SCORE = [
   [0, "low"]
 ];
 const SEVERITY_RANK = { info: 0, warning: 1, danger: 2 };
-const DANGER_WEATHER_RE = /红色预警|橙色预警|red alert|orange alert/i;
-const WARNING_WEATHER_RE = /黄色预警|蓝色预警|yellow alert|blue alert/i;
-const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
-const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;
-const SEVERE_SYSTEM_RE = /严重错误|致命错误|系统崩溃|critical error|fatal error|system crash/i;
+const ALERT_COLORS = new Set(["red", "yellow", "blue", "green"]);
 
 function severityForNotification(item = {}) {
-  const source = String(item.source || "system");
-  const content = `${item.title || ""} ${item.body || ""}`;
-  if (source === "qweather") {
-    if (item.meta?.lifecycle === "resolved") return "info";
-    if (DANGER_WEATHER_RE.test(content)) return "danger";
-    if (WARNING_WEATHER_RE.test(content)) return "warning";
-    if (item.level === "critical") return "danger";
-    if (item.level === "warning") return "warning";
-    return "info";
-  }
-  if (CORE_FAILURE_RE.test(content)) return "danger";
-  if (source === "mail") return "info";
-  if (source === "codex" || source === "chatgpt") return TASK_FAILURE_RE.test(content) ? "warning" : "info";
-  if (source === "system") {
-    if (item.level === "critical" || SEVERE_SYSTEM_RE.test(content)) return "danger";
-    if (item.level === "warning" || TASK_FAILURE_RE.test(content)) return "warning";
-    return "info";
-  }
+  if (item.source === "qweather" && item.meta?.lifecycle === "resolved") return "info";
   if (item.level === "critical") return "danger";
   if (item.level === "warning") return "warning";
   return "info";
@@ -137,6 +116,11 @@ function categoryForSource(source) {
   return groupForSource(source).key;
 }
 
+function weatherAlertColor(item = {}) {
+  const color = String(item.meta?.alertColor || "").toLowerCase();
+  return ALERT_COLORS.has(color) ? color : null;
+}
+
 function createLocalDigest(rawItems, now = Date.now()) {
   const items = dedupeNotifications(foldNotificationConversations(rawItems))
     .sort((a, b) => scoreNotification(b, now) - scoreNotification(a, now) || b.createdAt - a.createdAt);
@@ -151,6 +135,7 @@ function createLocalDigest(rawItems, now = Date.now()) {
       category: "system",
       iconKey: "bell",
       primarySource: "system",
+      alertColor: null,
       unreadCount: 0,
       groups: [],
       spokenText: "当前没有需要关注的新通知。",
@@ -170,6 +155,7 @@ function createLocalDigest(rawItems, now = Date.now()) {
     category: categoryForSource(unreadItems[0].source),
     iconKey: "bell",
     primarySource: unreadItems[0].source,
+    alertColor: weatherAlertColor(unreadItems[0]),
     unreadCount: unreadItems.length,
     groups,
     spokenText: `${headline}。${summary}`,
@@ -180,7 +166,7 @@ function createLocalDigest(rawItems, now = Date.now()) {
 function digestHash(items) {
   const value = (Array.isArray(items) ? items : []).map((item) => [
     item.id, item.source, item.type, item.title, item.body, item.level,
-    item.createdAt, item.unread, item.dedupeKey, item.meta?.lifecycle
+    item.createdAt, item.unread, item.dedupeKey, item.meta?.lifecycle, item.meta?.alertColor
   ].join("\u001f")).join("\u001e");
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -194,5 +180,6 @@ module.exports = {
   digestHash,
   highestSeverity,
   severityForNotification,
-  scoreNotification
+  scoreNotification,
+  weatherAlertColor
 };

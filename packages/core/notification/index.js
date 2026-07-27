@@ -15,12 +15,21 @@ const SOURCE_ALIASES = {
 const VALID_LEVELS = new Set(["info", "success", "warning", "critical"]);
 const WEATHER_RESOLVED_RE = /解除|取消|撤销|终止|结束|失效|expired|cancel(?:led|ed)?|resolved|cleared/i;
 const WEATHER_UPGRADED_RE = /升级|提升为|升为|upgrade/i;
+const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
+const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;
+const SEVERE_SYSTEM_RE = /严重错误|致命错误|系统崩溃|critical error|fatal error|system crash/i;
+const WEATHER_ALERT_COLOR_MAP = new Map([
+  ["red", "red"], ["extreme", "red"], ["severe", "red"],
+  ["orange", "yellow"], ["yellow", "yellow"],
+  ["blue", "blue"], ["green", "green"]
+]);
 const {
   FOUR_HOURS_MS,
   conversationForNotificationId,
   foldNotificationConversations,
   normalizedConversationTitle
 } = require("./conversations");
+const { createNotificationManager: createBaseNotificationManager } = require("./manager");
 
 function trimId(value, limit = 180) {
   return String(value || "").trim().slice(0, limit);
@@ -40,7 +49,12 @@ function normalizeLevel(value) {
 }
 
 function weatherLifecycle(item, combinedText) {
-  const explicit = text(item?.meta?.lifecycle || item?.meta?.status || item?.status, 40).toLowerCase();
+  const metadata = item?.meta && typeof item.meta === "object"
+    ? item.meta
+    : item?.metadata && typeof item.metadata === "object"
+      ? item.metadata
+      : {};
+  const explicit = text(metadata.lifecycle || metadata.status || item?.status, 40).toLowerCase();
   if (["resolved", "cancelled", "canceled", "expired", "cleared"].includes(explicit) || WEATHER_RESOLVED_RE.test(combinedText)) {
     return "resolved";
   }
@@ -48,6 +62,19 @@ function weatherLifecycle(item, combinedText) {
     return "upgraded";
   }
   return "issued";
+}
+
+function weatherAlertColor(item = {}) {
+  if (normalizeSource(item.source) !== "qweather") return null;
+  if (item.meta?.lifecycle === "resolved") return "green";
+  const content = `${item.title || ""} ${item.body || item.message || ""}`;
+  if (/红色预警|red alert/i.test(content)) return "red";
+  if (/橙色预警|黄色预警|orange alert|yellow alert/i.test(content)) return "yellow";
+  if (/蓝色预警|blue alert/i.test(content)) return "blue";
+  if (/绿色预警|green alert/i.test(content)) return "green";
+  const configured = String(item.meta?.alertColor || item.meta?.severity || item.meta?.color || "").toLowerCase();
+  if (WEATHER_ALERT_COLOR_MAP.has(configured)) return WEATHER_ALERT_COLOR_MAP.get(configured);
+  return null;
 }
 
 function deriveSourceId(item = {}, source, id, meta = {}) {
@@ -129,8 +156,13 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   const body = text(item.body || item.message || item.summary || item.snippet, 500);
   const createdAt = Number(item.createdAt || item.sentAt || item.updatedAt || now);
   const combinedText = `${title} ${body}`;
-  const lifecycle = source === "qweather" ? weatherLifecycle(item, combinedText) : null;
-  const meta = item.meta && typeof item.meta === "object" ? { ...item.meta } : {};
+  const rawMeta = item.meta && typeof item.meta === "object"
+    ? item.meta
+    : item.metadata && typeof item.metadata === "object"
+      ? item.metadata
+      : {};
+  const meta = { ...rawMeta };
+  const lifecycle = source === "qweather" ? weatherLifecycle({ ...item, meta }, combinedText) : null;
   const externalUrl = text(item.externalUrl || item.externalURL || meta.externalUrl, 500);
   if (externalUrl) meta.externalUrl = externalUrl;
   if (lifecycle) {
@@ -150,7 +182,32 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   const sourceId = deriveSourceId(item, source, id, meta);
   const dedupeKey = text(item.dedupeKey || meta.alertId || meta.threadId || sourceId || id, 180);
   let level = normalizeLevel(item.level);
-  if (lifecycle === "resolved") level = "success";
+  let alertColor = weatherAlertColor({ source, title, body, meta });
+  if (alertColor) meta.alertColor = alertColor;
+  if (source === "qweather") {
+    if (alertColor === "red") level = "critical";
+    else if (alertColor === "yellow") level = "warning";
+    else if (alertColor === "blue") level = "info";
+    else if (alertColor === "green" || lifecycle === "resolved") level = "success";
+    if (!alertColor) {
+      alertColor = level === "critical" ? "red" : level === "warning" ? "yellow" : level === "success" ? "green" : "blue";
+      meta.alertColor = alertColor;
+    }
+  } else if (source === "mail") {
+    level = "info";
+    alertColor = "blue";
+    meta.alertColor = alertColor;
+  } else {
+    if (["codex", "chatgpt"].includes(source) && TASK_FAILURE_RE.test(combinedText) && level !== "critical") {
+      level = "warning";
+    }
+    if (source === "system") {
+      if (CORE_FAILURE_RE.test(combinedText) || SEVERE_SYSTEM_RE.test(combinedText)) level = "critical";
+      else if (TASK_FAILURE_RE.test(combinedText) && level === "info") level = "warning";
+    }
+    alertColor = level === "critical" ? "red" : level === "warning" ? "yellow" : "green";
+    meta.alertColor = alertColor;
+  }
   const notification = {
     schemaVersion: 1,
     id,
@@ -169,27 +226,16 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   return notification;
 }
 
-function createNotificationStore({ loadNotifications, now = () => Date.now() }) {
-  if (typeof loadNotifications !== "function") throw new TypeError("loadNotifications is required");
-  return {
-    async collect() {
-      const payload = await loadNotifications();
-      const rawItems = Array.isArray(payload?.items) ? payload.items : [];
-      const items = rawItems
-        .map((item) => normalizeRawNotification(item, now()))
-        .filter((item) => item.id && (item.title || item.body));
-      return {
-        items,
-        unreadCount: items.filter((item) => item.unread).length,
-        updatedAt: Number(payload?.updatedAt) || now()
-      };
-    }
-  };
+function createNotificationManager(options = {}) {
+  return createBaseNotificationManager({
+    ...options,
+    normalizeNotification: normalizeRawNotification
+  });
 }
 
 module.exports = {
   FOUR_HOURS_MS,
-  createNotificationStore,
+  createNotificationManager,
   buildCopyText,
   conversationForNotificationId,
   foldNotificationConversations,
@@ -199,5 +245,6 @@ module.exports = {
   normalizeRawNotification,
   normalizeSource,
   notificationRoute,
+  weatherAlertColor,
   weatherLifecycle
 };

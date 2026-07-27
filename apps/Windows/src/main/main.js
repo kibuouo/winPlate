@@ -69,7 +69,7 @@ const {
   readDeepSeekTokenUsage,
   recordDeepSeekTokenUsage
 } = require("./deepseekTokenUsage");
-const { createNotificationStore } = require("./notifications/notificationStore");
+const { createNotificationManager } = require("./notifications/notificationStore");
 const { createNotificationDetailService } = require("./notifications/detailService");
 const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
 const { mainModules, validateMainModules } = require("./modules");
@@ -106,6 +106,7 @@ const processServiceEnvironment = Object.freeze({
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
 let notificationDetailService = null;
+let notificationManager = null;
 let currentSettings = null;
 let serviceSettingsLifecycle = null;
 const desktopIconPath = assetPath("icon.ico");
@@ -714,8 +715,7 @@ if (!gotLock) {
         "http://127.0.0.1:8765/api/weather/alerts",
         WEATHER_ALERT_CACHE_TTL_MS
       );
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
+      await notificationManager?.sourceChanged("qweather");
       return alerts;
     });
     ipcMain.handle("mail:get-settings", () => (
@@ -776,8 +776,7 @@ if (!gotLock) {
       }
       const outline = await readJsonWithTimeout(response, "Mail refresh");
       clearMailCaches();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
+      await notificationManager?.sourceChanged("mail");
       return outline;
     });
     ipcMain.handle("mail:connect", async () => {
@@ -791,30 +790,77 @@ if (!gotLock) {
       clearMailCaches();
       return payload;
     });
-    ipcMain.handle("notifications:get", async (_event, options = {}) => {
+    const loadRawNotificationSummary = async (options = {}) => {
       const force = Boolean(options?.force);
       if (force) clearNotificationCaches();
-      await syncWeatherAlertsIntoNotifications();
       return fetchJsonCached(
         "Notifications",
         "http://127.0.0.1:8765/api/notifications",
         force ? 0 : NOTIFICATION_CACHE_TTL_MS
       );
-    });
-    const loadNotificationSummary = async () => {
-      await syncWeatherAlertsIntoNotifications();
-      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
     };
-    const notificationStore = createNotificationStore({
-      loadNotifications: loadNotificationSummary
+    const mutateRawNotifications = async (operation, payload = {}) => {
+      const requests = {
+        publish: {
+          url: "http://127.0.0.1:8765/api/notifications",
+          method: "POST",
+          body: payload
+        },
+        markRead: {
+          url: `http://127.0.0.1:8765/api/notifications/${encodeURIComponent(payload.id || "")}/read`,
+          method: "POST"
+        },
+        markManyRead: {
+          url: "http://127.0.0.1:8765/api/notifications/read-many",
+          method: "POST",
+          body: { ids: payload.ids }
+        },
+        markAllRead: {
+          url: "http://127.0.0.1:8765/api/notifications/read-all",
+          method: "POST"
+        },
+        clear: {
+          url: "http://127.0.0.1:8765/api/notifications",
+          method: "DELETE"
+        },
+        clearRead: {
+          url: "http://127.0.0.1:8765/api/notifications/read",
+          method: "DELETE"
+        }
+      };
+      const request = requests[operation];
+      if (!request) throw new Error(`Unsupported notification operation: ${operation}`);
+      const response = await fetchWithTimeout(request.url, {
+        method: request.method,
+        ...(request.body ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body)
+        } : {})
+      });
+      if (!response.ok) {
+        const errorPayload = await readJsonWithTimeout(response, "Notification mutation error").catch(() => null);
+        throw new Error(errorPayload?.detail || `Notification ${operation} failed: HTTP ${response.status}`);
+      }
+      return readJsonWithTimeout(response, `Notification ${operation}`);
+    };
+    notificationManager = createNotificationManager({
+      loadNotifications: loadRawNotificationSummary,
+      mutateNotifications: mutateRawNotifications,
+      syncSources: (options = {}) => options.skipSourceSync ? null : syncWeatherAlertsIntoNotifications(),
+      onChanged: () => {
+        clearNotificationCaches();
+        scheduleNotificationDigestRefresh();
+      }
     });
+    const loadNotificationSummary = (options = {}) => notificationManager.list(options);
+    ipcMain.handle("notifications:get", (_event, options = {}) => notificationManager.list(options));
     notificationDetailService = createNotificationDetailService({
       loadNotifications: loadNotificationSummary,
       fetchMailMessage: (uid) => fetchMailMessageByUid(uid, { markRead: false }),
       fetchWeatherAlert: (alertId) => fetchWeatherAlertById(alertId)
     });
     notificationSummaryService = createNotificationSummaryService({
-      store: notificationStore,
+      store: notificationManager,
       onUpdated: broadcastNotificationDigest,
       shouldUseAi: () => currentSettings.notificationDigest.enabled,
       aiModel: DEEPSEEK_CHAT_MODEL,
@@ -883,17 +929,7 @@ if (!gotLock) {
       if (!notificationId) {
         throw new Error("Notification id is required");
       }
-      const response = await fetch(
-        `http://127.0.0.1:8765/api/notifications/${encodeURIComponent(notificationId)}/read`,
-        { method: "POST" }
-      );
-      if (!response.ok) {
-        throw new Error(`Notification read failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.markRead(notificationId);
     });
     ipcMain.handle("notifications:mark-read-many", async (event, ids) => {
       requireMainWindowSender(event);
@@ -901,70 +937,28 @@ if (!gotLock) {
       if (!notificationIds.length || notificationIds.some((id) => !id) || new Set(notificationIds).size !== notificationIds.length) {
         throw new Error("Notification ids are required");
       }
-      const response = await fetch("http://127.0.0.1:8765/api/notifications/read-many", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: notificationIds })
-      });
-      if (!response.ok) {
-        throw new Error(`Notification batch read failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.markManyRead(notificationIds);
     });
     ipcMain.handle("notifications:mark-all-read", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications/read-all", { method: "POST" });
-      if (!response.ok) {
-        throw new Error(`Notification read-all failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.markAllRead();
     });
     ipcMain.handle("notifications:clear", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications", { method: "DELETE" });
-      if (!response.ok) {
-        throw new Error(`Notification clear failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.clear();
     });
     ipcMain.handle("notifications:clear-read", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications/read", { method: "DELETE" });
-      if (!response.ok) {
-        throw new Error(`Notification clear-read failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.clearRead();
     });
     ipcMain.handle("notifications:push-test", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: "codex",
-          level: "success",
-          title: "Codex 任务完成",
-          message: "WinPlate 已收到一条本地测试通知"
-        })
+      return notificationManager.publish({
+        source: "codex",
+        level: "success",
+        title: "Codex 任务完成",
+        message: "WinPlate 已收到一条本地测试通知"
       });
-      if (!response.ok) {
-        throw new Error(`Notification push failed: HTTP ${response.status}`);
-      }
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
     ipcMain.handle("supergrok:usage", (_event, options) => readSuperGrokUsage(

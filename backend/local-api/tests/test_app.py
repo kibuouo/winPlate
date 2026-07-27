@@ -1123,7 +1123,7 @@ class DatabaseTests(unittest.TestCase):
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
                 for index in range(55):
-                    main.upsert_notification(
+                    main.notification_manager.publish(
                         notification_id=f"codex:{index}",
                         source="codex",
                         title=f"Task {index}",
@@ -1189,8 +1189,8 @@ class DatabaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
-                main.upsert_notification(notification_id="codex:one", source="codex", title="Task", unread=True)
-                main.upsert_notification(notification_id="chatgpt:two", source="chatgpt", title="Task", unread=True)
+                main.notification_manager.publish(notification_id="codex:one", source="codex", title="Task", unread=True)
+                main.notification_manager.publish(notification_id="chatgpt:two", source="chatgpt", title="Task", unread=True)
                 summary = main.mark_development_notifications_read(["codex:one", "chatgpt:two"])
                 self.assertEqual(summary["unreadCount"], 0)
         finally:
@@ -1202,8 +1202,8 @@ class DatabaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
-                main.upsert_notification(notification_id="codex:one", source="codex", title="Task", unread=True)
-                main.upsert_notification(notification_id="mail:one", source="mail", title="Mail", unread=True)
+                main.notification_manager.publish(notification_id="codex:one", source="codex", title="Task", unread=True)
+                main.notification_manager.publish(notification_id="mail:one", source="mail", title="Mail", unread=True)
                 with self.assertRaisesRegex(RuntimeError, "开发通知"):
                     main.mark_development_notifications_read(["codex:one", "mail:one"])
                 self.assertEqual(main.notification_summary()["unreadCount"], 2)
@@ -1216,11 +1216,11 @@ class DatabaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
-                main.upsert_notification(
+                main.notification_manager.publish(
                     notification_id="read", source="codex", title="Read",
                     unread=False, created_at=1,
                 )
-                main.upsert_notification(
+                main.notification_manager.publish(
                     notification_id="unread", source="github", title="Unread",
                     unread=True, created_at=2,
                 )
@@ -1420,7 +1420,7 @@ class DatabaseTests(unittest.TestCase):
                 "labels": ["INBOX", "UNREAD"],
                 "unread": True,
             }])
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="mail:m1",
                 source="mail",
                 title="新邮件：Launch",
@@ -1456,7 +1456,7 @@ class DatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             main.DATABASE_PATH = Path(directory) / "test.db"
             main.initialize_database()
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="mail:m1",
                 source="mail",
                 title="新邮件：Launch",
@@ -1519,7 +1519,7 @@ class DatabaseTests(unittest.TestCase):
                 "action": "查看",
                 "labels": ["INBOX", "UNREAD"],
             }])
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="mail:m1",
                 source="mail",
                 title="新邮件：Launch",

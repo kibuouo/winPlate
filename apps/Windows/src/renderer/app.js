@@ -1112,23 +1112,20 @@ function notificationSourceIconKey(source) {
   return { codex: "codex", chatgpt: "chatgpt", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
 }
 
-function notificationLevelLabel(level) {
-  return {
-    info: "信息",
-    success: "完成",
-    warning: "提醒",
-    critical: "紧急"
-  }[level] || "信息";
+function notificationLevelLabel(level, item = {}) {
+  return window.WinPlateNotificationDigest?.notificationTierLabel?.({ ...item, level })
+    || "普通";
 }
 
 function notificationStrip() {
   const digest = window.WinPlateNotificationDigest.normalizeDigest(notificationDigest);
   const iconKey = "sparkles";
+  const alertColorClass = digest.alertColor ? ` alert-color-${digest.alertColor}` : "";
   const unread = digest.unreadCount;
   const syncTime = formatNotificationSyncTime(digest.generatedAt);
   const stripTitle = `${digest.headline} · 已同步${syncTime}`;
   return `
-    <button class="notification-strip ${unread ? "has-unread" : ""} severity-${escapeHtml(digest.severity)} no-drag" id="notification-strip" type="button" aria-label="打开${digest.severity === "danger" ? "危险" : digest.severity === "warning" ? "预警" : "信息"}通知摘要">
+    <button class="notification-strip ${unread ? "has-unread" : ""} severity-${escapeHtml(digest.severity)}${alertColorClass} no-drag" id="notification-strip" type="button" aria-label="打开${digest.severity === "danger" ? "危险" : digest.severity === "warning" ? "预警" : "信息"}通知摘要">
       ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}
       <span class="notification-title">${escapeHtml(stripTitle)}</span>
       ${unread ? `<span class="notification-badge" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>` : ""}
@@ -1753,9 +1750,9 @@ function notificationPreviewMarkup(source) {
   const item = findPreviewableNotification(source);
   if (!item) return "";
   return `<div class="module-notification-preview" role="tooltip">
-    <span>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationLevelLabel(item.level))}</span>
+    <span>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationLevelLabel(item.level, item))}</span>
     <strong>${escapeHtml(item.title)}</strong>
-    <p>${escapeHtml(item.message || "暂无详细内容。")}</p>
+    <p>${escapeHtml(item.body || "暂无详细内容。")}</p>
     <small>${escapeHtml(relativeUpdatedAt(item.createdAt))}</small>
   </div>`;
 }
@@ -2832,7 +2829,7 @@ function notificationInlineDetail(conversation = notificationConversationForId(n
   const detailMetadata = `<dl class="notification-inline-summary-meta">
     <div><dt>来源</dt><dd>${escapeHtml(notificationSourceLabel(resolvedNotification.source))}</dd></div>
     <div><dt>状态</dt><dd>${resolvedNotification.unread ? "未读" : "已读"}</dd></div>
-    <div><dt>级别</dt><dd>${escapeHtml(notificationLevelLabel(resolvedNotification.level))}</dd></div>
+    <div><dt>级别</dt><dd>${escapeHtml(notificationLevelLabel(resolvedNotification.level, resolvedNotification))}</dd></div>
     <div><dt>标识</dt><dd title="${escapeHtml(resolvedNotification.id || "")}">${escapeHtml(resolvedNotification.id || "-")}</dd></div>
   </dl>`;
   return `<section class="notification-inline-summary" aria-label="通知摘要">
@@ -2868,7 +2865,7 @@ function notificationAcknowledgementModal() {
       <button class="notification-acknowledgement-close" type="button" data-notification-ack-dismiss aria-label="暂不确认">×</button>
       <p>QWEATHER · 红色预警</p>
       <h2 id="notification-ack-title">${escapeHtml(item.title)}</h2>
-      <p id="notification-ack-body">${escapeHtml(item.message || "请关注最新天气预警信息。")}</p>
+      <p id="notification-ack-body">${escapeHtml(item.body || "请关注最新天气预警信息。")}</p>
       <button class="notification-acknowledgement-confirm" type="button" data-notification-acknowledge="${escapeHtml(item.id)}">我已知悉</button>
     </section>
   </div>`;

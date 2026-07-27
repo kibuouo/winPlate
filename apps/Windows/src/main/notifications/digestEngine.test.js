@@ -48,12 +48,13 @@ test("weather resolution is represented as decreased risk, never a high-risk ale
   assert.doesNotMatch(digest.headline, /高危|紧急/);
 });
 
-test("maps source semantics to danger, warning, and info", () => {
-  const item = (source, title, level = "info", meta = {}) => ({ source, title, body: "", level, meta });
+test("maps source semantics to the requested notification tiers", () => {
+  const item = (source, title, level = "info", metadata = {}) =>
+    normalizeRawNotification({ source, title, level, metadata });
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警")), "danger");
-  assert.equal(severityForNotification(item("qweather", "暴雨橙色预警")), "danger");
+  assert.equal(severityForNotification(item("qweather", "暴雨橙色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "高温黄色预警")), "warning");
-  assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "warning");
+  assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "info");
   assert.equal(severityForNotification(item("qweather", "天气转多云")), "info");
   assert.equal(severityForNotification(item("mail", "新邮件：Launch")), "info");
   assert.equal(severityForNotification(item("codex", "Codex 任务完成")), "info");

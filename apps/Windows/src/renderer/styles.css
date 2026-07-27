@@ -297,12 +297,28 @@ html[data-theme="light"] .github-icon-light-mode { opacity: 1; }
 .notification-strip.severity-danger:hover { border-color: rgba(252, 165, 165, .7); background: rgba(220, 38, 38, .25); }
 .notification-strip.severity-warning:hover { border-color: rgba(253, 224, 71, .66); background: rgba(202, 138, 4, .24); }
 .notification-strip.severity-info:hover { border-color: color-mix(in srgb, var(--notification-level-normal) 58%, transparent); background: color-mix(in srgb, var(--notification-level-normal) 22%, transparent); }
+.notification-strip.alert-color-red { color: #ffe4e6; border-color: rgba(244, 63, 94, .9); background: rgba(225, 29, 72, .42); box-shadow: 0 0 14px rgba(244, 63, 94, .38); }
+.notification-strip.alert-color-yellow { color: #fef9c3; border-color: rgba(250, 204, 21, .9); background: rgba(202, 138, 4, .44); box-shadow: 0 0 14px rgba(250, 204, 21, .34); }
+.notification-strip.alert-color-blue { color: #dbeafe; border-color: rgba(59, 130, 246, .9); background: rgba(37, 99, 235, .42); box-shadow: 0 0 14px rgba(59, 130, 246, .36); }
+.notification-strip.alert-color-green { color: #dcfce7; border-color: rgba(34, 197, 94, .88); background: rgba(22, 163, 74, .4); box-shadow: 0 0 14px rgba(34, 197, 94, .34); }
+.notification-strip.alert-color-red:hover { border-color: #fb7185; background: rgba(225, 29, 72, .56); }
+.notification-strip.alert-color-yellow:hover { border-color: #fde047; background: rgba(202, 138, 4, .58); }
+.notification-strip.alert-color-blue:hover { border-color: #60a5fa; background: rgba(37, 99, 235, .56); }
+.notification-strip.alert-color-green:hover { border-color: #4ade80; background: rgba(22, 163, 74, .54); }
 html[data-theme="light"] .status-capsule .notification-strip.severity-danger { color: #991b1b; border-color: rgba(220, 38, 38, .38); background: rgba(220, 38, 38, .1); }
 html[data-theme="light"] .status-capsule .notification-strip.severity-warning { color: #854d0e; border-color: rgba(202, 138, 4, .36); background: rgba(202, 138, 4, .1); }
 html[data-theme="light"] .status-capsule .notification-strip.severity-info { color: color-mix(in srgb, var(--notification-level-normal) 82%, #000); border-color: color-mix(in srgb, var(--notification-level-normal) 30%, transparent); background: color-mix(in srgb, var(--notification-level-normal) 9%, transparent); }
 html[data-theme="light"] .status-capsule .notification-strip.severity-danger:hover { border-color: rgba(220, 38, 38, .5); background: rgba(220, 38, 38, .15); }
 html[data-theme="light"] .status-capsule .notification-strip.severity-warning:hover { border-color: rgba(202, 138, 4, .48); background: rgba(202, 138, 4, .15); }
 html[data-theme="light"] .status-capsule .notification-strip.severity-info:hover { border-color: color-mix(in srgb, var(--notification-level-normal) 42%, transparent); background: color-mix(in srgb, var(--notification-level-normal) 14%, transparent); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-red { color: #9f1239; border-color: rgba(225, 29, 72, .7); background: rgba(244, 63, 94, .24); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-yellow { color: #713f12; border-color: rgba(202, 138, 4, .72); background: rgba(250, 204, 21, .3); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-blue { color: #1d4ed8; border-color: rgba(37, 99, 235, .7); background: rgba(59, 130, 246, .22); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-green { color: #166534; border-color: rgba(22, 163, 74, .68); background: rgba(34, 197, 94, .22); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-red:hover { border-color: #e11d48; background: rgba(244, 63, 94, .32); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-yellow:hover { border-color: #ca8a04; background: rgba(250, 204, 21, .38); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-blue:hover { border-color: #2563eb; background: rgba(59, 130, 246, .3); }
+html[data-theme="light"] .status-capsule .notification-strip.alert-color-green:hover { border-color: #16a34a; background: rgba(34, 197, 94, .3); }
 .notification-title {
   min-width: 0;
   flex: 1 1 auto;
@@ -330,6 +346,10 @@ html[data-theme="light"] .status-capsule .notification-strip.severity-info:hover
 .notification-strip.severity-danger .notification-badge { background: #dc2626; box-shadow: 0 0 8px rgba(239, 68, 68, .45); }
 .notification-strip.severity-warning .notification-badge { color: #1c1917; background: #facc15; box-shadow: 0 0 8px rgba(250, 204, 21, .38); }
 .notification-strip.severity-info .notification-badge { background: var(--notification-level-normal); box-shadow: 0 0 8px color-mix(in srgb, var(--notification-level-normal) 35%, transparent); }
+.notification-strip.alert-color-red .notification-badge { background: #e11d48; box-shadow: 0 0 8px rgba(244, 63, 94, .72); }
+.notification-strip.alert-color-yellow .notification-badge { color: #422006; background: #facc15; box-shadow: 0 0 8px rgba(250, 204, 21, .68); }
+.notification-strip.alert-color-blue .notification-badge { background: #2563eb; box-shadow: 0 0 8px rgba(59, 130, 246, .7); }
+.notification-strip.alert-color-green .notification-badge { background: #16a34a; box-shadow: 0 0 8px rgba(34, 197, 94, .68); }
 .usage-track {
   flex: 1 1 76px;
   width: auto;
@@ -2142,6 +2162,9 @@ html[data-theme="light"] .mail-detail-meta-inline {
 .notification-drawer-item.level-warning .notification-status-dot { background: #facc15; box-shadow: 0 0 10px rgba(250, 204, 21, .55); }
 .notification-drawer-item.level-critical .notification-status-dot,
 .notification-drawer-item.level-danger .notification-status-dot { background: #f87171; box-shadow: 0 0 10px rgba(248, 113, 113, .55); }
+.notification-drawer-item.alert-color-yellow .notification-status-dot { background: #facc15; box-shadow: 0 0 10px rgba(250, 204, 21, .55); }
+.notification-drawer-item.alert-color-blue .notification-status-dot { background: #3b82f6; box-shadow: 0 0 10px rgba(59, 130, 246, .55); }
+.notification-drawer-item.alert-color-green .notification-status-dot { background: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, .55); }
 .notification-drawer-item strong { overflow-wrap: anywhere; font-size: 14px; line-height: 1.35; }
 .notification-drawer-item p { margin: 0; display: -webkit-box; overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .notification-drawer-item small { color: var(--text-soft); font-size: 10px; }
@@ -2224,6 +2247,12 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-timeline-entry.level-danger .notification-timeline-dot, .notification-timeline-entry.level-critical .notification-timeline-dot { background: #ef4444; }
 .notification-timeline-entry.level-warning .notification-timeline-row { background: linear-gradient(90deg, color-mix(in srgb, #f59e0b 6%, transparent), transparent 46%); box-shadow: inset 2px 0 0 #f59e0b; }
 .notification-timeline-entry.level-danger .notification-timeline-row, .notification-timeline-entry.level-critical .notification-timeline-row { background: linear-gradient(90deg, color-mix(in srgb, #ef4444 7%, transparent), transparent 46%); box-shadow: inset 2px 0 0 #ef4444; }
+.notification-timeline-entry.alert-color-blue .notification-timeline-dot { background: #3b82f6; }
+.notification-timeline-entry.alert-color-blue .notification-timeline-row { background: linear-gradient(90deg, color-mix(in srgb, #3b82f6 7%, transparent), transparent 46%); box-shadow: inset 2px 0 0 #3b82f6; }
+.notification-timeline-entry.alert-color-yellow .notification-timeline-dot { background: #f59e0b; }
+.notification-timeline-entry.alert-color-yellow .notification-timeline-row { background: linear-gradient(90deg, color-mix(in srgb, #f59e0b 6%, transparent), transparent 46%); box-shadow: inset 2px 0 0 #f59e0b; }
+.notification-timeline-entry.alert-color-green .notification-timeline-dot { background: #10b981; }
+.notification-timeline-entry.alert-color-green .notification-timeline-row { background: transparent; box-shadow: none; }
 .notification-source-icon { width: 40px; height: 40px; display: grid; place-items: center; align-self: center; color: var(--text-muted); background: transparent; }
 .notification-source-icon .smart-notification-icon, .notification-source-icon .codex-icon, .notification-source-icon .notification-weather-icon { width: 19px; height: 19px; }
 .notification-source-icon.source-codex { color: inherit; background: transparent; }
@@ -2249,6 +2278,12 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-timeline-entry.level-warning .notification-timeline-meta > span::before { background: #f59e0b; }
 .notification-timeline-entry.level-danger .notification-timeline-meta > span, .notification-timeline-entry.level-critical .notification-timeline-meta > span { color: #dc2626; }
 .notification-timeline-entry.level-danger .notification-timeline-meta > span::before, .notification-timeline-entry.level-critical .notification-timeline-meta > span::before { background: #ef4444; }
+.notification-timeline-entry.alert-color-blue .notification-timeline-meta > span { color: #2563eb; }
+.notification-timeline-entry.alert-color-blue .notification-timeline-meta > span::before { background: #3b82f6; }
+.notification-timeline-entry.alert-color-yellow .notification-timeline-meta > span { color: #b45309; }
+.notification-timeline-entry.alert-color-yellow .notification-timeline-meta > span::before { background: #f59e0b; }
+.notification-timeline-entry.alert-color-green .notification-timeline-meta > span { color: var(--text); }
+.notification-timeline-entry.alert-color-green .notification-timeline-meta > span::before { background: #10b981; }
 .notification-inline-summary { justify-self: start; width: calc(100% - 54px); max-width: none; min-height: 0; box-sizing: border-box; margin: 0 0 10px 54px; padding: 12px 14px; display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .notification-inline-summary-grid { display: grid; grid-template-columns: minmax(150px, .32fr) minmax(0, 1fr); gap: 16px; }
 .notification-inline-summary-meta { min-width: 0; margin: 0; padding: 0 16px 0 0; display: grid; align-content: start; gap: 7px; border-right: 1px solid var(--border); }
@@ -2354,12 +2389,20 @@ html[data-theme="light"] .notification-acknowledgement-backdrop { background: rg
 .notification-digest-card.severity-danger { border-color: rgba(248, 113, 113, .46); background: linear-gradient(145deg, rgba(127, 29, 29, .24), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px rgba(239, 68, 68, .11); }
 .notification-digest-card.severity-warning { border-color: rgba(250, 204, 21, .42); background: linear-gradient(145deg, rgba(113, 63, 18, .23), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px rgba(234, 179, 8, .1); }
 .notification-digest-card.severity-info { border-color: color-mix(in srgb, var(--notification-level-normal) 34%, transparent); background: linear-gradient(145deg, color-mix(in srgb, var(--notification-level-normal) 17%, transparent), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px color-mix(in srgb, var(--notification-level-normal) 9%, transparent); }
+.notification-digest-card.alert-color-red { border-color: rgba(244, 63, 94, .62); background: linear-gradient(145deg, rgba(225, 29, 72, .3), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px rgba(244, 63, 94, .22); }
+.notification-digest-card.alert-color-yellow { border-color: rgba(250, 204, 21, .64); background: linear-gradient(145deg, rgba(202, 138, 4, .3), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px rgba(250, 204, 21, .2); }
+.notification-digest-card.alert-color-blue { border-color: rgba(59, 130, 246, .62); background: linear-gradient(145deg, rgba(37, 99, 235, .3), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px rgba(59, 130, 246, .2); }
+.notification-digest-card.alert-color-green { border-color: rgba(34, 197, 94, .6); background: linear-gradient(145deg, rgba(22, 163, 74, .28), var(--surface)); box-shadow: 0 12px 28px var(--shadow), 0 0 18px rgba(34, 197, 94, .18); }
 .notification-digest-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .notification-digest-kicker { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 10px; font-weight: 850; letter-spacing: .14em; }
 .notification-digest-kicker .notification-icon { width: 16px; height: 16px; margin: 0; }
 .notification-digest-card.severity-danger .notification-digest-kicker { color: #f87171; }
 .notification-digest-card.severity-warning .notification-digest-kicker { color: #facc15; }
 .notification-digest-card.severity-info .notification-digest-kicker { color: var(--notification-level-normal); }
+.notification-digest-card.alert-color-red .notification-digest-kicker { color: #fb7185; }
+.notification-digest-card.alert-color-yellow .notification-digest-kicker { color: #fde047; }
+.notification-digest-card.alert-color-blue .notification-digest-kicker { color: #60a5fa; }
+.notification-digest-card.alert-color-green .notification-digest-kicker { color: #4ade80; }
 .notification-digest-count { color: var(--text-muted); font-size: 11px; font-weight: 750; }
 .notification-digest-card h2 { margin: 0; font-size: 19px; line-height: 1.35; }
 .notification-digest-summary { min-width: 0; color: var(--text-muted); font-size: 13px; line-height: 1.55; }
@@ -2757,6 +2800,10 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
 .notification-capsule-card.severity-danger .notification-capsule-level { color: #e8b4b4; }
 .notification-capsule-card.severity-warning .notification-capsule-level { color: #d6c48a; }
 .notification-capsule-card.severity-info .notification-capsule-level { color: #9bb8a8; }
+.notification-capsule-card.alert-color-red .notification-capsule-level { color: #fb7185; }
+.notification-capsule-card.alert-color-yellow .notification-capsule-level { color: #fde047; }
+.notification-capsule-card.alert-color-blue .notification-capsule-level { color: #60a5fa; }
+.notification-capsule-card.alert-color-green .notification-capsule-level { color: #4ade80; }
 .notification-capsule-badge {
   min-width: 22px;
   height: 22px;
@@ -2788,6 +2835,10 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   color: #ecfdf5;
   background: rgba(52, 211, 153, .16);
 }
+.notification-capsule-card.alert-color-red .notification-capsule-badge:not(.is-clear) { color: #fff1f2; background: rgba(225, 29, 72, .62); box-shadow: 0 0 10px rgba(244, 63, 94, .42); }
+.notification-capsule-card.alert-color-yellow .notification-capsule-badge:not(.is-clear) { color: #422006; background: rgba(250, 204, 21, .88); box-shadow: 0 0 10px rgba(250, 204, 21, .38); }
+.notification-capsule-card.alert-color-blue .notification-capsule-badge:not(.is-clear) { color: #eff6ff; background: rgba(37, 99, 235, .64); box-shadow: 0 0 10px rgba(59, 130, 246, .4); }
+.notification-capsule-card.alert-color-green .notification-capsule-badge:not(.is-clear) { color: #f0fdf4; background: rgba(22, 163, 74, .62); box-shadow: 0 0 10px rgba(34, 197, 94, .38); }
 .notification-capsule-title {
   margin: 0;
   min-width: 0;
@@ -2833,6 +2884,10 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
 .notification-capsule-card.severity-danger .notification-capsule-list li::before { background: rgba(248, 113, 113, .55); }
 .notification-capsule-card.severity-warning .notification-capsule-list li::before { background: rgba(250, 204, 21, .5); }
 .notification-capsule-card.severity-info .notification-capsule-list li::before { background: rgba(52, 211, 153, .45); }
+.notification-capsule-card.alert-color-red .notification-capsule-list li::before { background: #fb7185; }
+.notification-capsule-card.alert-color-yellow .notification-capsule-list li::before { background: #fde047; }
+.notification-capsule-card.alert-color-blue .notification-capsule-list li::before { background: #60a5fa; }
+.notification-capsule-card.alert-color-green .notification-capsule-list li::before { background: #4ade80; }
 .notification-capsule-empty {
   margin: 0;
   color: #71717a;
