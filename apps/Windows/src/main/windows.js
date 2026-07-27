@@ -14,7 +14,8 @@ const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
 const preloadPath = path.join(__dirname, "..", "preload", "preload.js");
 const iconPath = assetPath("icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
-const CODEX_TOOLTIP_SIZE = { width: 232, height: 128 };
+// Taller to fit peer Codex + SuperGrok sections without clipping.
+const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };

@@ -39,6 +39,19 @@ const mockStatus = {
     updatedAt: null,
     status: "Unconfigured"
   },
+  supergrok: {
+    source: "grok-build",
+    remainingPct: null,
+    usedPct: null,
+    resetText: undefined,
+    resetClock: undefined,
+    resetAt: null,
+    windowDays: 7,
+    subscriptionTier: null,
+    status: "Unavailable",
+    updatedAt: null,
+    raw: ""
+  },
   heart: {
     heartRate: 82,
     unit: "bpm",

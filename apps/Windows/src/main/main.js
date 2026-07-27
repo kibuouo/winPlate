@@ -42,6 +42,7 @@ const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
+const { readSuperGrokUsage } = require("./supergrokUsage");
 const {
   DEFAULT_BASE_URL: DEEPSEEK_DEFAULT_BASE_URL,
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
@@ -610,10 +611,32 @@ if (!gotLock) {
       if (!response.ok) throw new Error(`GitHub contributions failed: HTTP ${response.status}`);
       return readJsonWithTimeout(response, "GitHub contributions");
     });
-    ipcMain.handle("status:get", () => (
-      fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
-    ));
+    ipcMain.handle("status:get", (_event, options = {}) => {
+      const force = Boolean(options?.force);
+      if (force) invalidateResponseCache("Status");
+      return fetchJsonCached(
+        "Status",
+        "http://127.0.0.1:8765/api/status",
+        force ? 0 : STATUS_CACHE_TTL_MS
+      );
+    });
     ipcMain.handle("network:speed", () => readNetworkSpeed());
+    ipcMain.handle("weather:refresh", async () => {
+      const response = await fetchWithTimeout("http://127.0.0.1:8765/api/weather/refresh", {
+        method: "POST"
+      });
+      if (!response.ok) {
+        const payload = await readJsonWithTimeout(response, "Weather refresh error").catch(() => null);
+        const detail = payload?.detail ? `: ${payload.detail}` : "";
+        throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
+      }
+      invalidateResponseCache("Status");
+      clearWeatherAlertCaches();
+      responseCaches.delete("QWeather usage");
+      const weather = await readJsonWithTimeout(response, "Weather refresh");
+      broadcastStatusRefresh(weather);
+      return weather;
+    });
     ipcMain.handle("weather:set-location", async (event, location) => {
       requireMainWindowSender(event);
       const { latitude, longitude } = normalizeWeatherCoordinates(location);
@@ -768,9 +791,15 @@ if (!gotLock) {
       clearMailCaches();
       return payload;
     });
-    ipcMain.handle("notifications:get", async () => {
+    ipcMain.handle("notifications:get", async (_event, options = {}) => {
+      const force = Boolean(options?.force);
+      if (force) clearNotificationCaches();
       await syncWeatherAlertsIntoNotifications();
-      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
+      return fetchJsonCached(
+        "Notifications",
+        "http://127.0.0.1:8765/api/notifications",
+        force ? 0 : NOTIFICATION_CACHE_TTL_MS
+      );
     });
     const loadNotificationSummary = async () => {
       await syncWeatherAlertsIntoNotifications();
@@ -938,6 +967,9 @@ if (!gotLock) {
       return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
+    ipcMain.handle("supergrok:usage", (_event, options) => readSuperGrokUsage(
+      (options && typeof options === "object") ? options : {}
+    ));
     ipcMain.handle("deepseek:test-chat", async (event) => {
       requireMainWindowSender(event);
       const settings = serviceSettingsLifecycle.effectiveSettings();

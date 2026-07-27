@@ -43,6 +43,7 @@ let selectedContributionDate = null;
 const githubContributionDetailCache = new Map();
 let githubContributionRequestId = 0;
 let githubRefreshInFlight = false;
+let dashboardRefreshInFlight = false;
 let refreshNoticeTimer = null;
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
@@ -115,7 +116,7 @@ const refreshController = window.WinPlateRefresh.createRefreshController({
   onHealthChange: (taskId, health) => {
     const affected = taskId === "status"
       ? ["weather", "heart"]
-      : taskId === "deepseek"
+      : (taskId === "deepseek" || taskId === "supergrok")
         ? ["codex"]
         : [taskId];
     affected.forEach((id) => {
@@ -1024,13 +1025,23 @@ function showRefreshNotice(type, title, message) {
   }, 4_000);
 }
 
+function normalizeSectionName(section) {
+  const value = typeof section === "string" ? section.trim() : "";
+  if (!value) return "Dashboard";
+  // Module rename: keep old deep links working without renaming internal codex ids.
+  if (value === "Codex") return "Agent";
+  return value;
+}
+
 function normalizeNavigationPayload(value) {
   if (typeof value === "string") {
-    return { section: value };
+    return { section: normalizeSectionName(value) };
   }
   if (value && typeof value === "object") {
     return {
-      section: typeof value.section === "string" && value.section.trim() ? value.section.trim() : "Dashboard",
+      section: normalizeSectionName(
+        typeof value.section === "string" && value.section.trim() ? value.section.trim() : "Dashboard"
+      ),
       moduleId: typeof value.moduleId === "string" ? value.moduleId : null,
       source: typeof value.source === "string" ? value.source : null,
       sourceId: typeof value.sourceId === "string" ? value.sourceId : null,
@@ -1273,15 +1284,29 @@ const githubCardIcon = `
     <img class="github-card-icon-dark-mode" src="../../assets/github-mark-light.svg" alt="">
     <img class="github-card-icon-light-mode" src="../../assets/github-mark-dark.svg" alt="">
   </span>`;
-const codexIcon = `
-  <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
-    ${window.WinPlateSmartNotificationIcons.SMART_NOTIFICATION_ICON_REGISTRY.codex}
-  </svg>`;
+function brandIconMarkup(name, className = "") {
+  if (!["openai", "deepseek", "grok"].includes(name)) return "";
+  // DeepSeek keeps its official blue whale as a full-color image.
+  // OpenAI / Grok use monochrome masks that follow the current theme color.
+  if (name === "deepseek") {
+    const classes = ["agent-brand-icon", "agent-brand-icon-deepseek", "agent-brand-icon-img", className]
+      .filter(Boolean)
+      .join(" ");
+    return `<img class="${classes}" src="../../assets/deepseek-icon.svg" alt="" aria-hidden="true">`;
+  }
+  const classes = ["agent-brand-icon", `agent-brand-icon-${name}`, className].filter(Boolean).join(" ");
+  return `<span class="${classes}" aria-hidden="true"></span>`;
+}
+const openaiBrandIcon = brandIconMarkup("openai");
+const deepseekBrandIcon = brandIconMarkup("deepseek");
+const grokBrandIcon = brandIconMarkup("grok");
+// Original sidebar / capsule glyph (unchanged by the Agent rename).
 const sidebarCodexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
     <path d="M7.25 18.25h9.5a4.25 4.25 0 0 0 .64-8.45A5.75 5.75 0 0 0 6.5 7.85a3.75 3.75 0 0 0 .75 7.42"/>
     <path d="m8.25 10.25 2.25 2.25-2.25 2.25M12.75 14.75h3"/>
   </svg>`;
+const codexIcon = openaiBrandIcon;
 function renderNotificationSourceIcon(source) {
   if (source === "codex") return sidebarCodexIcon;
   if (source === "qweather") return qweatherIconMarkup("notification-weather-icon");
@@ -1802,7 +1827,7 @@ function renderFloating() {
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
               ${sidebarCodexIcon}
-              <span class="module-label">Codex</span>
+              <span class="module-label">Agent</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
               ${quotaStatusLamp(statusData.codex.remainingPct)}
@@ -1908,6 +1933,16 @@ function renderFloating() {
     tooltipHideTimer = setTimeout(() => window.winplate.hideTooltip(), 80);
   });
 
+  codexModule.addEventListener("click", () => window.winplate.showMainWindow("Agent"));
+  codexModule.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      window.winplate.showMainWindow("Agent");
+    }
+  });
+  codexModule.setAttribute("role", "link");
+  codexModule.setAttribute("tabindex", "0");
+  codexModule.setAttribute("aria-label", "Open Agent section");
   codexModule.addEventListener("mouseenter", () => {
     clearTimeout(tooltipHideTimer);
     const rect = codexModule.getBoundingClientRect();
@@ -1926,7 +1961,8 @@ function renderFloating() {
         usedPct: statusData.codex.usedPct,
         resetText: statusData.codex.resetText,
         status: statusData.codex.status,
-        windows: statusData.codex.windows
+        windows: statusData.codex.windows,
+        supergrok: statusData.supergrok
       }
     });
   });
@@ -2086,6 +2122,7 @@ function renderTooltip(data = {}) {
     const windows = data.windows || {};
     const fiveHour = windows.fiveHour || data;
     const weekly = windows.sevenDay || {};
+    const supergrok = data.supergrok || {};
     const usageRow = (title, usage) => {
       const percentage = Number.isFinite(usage?.remainingPct)
         ? Math.max(0, Math.min(100, usage.remainingPct))
@@ -2102,16 +2139,28 @@ function renderTooltip(data = {}) {
         </div>`;
     };
 
+    const supergrokStatus = supergrok.status || "Unavailable";
     appRoot.innerHTML = `
-      <article class="codex-tooltip placement-${data.placement || "above"}" role="tooltip" aria-label="Codex usage">
-        <header>
-          <strong>Codex Usage</strong>
-          <span>${data.status || "Unavailable"}</span>
-        </header>
-        <div class="codex-tooltip-rows">
-          ${usageRow(`${data.windowHours ?? 5}h`, fiveHour)}
-          ${usageRow("7d", weekly)}
-        </div>
+      <article class="codex-tooltip placement-${data.placement || "above"}" role="tooltip" aria-label="Codex and SuperGrok">
+        <section class="codex-tooltip-block">
+          <header>
+            <strong>Codex</strong>
+            <span>${data.status || "Unavailable"}</span>
+          </header>
+          <div class="codex-tooltip-rows">
+            ${usageRow(`${data.windowHours ?? 5}h`, fiveHour)}
+            ${usageRow("7d", weekly)}
+          </div>
+        </section>
+        <section class="codex-tooltip-block">
+          <header>
+            <strong>SuperGrok</strong>
+            <span>${supergrokStatus}</span>
+          </header>
+          <div class="codex-tooltip-rows">
+            ${usageRow("7d", supergrok)}
+          </div>
+        </section>
       </article>`;
     updateProgressBars(appRoot);
     return;
@@ -2286,13 +2335,13 @@ function dashboardGithubCard() {
     </article>`;
 }
 
-function dashboardCodexRow(title, data) {
+function dashboardCodexRow(title, data, { icon = "" } = {}) {
   const percentage = normalizePercent(data?.remainingPct);
   const resetText = data?.resetText ? `Resets in ${String(data.resetText).replace(/^in\s+/i, "")}` : "Reset unavailable";
   return `
     <div class="dashboard-codex-window">
       <div class="dashboard-codex-window-head">
-        <span>${title}</span>
+        <span class="dashboard-codex-window-title">${icon}<span>${title}</span></span>
         <strong>${percentage ?? "--"}%</strong>
       </div>
       <small>${resetText}</small>
@@ -2318,44 +2367,24 @@ function primaryDeepSeekBalance(deepseek = statusData.deepseek) {
   return balances[0] || null;
 }
 
-function dashboardDeepSeekBalanceColumn() {
-  const deepseek = statusData.deepseek || {};
-  const balance = primaryDeepSeekBalance(deepseek);
-  const amount = balance
-    ? `${deepseekCurrencySymbol(balance.currency)}${formatDeepSeekBalance(balance)}`
-    : "¥--";
-  const meta = balance
-    ? "Available balance"
-    : deepseek.configured
-      ? "Balance unavailable"
-      : "Configure API key";
-  return `
-    <div class="dashboard-codex-window dashboard-deepseek-window">
-      <div class="dashboard-codex-window-head">
-        <span>DeepSeek API</span>
-        <strong>${amount}</strong>
-      </div>
-      <small>${meta}</small>
-    </div>`;
-}
-
 function dashboardCodexCard() {
   const windows = statusData.codex.windows || {};
   const fiveHour = windows.fiveHour || statusData.codex;
   const sevenDay = windows.sevenDay || {};
+  const supergrok = statusData.supergrok || mockStatus.supergrok;
   return `
     <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${moduleHealthAttributes("codex")}>
       <div class="dashboard-codex-header">
         <div class="card-icon codex-card-icon"><img src="../../assets/codex-icon.png" alt="" aria-hidden="true"></div>
         <div class="dashboard-codex-copy">
-          <strong>Codex Usage</strong>
+          <strong>Agent</strong>
           <small>${relativeUpdatedAt(statusData.codex.updatedAt)}</small>
         </div>
       </div>
       <div class="dashboard-codex-windows">
-        ${dashboardCodexRow("5 hours", fiveHour)}
-        ${dashboardCodexRow("1 week", sevenDay)}
-        ${dashboardDeepSeekBalanceColumn()}
+        ${dashboardCodexRow("Codex · 5 hours", fiveHour, { icon: openaiBrandIcon })}
+        ${dashboardCodexRow("Codex · 7d", sevenDay, { icon: openaiBrandIcon })}
+        ${dashboardCodexRow("SuperGrok · 7d", supergrok, { icon: grokBrandIcon })}
       </div>
     </article>`;
 }
@@ -2875,8 +2904,26 @@ function dashboardContent(section) {
     </div>`;
 
   const content = {
-    Dashboard: `${modulePageHeader({ title: `Good afternoon, ${statusData.github.name}`, description: "Your live workspace status at a glance." })}${cards}`,
+    Dashboard: `${modulePageHeader({
+      title: `Good afternoon, ${statusData.github.name}`,
+      description: "Your live workspace status at a glance.",
+      className: "dashboard-page-heading",
+      actions: `<div class="dashboard-heading-actions">
+        <button
+          class="refresh-button module-refresh-button dashboard-refresh-button ${dashboardRefreshInFlight ? "refreshing" : ""}"
+          id="refresh-dashboard"
+          type="button"
+          aria-label="刷新仪表盘数据"
+          ${dashboardRefreshInFlight ? "disabled" : ""}
+        >
+          ${refreshIcon}
+          <span>${dashboardRefreshInFlight ? "刷新中" : "刷新"}</span>
+        </button>
+      </div>`
+    })}${cards}`,
     GitHub: githubContent(),
+    Agent: codexContent(),
+    // Backward-compat for any stale section value before the Agent rename.
     Codex: codexContent(),
     Mail: mailContent(),
     Notifications: notificationContent(),
@@ -2930,7 +2977,7 @@ function dashboardContent(section) {
         <h2>DeepSeek</h2>
         <form class="settings-panel weather-settings-panel" id="deepseek-settings-form">
           <fieldset>
-            <legend><strong>DeepSeek API</strong><small>用于在 Codex 模块中读取账户余额</small></legend>
+            <legend><strong>DeepSeek API</strong><small>用于在 Agent 模块中读取账户余额</small></legend>
             <label>
               <span><strong>API Key</strong><small>仅保存在本地设备中，留空保持原值</small></span>
               <input id="deepseek-api-key" type="password" autocomplete="off">
@@ -2999,134 +3046,120 @@ function usageWindowCard(title, data) {
     </article>`;
 }
 
+function formatDeepSeekTokenCount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return number.toLocaleString("en-US");
+}
+
+function deepseekTokenTotals(deepseek = statusData.deepseek) {
+  const tokenUsage = deepseek?.tokenUsage || {};
+  const sumUsage = (usage = {}) => {
+    const total = Number(usage.totalTokens);
+    if (Number.isFinite(total)) return total;
+    return ["cacheHitTokens", "cacheMissTokens", "inputTokens", "outputTokens"]
+      .map((key) => Number(usage[key]) || 0)
+      .reduce((sum, value) => sum + value, 0);
+  };
+  return {
+    today: sumUsage(tokenUsage.today),
+    total: sumUsage(tokenUsage.total)
+  };
+}
+
+function deepseekCompactSection() {
+  const deepseek = statusData.deepseek || {};
+  const balance = primaryDeepSeekBalance(deepseek);
+  const amount = balance
+    ? `${deepseekCurrencySymbol(balance.currency)}${formatDeepSeekBalance(balance)}`
+    : "¥--";
+  const tokens = deepseekTokenTotals(deepseek);
+  const deepseekActive = deepseek.status === "Normal";
+  const balanceMeta = balance
+    ? (deepseekActive ? "API 正常 · 自动刷新 60s" : `状态 ${deepseek.status || "未知"}`)
+    : deepseek.configured
+      ? "余额暂不可用，请检查 API 配置"
+      : "请先在设置中配置 API Key";
+  return `
+    <section class="codex-usage-panel deepseek-usage-panel">
+      <div class="codex-panel-title">
+        <div>${deepseekBrandIcon}<h2>DeepSeek</h2></div>
+        <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
+      </div>
+      <div class="usage-window-grid deepseek-compact-grid">
+        <article class="usage-window-card deepseek-compact-card">
+          <span>可用余额</span>
+          <strong class="deepseek-balance-value">${amount}</strong>
+          <small>${balanceMeta}</small>
+        </article>
+        <article class="usage-window-card deepseek-compact-card">
+          <span>今日 Token</span>
+          <strong>${formatDeepSeekTokenCount(tokens.today)}</strong>
+          <small>应用累计 · ${formatDeepSeekTokenCount(tokens.total)}</small>
+        </article>
+      </div>
+      <div class="deepseek-panel-footer ${deepseekActive ? "" : "inactive"}">
+        <span></span>Status: API ${deepseekActive ? "active" : "inactive"} · Last sync ${relativeUpdatedAt(deepseek.updatedAt)}
+      </div>
+    </section>`;
+}
+
+function superGrokUsageSection() {
+  const supergrok = statusData.supergrok || mockStatus.supergrok;
+  const tier = supergrok.subscriptionTier ? ` · ${escapeHtml(supergrok.subscriptionTier)}` : "";
+  const statusLabel = supergrok.status === "Normal"
+    ? "active"
+    : supergrok.status === "Cached"
+      ? "cached"
+      : "unavailable";
+  const hint = supergrok.status === "Unavailable" && supergrok.raw
+    ? `<small class="supergrok-hint">${escapeHtml(supergrok.raw)}</small>`
+    : "";
+  return `
+    <section class="codex-usage-panel supergrok-usage-panel">
+      <div class="codex-panel-title">
+        <div>${grokBrandIcon}<h2>SuperGrok</h2></div>
+        <span class="codex-update">${relativeUpdatedAt(supergrok.updatedAt)}</span>
+      </div>
+      <div class="usage-window-grid usage-window-grid-single">
+        ${usageWindowCard("7d", supergrok)}
+      </div>
+      ${hint}
+      <div class="codex-cli-status ${supergrok.status === "Normal" || supergrok.status === "Cached" ? "" : "inactive"}">
+        <span></span>Status: Grok Build ${statusLabel}${tier}
+      </div>
+    </section>`;
+}
+
 function codexContent() {
   const windows = statusData.codex.windows || {};
   const fiveHour = windows.fiveHour || statusData.codex;
   const sevenDay = windows.sevenDay;
-  const deepseek = statusData.deepseek || {};
-  const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
-  const tokenUsage = deepseek.tokenUsage || {};
-  const tokenNumber = (value) => {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
-  };
-  const tokenValue = (value, unit = true) => {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return "--";
-    return `${number.toLocaleString("en-US")}${unit ? " tokens" : ""}`;
-  };
-  const tokenPercent = (value, total) => total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
-  const tokenBreakdown = (usage = {}) => {
-    const rows = [
-      { key: "cache-hit", label: "缓存输入", value: tokenNumber(usage.cacheHitTokens) },
-      { key: "cache-miss", label: "未缓存输入", value: tokenNumber(usage.cacheMissTokens) },
-      { key: "output", label: "输出", value: tokenNumber(usage.outputTokens) }
-    ];
-    const total = tokenNumber(usage.totalTokens) || rows.reduce((sum, row) => sum + row.value, 0);
-    return { rows, total };
-  };
-  const todayBreakdown = tokenBreakdown(tokenUsage.today);
-  const totalBreakdown = tokenBreakdown(tokenUsage.total);
-  const estimateLevel = todayBreakdown.total > 2_000_000 ? "高" : todayBreakdown.total > 1_000_000 ? "中" : "低";
-  const tokenRows = todayBreakdown.rows.map((row) => `
-        <div class="deepseek-token-row">
-          <div class="deepseek-token-row-head">
-            <span>${row.label}</span>
-            <strong>${tokenValue(row.value)}</strong>
-            <em>${tokenPercent(row.value, todayBreakdown.total).toFixed(1)}%</em>
-          </div>
-          <div class="deepseek-row-track ${row.key}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${tokenPercent(row.value, todayBreakdown.total).toFixed(1)}">
-            <span data-progress-value="${tokenPercent(row.value, todayBreakdown.total).toFixed(1)}"></span>
-          </div>
-        </div>`).join("");
-  const tokenPanel = `
-    <div class="deepseek-token-panel">
-      <header>
-        <span>Token 用量</span>
-        <small>今日</small>
-      </header>
-      <div class="deepseek-token-stats">
-        <div><span>今日总量</span><strong>${tokenValue(todayBreakdown.total, false)}</strong><small>tokens</small></div>
-        <div><span>应用累计</span><strong>${tokenValue(totalBreakdown.total, false)}</strong><small>tokens</small></div>
-        <div><span>预计消耗</span><strong>${estimateLevel}</strong></div>
-      </div>
-      <div class="deepseek-token-rows">${tokenRows}</div>
-    </div>`;
-  const deepseekActive = deepseek.status === "Normal";
-  const deepseekStatusText = deepseekActive ? "DeepSeek API 正常" : `DeepSeek API ${deepseek.status || "未配置"}`;
-  const walletIcon = `
-    <svg class="deepseek-wallet-icon" viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M8 17.5h30.5A5.5 5.5 0 0 1 44 23v14a5.5 5.5 0 0 1-5.5 5.5h-25A7.5 7.5 0 0 1 6 35V13a7.5 7.5 0 0 1 7.5-7.5H34a4 4 0 0 1 4 4v8" />
-      <path d="M8 17.5a7.5 7.5 0 0 1 7.5-7.5H38" />
-      <path d="M31 28.5h13" />
-    </svg>`;
-  const balanceCards = balances.length
-    ? balances.map((balance) => `
-        <article class="deepseek-balance-card">
-          <div class="deepseek-balance-metric deepseek-wallet-metric">
-            <div class="deepseek-wallet-heading">
-              <span>可用余额</span>
-              <small>Available balance</small>
-            </div>
-            <div class="deepseek-wallet-balance">
-              <strong><span>${deepseekCurrencySymbol(balance.currency)}</span>${formatDeepSeekBalance(balance)}</strong>
-            </div>
-            <div class="deepseek-wallet-art">${walletIcon}</div>
-            <div class="deepseek-health-pill ${deepseekActive ? "" : "inactive"}"><i></i>${deepseekStatusText}</div>
-            <div class="deepseek-auto-refresh">自动刷新 · 60s</div>
-          </div>
-          ${tokenPanel}
-        </article>`).join("")
-    : `<article class="deepseek-balance-card">
-        <div class="deepseek-balance-metric deepseek-wallet-metric">
-          <div class="deepseek-wallet-heading">
-            <span>可用余额</span>
-            <small>Available balance</small>
-          </div>
-          <div class="deepseek-wallet-balance">
-            <strong><span>¥</span>--</strong>
-          </div>
-          <div class="deepseek-wallet-art">${walletIcon}</div>
-          <div class="deepseek-health-pill inactive"><i></i>${deepseekStatusText}</div>
-          <div class="deepseek-auto-refresh">
-            ${deepseek.configured ? "余额暂不可用，请检查 API 配置" : "请先在设置中配置 DeepSeek API Key"}
-          </div>
-        </div>
-        ${tokenPanel}
-      </article>`;
-  const deepseekFooter = `
-    <div class="deepseek-panel-footer ${deepseekActive ? "" : "inactive"}">
-      <span></span>Status: API ${deepseekActive ? "active" : "inactive"} · Last sync ${relativeUpdatedAt(deepseek.updatedAt)}
-    </div>`;
   return `
     <div data-module-id="codex" ${moduleHealthAttributes("codex")}>
     ${modulePageHeader({
-      title: "剩余用量",
-      description: "查看 Codex 使用窗口、CLI 状态与 DeepSeek API 余额。",
+      title: "Agent 用量",
+      description: "查看 Codex、DeepSeek 与 SuperGrok 用量窗口。",
       className: "codex-page-header"
     })}
     <section class="codex-usage-panel">
       <div class="codex-panel-title">
-        <div>${codexIcon}<h2>Codex Usage</h2></div>
+        <div>${openaiBrandIcon}<h2>Codex</h2></div>
         <span class="codex-update">${relativeUpdatedAt(statusData.codex.updatedAt)}</span>
       </div>
       <div class="usage-window-grid">
         ${usageWindowCard("5-hour window", fiveHour)}
-        ${usageWindowCard("7-day window", sevenDay)}
+        ${usageWindowCard("7d", sevenDay)}
       </div>
       <div class="codex-cli-status"><span></span>Status: Codex CLI ${statusData.codex.status === "Unavailable" ? "unavailable" : "active"}</div>
     </section>
-    <section class="codex-usage-panel deepseek-usage-panel">
-      <div class="codex-panel-title">
-        <div><span class="deepseek-mark" aria-hidden="true"></span><h2>DeepSeek Balance</h2></div>
-        <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
-      </div>
-      <div class="usage-window-grid deepseek-balance-grid">${balanceCards}</div>
-      ${deepseekFooter}
-    </section></div>`;
+    ${deepseekCompactSection()}
+    ${superGrokUsageSection()}
+    </div>`;
 }
 
 function renderMain() {
+  if (currentSection === "Codex") currentSection = "Agent";
   const previousMainContent = document.querySelector(".main-content");
   const previousScrollPosition = previousMainContent
     ? { top: previousMainContent.scrollTop, left: previousMainContent.scrollLeft }
@@ -3178,7 +3211,7 @@ function renderMain() {
           </div>
           <nav>${sections.map((item) => {
             const label = sectionLabels.get(item) || item;
-            return `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${escapeHtml(label)}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Codex" ? sidebarCodexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherIconMarkup() : "⚙"}</i><span class="nav-label">${escapeHtml(label)}</span></button>`;
+            return `<button class="${item === currentSection ? "active" : ""}" data-section="${item}" title="${escapeHtml(label)}"><i>${item === "Dashboard" ? dashboardIcon : item === "GitHub" ? githubIcon : item === "Agent" ? sidebarCodexIcon : item === "Mail" ? mailIcon : item === "Notifications" ? notificationIcon : item === "Heart" ? "♥" : item === "QWeather" ? qweatherIconMarkup() : "⚙"}</i><span class="nav-label">${escapeHtml(label)}</span></button>`;
           }).join("")}</nav>
           <div class="sidebar-footer">
             <button class="sidebar-settings ${currentSection === "Settings" ? "active" : ""}" data-section="Settings" title="Settings" aria-label="设置">
@@ -3226,6 +3259,7 @@ function renderMain() {
       bindWeatherSettings();
       bindWeatherLocationSettings();
       bindDeepSeekSettings();
+      bindDashboardControls();
       bindGithubControls();
       bindQWeatherUsageControls();
       bindMailControls();
@@ -3263,6 +3297,7 @@ function renderMain() {
   bindWeatherSettings();
   bindWeatherLocationSettings();
   bindDeepSeekSettings();
+  bindDashboardControls();
   bindGithubControls();
   bindQWeatherUsageControls();
   bindMailControls();
@@ -3330,6 +3365,7 @@ function updateMainStatusDom(moduleIds = null) {
     if (structureChanged) {
       bindAvatarFallbacks(pageContent);
       bindWeatherIconFallbacks(pageContent);
+      bindDashboardControls();
       if (requested.includes("github")) bindGithubControls();
       if (requested.includes("weather")) bindQWeatherUsageControls();
       if (requested.includes("mail")) bindMailControls();
@@ -3350,6 +3386,7 @@ function updateMainStatusDom(moduleIds = null) {
     if (scrollPosition) mainContent.scrollTo(scrollPosition);
     bindAvatarFallbacks(pageContent);
     bindWeatherIconFallbacks(pageContent);
+    bindDashboardControls();
     bindGithubControls();
     bindQWeatherUsageControls();
     bindMailControls();
@@ -3373,6 +3410,7 @@ function updateMainStatusDom(moduleIds = null) {
   if (structureChanged) {
     bindAvatarFallbacks(pageContent);
     bindWeatherIconFallbacks(pageContent);
+    bindDashboardControls();
     bindGithubControls();
     bindQWeatherUsageControls();
     bindMailControls();
@@ -3400,7 +3438,7 @@ function updateFloatingStatusDom(moduleIds = null) {
               <span class="github-summary">GitHub</span>
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
-              ${sidebarCodexIcon}<span class="module-label">Codex</span>
+              ${sidebarCodexIcon}<span class="module-label">Agent</span>
               ${progressBar(statusData.codex.remainingPct, "usage-track")}
               <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
               ${quotaStatusLamp(statusData.codex.remainingPct)}
@@ -4203,9 +4241,10 @@ async function hydrateQWeatherUsage() {
   }
 }
 
-async function hydrateNotifications() {
+async function hydrateNotifications(options = {}) {
+  const force = Boolean(options?.force);
   try {
-    notificationSummary = await window.winplate.getNotifications();
+    notificationSummary = await window.winplate.getNotifications({ force });
     updateNotificationAcknowledgement();
     await hydrateNotificationDigest();
   } catch (error) {
@@ -4366,29 +4405,50 @@ function updateMaximizeButton() {
   button.querySelector("span")?.classList.toggle("restore-icon", mainWindowMaximized);
 }
 
-async function refreshBackendStatus() {
+async function refreshBackendStatus({ force = false } = {}) {
   const weatherVersionAtRequest = weatherUpdateVersion;
-  const incomingStatus = await window.winplate.getStatus();
-  const incomingWeather = weatherVersionAtRequest === weatherUpdateVersion
-    ? incomingStatus.weather
-    : statusData.weather;
+  let forcedWeather = null;
+  if (force && moduleEnabled("weather")) {
+    try {
+      forcedWeather = window.winplate.refreshWeather
+        ? await window.winplate.refreshWeather()
+        : await refreshLocalJson("/api/weather/refresh", "天气刷新");
+    } catch (error) {
+      console.warn("Forced weather refresh failed; falling back to status:", error.message);
+    }
+  }
+  const incomingStatus = await window.winplate.getStatus({ force });
+  const incomingWeather = forcedWeather
+    || (weatherVersionAtRequest === weatherUpdateVersion
+      ? incomingStatus.weather
+      : statusData.weather);
   statusData = {
     ...statusData,
     heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
     weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
   };
-  await hydrateWeatherAlerts();
+  if (force && moduleEnabled("weather")) {
+    await refreshQWeatherAlerts();
+  } else {
+    await hydrateWeatherAlerts();
+  }
   await hydrateQWeatherUsage();
   updateCurrentViewDom(["weather", "heart"]);
-  if (statusData.weather?.source === "unavailable") {
+  if (moduleEnabled("weather") && statusData.weather?.source === "unavailable") {
     throw new Error(statusData.weather.error || "天气服务不可用");
   }
   return incomingStatus;
 }
 
 async function refreshGithubData({ force = false } = {}) {
+  if (force) {
+    githubContributionDetailCache.clear();
+    selectedContributionDate = null;
+  }
   const github = force
-    ? await refreshLocalJson("/api/github/refresh", "GitHub 刷新")
+    ? (window.winplate.refreshGithub
+      ? await window.winplate.refreshGithub()
+      : await refreshLocalJson("/api/github/refresh", "GitHub 刷新"))
     : (await window.winplate.getStatus()).github;
   statusData.github = normalizeGithub({
     ...github,
@@ -4425,10 +4485,32 @@ async function refreshDeepSeekData({ force = false } = {}) {
   return statusData.deepseek;
 }
 
+async function refreshSuperGrokData({ force = false } = {}) {
+  if (!window.winplate?.getSuperGrokUsage) {
+    statusData.supergrok = {
+      ...mockStatus.supergrok,
+      ...statusData.supergrok,
+      updatedAt: Date.now()
+    };
+    updateCurrentViewDom("codex");
+    return statusData.supergrok;
+  }
+  statusData.supergrok = {
+    ...mockStatus.supergrok,
+    ...statusData.supergrok,
+    ...await window.winplate.getSuperGrokUsage({ force })
+  };
+  updateCurrentViewDom("codex");
+  if (statusData.supergrok.status === "Unavailable") {
+    throw new Error(statusData.supergrok.raw || "Grok Build 用量不可用");
+  }
+  return statusData.supergrok;
+}
+
 async function refreshMailData({ force = false } = {}) {
   await hydrateMail({ force });
   updateCurrentViewDom("mail");
-  hydrateNotifications().then(() => {
+  hydrateNotifications({ force }).then(() => {
     updateCurrentViewDom("notifications");
   });
   if (mailOutline.availability === "unavailable") {
@@ -4437,8 +4519,15 @@ async function refreshMailData({ force = false } = {}) {
   return mailOutline;
 }
 
-async function refreshNotificationData() {
-  await hydrateNotifications();
+async function refreshNotificationData({ force = false } = {}) {
+  await hydrateNotifications({ force });
+  if (force && window.winplate?.refreshSmartBrief) {
+    try {
+      notificationDigest = await window.winplate.refreshSmartBrief();
+    } catch (error) {
+      console.warn("Smart brief force refresh failed:", error.message);
+    }
+  }
   updateCurrentViewDom("notifications");
   return notificationSummary;
 }
@@ -4475,6 +4564,7 @@ function registerRefreshTasks() {
   });
   refreshController.register({ id: "status", refresh: refreshBackendStatus });
   refreshController.register({ id: "deepseek", refresh: refreshDeepSeekData });
+  refreshController.register({ id: "supergrok", refresh: refreshSuperGrokData });
 }
 
 function configureRefreshTasks() {
@@ -4486,26 +4576,62 @@ function configureRefreshTasks() {
   refreshController.configure("status", { intervalMs: statusIntervals.length ? Math.min(...statusIntervals) * 1000 : 0 });
   refreshController.configure("codex", { intervalMs: moduleEnabled("codex") ? moduleRefreshSeconds("codex") * 1000 : 0 });
   refreshController.configure("deepseek", { intervalMs: moduleEnabled("codex") ? 60_000 : 0 });
+  refreshController.configure("supergrok", { intervalMs: moduleEnabled("codex") ? 60_000 : 0 });
   refreshController.configure("mail", { intervalMs: moduleEnabled("mail") ? moduleRefreshSeconds("mail") * 1000 : 0 });
   refreshController.configure("notifications", { intervalMs: moduleEnabled("notifications") ? moduleRefreshSeconds("notifications") * 1000 : 0 });
   refreshController.configure("network", { intervalMs: view === "floating" && moduleEnabled("network") ? moduleRefreshSeconds("network") * 1000 : 0 });
 }
 
-async function refreshStatus() {
+async function refreshStatus(options = {}) {
   if (view === "tooltip") return [];
   const ids = [];
   if (moduleEnabled("weather") || moduleEnabled("heart")) ids.push("status");
   if (moduleEnabled("github")) ids.push("github");
-  if (moduleEnabled("codex")) ids.push("codex", "deepseek");
+  if (moduleEnabled("codex")) ids.push("codex", "deepseek", "supergrok");
   if (moduleEnabled("mail")) ids.push("mail");
   if (moduleEnabled("notifications")) ids.push("notifications");
-  const results = await refreshController.refreshAll({ ids, reason: "status" });
+  const results = await refreshController.refreshAll({
+    ids,
+    force: Boolean(options.force),
+    reason: options.reason || "status"
+  });
 
   if (view === "floating") {
     updateFloatingStatusDom();
   } else {
     updateMainStatusDom();
   }
+  return results;
+}
+
+function bindDashboardControls() {
+  const refreshButton = document.querySelector("#refresh-dashboard");
+  if (!refreshButton) return;
+  refreshButton.onclick = async () => {
+    if (dashboardRefreshInFlight) return;
+    dashboardRefreshInFlight = true;
+    try {
+      updateMainStatusDom();
+      // Force-repull every enabled module: GitHub user data, Codex/DeepSeek usage,
+      // weather/heart status, mail outline, and notifications.
+      const results = await refreshStatus({ force: true, reason: "button" });
+      const failures = (results || []).filter((result) => result.status === "rejected");
+      if (failures.length) {
+        const firstError = failures[0]?.reason;
+        const message = firstError?.message || String(firstError || "部分模块刷新失败");
+        showRefreshNotice("error", "仪表盘刷新未完全成功", message);
+      } else {
+        showRefreshNotice("success", "仪表盘刷新成功", "已重新拉取 GitHub、Codex、天气等各板块最新数据。");
+      }
+    } catch (error) {
+      console.error("Dashboard refresh failed:", error);
+      showRefreshNotice("error", "仪表盘刷新失败", error.message || "请稍后重试。");
+    } finally {
+      dashboardRefreshInFlight = false;
+      resetRefreshButton("#refresh-dashboard");
+      updateMainStatusDom();
+    }
+  };
 }
 
 function applyNavigationPayload(value) {
