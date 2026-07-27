@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ServiceManagement
 import SwiftUI
+import WebKit
 
 struct MenuBarPopoverView: View {
     @EnvironmentObject private var state: AppState
@@ -508,8 +509,9 @@ private struct MailWorkspace: View {
             }
             List(state.mail.items) { item in
                 Button { state.openMail(item) } label: {
-                    HStack(alignment: .top, spacing: 12) { Circle().fill(item.unread ? Color.accentColor : Color.clear).frame(width: 8, height: 8).padding(.top, 5); VStack(alignment: .leading, spacing: 3) { Text(item.subject).lineLimit(1); Text(item.sender).font(.caption).foregroundStyle(.secondary); Text(item.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2) }; Spacer(); Text(Date(timeIntervalSince1970: TimeInterval(item.sentAt) / 1000).formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary) }
-                }.buttonStyle(.plain)
+                    MailOutlineRow(item: item)
+                }
+                .buttonStyle(.plain)
             }
             .overlay {
                 if state.mail.items.isEmpty {
@@ -521,6 +523,59 @@ private struct MailWorkspace: View {
                 }
             }
         }.padding(28)
+    }
+}
+
+private struct MailOutlineRow: View {
+    let item: MailItem
+
+    private var sentLabel: String {
+        guard item.sentAt > 0 else { return "未知时间" }
+        return Date(timeIntervalSince1970: TimeInterval(item.sentAt) / 1000)
+            .formatted(date: .abbreviated, time: .shortened)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(item.unread ? Color.accentColor : Color.clear)
+                .frame(width: 8, height: 8)
+                .padding(.top, 6)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(item.sender.isEmpty ? "未知发件人" : item.sender)
+                        .font(.subheadline.weight(item.unread ? .semibold : .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(item.subject.isEmpty ? "(无主题)" : item.subject)
+                        .font(.subheadline.weight(item.unread ? .semibold : .regular))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    Text(item.snippet.isEmpty ? "暂无可用摘要" : item.snippet)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(sentLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.sender)，\(item.subject)，\(item.snippet)")
     }
 }
 
@@ -601,7 +656,192 @@ struct NativeRefreshButton: View {
 
 private struct MailDetail: View {
     let message: MailMessage
-    var body: some View { VStack(alignment: .leading, spacing: 14) { Text(message.subject).font(.title2.bold()); Text(message.sender).foregroundStyle(.secondary); Divider(); ScrollView { Text(message.textBody.isEmpty ? "此邮件没有可显示的纯文本内容。" : message.textBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) } }.padding(24).frame(minWidth: 560, minHeight: 420) }
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(message.subject.isEmpty ? "(无主题)" : message.subject)
+                        .font(.title2.bold())
+                        .textSelection(.enabled)
+                    Text(message.sender.isEmpty ? "未知发件人" : message.sender)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button("关闭") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+
+            HStack(spacing: 16) {
+                if !message.to.isEmpty {
+                    labeledMeta(title: "收件人", value: message.to)
+                }
+                if !message.date.isEmpty {
+                    labeledMeta(title: "时间", value: message.date)
+                }
+                labeledMeta(title: "状态", value: message.unread ? "未读" : "已读")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Divider()
+
+            Group {
+                if message.hasHTMLBody {
+                    MailHTMLPreview(html: message.htmlBody)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                } else if message.textBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView(
+                        "没有可展示的正文",
+                        systemImage: "doc.text",
+                        description: Text("这封邮件没有 HTML 或纯文本内容。")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        Text(message.textBody)
+                            .font(.body)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 720, idealWidth: 860, minHeight: 520, idealHeight: 640)
+    }
+
+    private func labeledMeta(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+/// Renders email HTML while preserving embedded `<style>` / inline CSS.
+private struct MailHTMLPreview: NSViewRepresentable {
+    let html: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = false
+
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences = preferences
+        configuration.preferences.isTextInteractionEnabled = true
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        let document = Self.makePreviewDocument(from: html)
+        guard document != context.coordinator.lastDocument else { return }
+        context.coordinator.lastDocument = document
+        webView.loadHTMLString(document, baseURL: nil)
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var lastDocument = ""
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if navigationAction.navigationType == .other || navigationAction.navigationType == .reload {
+                decisionHandler(.allow)
+                return
+            }
+            if let url = navigationAction.request.url {
+                NSWorkspace.shared.open(url)
+            }
+            decisionHandler(.cancel)
+        }
+    }
+
+    static func makePreviewDocument(from rawHTML: String) -> String {
+        let baseCSS = """
+        html, body {
+          margin: 0;
+          min-width: 0;
+          background: #ffffff;
+          color: #111827;
+          color-scheme: light;
+        }
+        body {
+          padding: 16px 18px;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+        img, video { max-width: 100%; height: auto; }
+        table { max-width: 100%; border-collapse: collapse; }
+        pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
+        a { color: #2563eb; }
+        """
+
+        let trimmed = rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return """
+            <!doctype html><html><head><meta charset="utf-8"><style>\(baseCSS)</style></head><body></body></html>
+            """
+        }
+
+        let lower = trimmed.lowercased()
+        if lower.contains("<html") {
+            var document = trimmed
+            if let range = document.range(of: "</head>", options: [.caseInsensitive, .diacriticInsensitive]) {
+                document.insert(contentsOf: "<style>\(baseCSS)</style>", at: range.lowerBound)
+            } else if let range = document.range(of: "<body", options: [.caseInsensitive, .diacriticInsensitive]) {
+                document.insert(
+                    contentsOf: "<head><meta charset=\"utf-8\"><style>\(baseCSS)</style></head>",
+                    at: range.lowerBound
+                )
+            } else {
+                document = """
+                <!doctype html><html><head><meta charset="utf-8"><style>\(baseCSS)</style></head><body>\(document)</body></html>
+                """
+            }
+            if !document.lowercased().contains("charset") {
+                if let range = document.range(of: "<head>", options: [.caseInsensitive, .diacriticInsensitive]) {
+                    let insertAt = document.index(range.upperBound, offsetBy: 0)
+                    document.insert(contentsOf: "<meta charset=\"utf-8\">", at: insertAt)
+                }
+            }
+            return document
+        }
+
+        return """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>\(baseCSS)</style>
+        </head>
+        <body>\(trimmed)</body>
+        </html>
+        """
+    }
 }
 
 struct SettingsView: View {

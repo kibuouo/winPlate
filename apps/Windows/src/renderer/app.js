@@ -2398,9 +2398,11 @@ function twitchLogoDataUri() {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-function prepareMailHtml(body = "") {
+function processMailHtmlDocument(body = "") {
   const value = String(body || "");
-  if (typeof DOMParser === "undefined") return value;
+  if (typeof DOMParser === "undefined") {
+    return { styleBlocks: "", bodyHtml: value, bodyAttributes: "" };
+  }
   try {
     const document = new DOMParser().parseFromString(value, "text/html");
     document.querySelectorAll("img").forEach((image) => {
@@ -2418,10 +2420,29 @@ function prepareMailHtml(body = "") {
       image.referrerPolicy = "no-referrer";
       image.loading = "lazy";
     });
-    return document.body.innerHTML || value;
+
+    // Keep embedded CSS from <style> tags (head + body) so email layouts render correctly.
+    const styleBlocks = Array.from(document.querySelectorAll("style"))
+      .map((node) => node.outerHTML)
+      .join("\n");
+    document.querySelectorAll("style").forEach((node) => node.remove());
+
+    const bodyAttributes = Array.from(document.body?.attributes || [])
+      .map((attr) => `${attr.name}="${escapeHtml(attr.value)}"`)
+      .join(" ");
+
+    return {
+      styleBlocks,
+      bodyHtml: document.body?.innerHTML || value,
+      bodyAttributes
+    };
   } catch (error) {
-    return value;
+    return { styleBlocks: "", bodyHtml: value, bodyAttributes: "" };
   }
+}
+
+function prepareMailHtml(body = "") {
+  return processMailHtmlDocument(body).bodyHtml;
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -2472,21 +2493,15 @@ async function syncMailReadStateInBackground(uid, requestId) {
 }
 
 function mailIframeDocument(body = "", isPlainText = false) {
-  const content = isPlainText
-    ? `<pre class="mail-plain-text">${escapeHtml(body)}</pre>`
-    : prepareMailHtml(body);
-  return `<!doctype html>
+  if (isPlainText) {
+    return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src https: http: data: cid:;">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    html, body { margin: 0; min-width: 0; }
-    html, body { background: #fff; color: #111827; color-scheme: light; }
-    body { overflow-wrap: anywhere; }
-    img { max-width: 100%; height: auto; }
-    table { max-width: 100%; }
+    html, body { margin: 0; min-width: 0; background: #fff; color: #111827; color-scheme: light; }
     .mail-plain-text {
       margin: 0;
       padding: 18px 20px;
@@ -2497,7 +2512,29 @@ function mailIframeDocument(body = "", isPlainText = false) {
     }
   </style>
 </head>
-<body>${content}</body>
+<body><pre class="mail-plain-text">${escapeHtml(body)}</pre></body>
+</html>`;
+  }
+
+  const { styleBlocks, bodyHtml, bodyAttributes } = processMailHtmlDocument(body);
+  const bodyAttrMarkup = bodyAttributes ? ` ${bodyAttributes}` : "";
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; object-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src https: http: data: cid:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; min-width: 0; }
+    html, body { background: #fff; color: #111827; color-scheme: light; }
+    body { overflow-wrap: anywhere; word-break: break-word; }
+    img, video { max-width: 100%; height: auto; }
+    table { max-width: 100%; border-collapse: collapse; }
+    pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+  ${styleBlocks}
+</head>
+<body${bodyAttrMarkup}>${bodyHtml}</body>
 </html>`;
 }
 
@@ -2511,10 +2548,19 @@ function mailDetailBody(message = {}) {
   return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
 }
 
-function mailDetailDrawer() {
+function closeMailDetail() {
+  mailDetail = { open: false, loading: false, uid: null, requestId: null, message: null, error: "" };
+}
+
+function mailDetailSheet() {
   if (!mailDetail.open) return "";
   const message = mailDetail.message || {};
-  const title = mailDetail.loading ? "正在读取邮件..." : mailDetail.error ? "邮件读取失败" : message.subject || "邮件详情";
+  const subject = mailDetail.loading
+    ? "正在读取邮件..."
+    : mailDetail.error
+      ? "邮件读取失败"
+      : message.subject || "(无主题)";
+  const sender = message.from || message.sender || "";
   const body = mailDetail.loading
     ? `<div class="mail-detail-state">正在加载正文...</div>`
     : mailDetail.error
@@ -2528,30 +2574,42 @@ function mailDetailDrawer() {
         `).join("")}
       </div>`
     : "";
+  const meta = mailDetail.error || mailDetail.loading
+    ? ""
+    : `<div class="mail-detail-meta-inline">
+        ${sender ? `<div><span>发件人</span><strong>${escapeHtml(sender)}</strong></div>` : ""}
+        ${message.to ? `<div><span>收件人</span><strong>${escapeHtml(message.to)}</strong></div>` : ""}
+        <div><span>时间</span><strong>${escapeHtml(message.date || mailTimeLabel(message.sentAt))}</strong></div>
+        <div><span>状态</span><strong>${message.unread ? "未读" : "已读"}</strong></div>
+      </div>`;
   return `
-    <aside class="mail-detail-drawer" aria-label="邮件详情">
-      <header>
-        <div>
-          <span>邮件详情</span>
-          <h2>${escapeHtml(title)}</h2>
-        </div>
-        <button class="mail-detail-close" type="button" aria-label="关闭邮件详情">×</button>
-      </header>
-      ${mailDetail.error || mailDetail.loading ? "" : `
-        <dl class="mail-detail-meta">
-          <div><dt>发件人</dt><dd>${escapeHtml(message.from || message.sender || "")}</dd></div>
-          <div><dt>收件人</dt><dd>${escapeHtml(message.to || "")}</dd></div>
-          <div><dt>时间</dt><dd>${escapeHtml(message.date || mailTimeLabel(message.sentAt))}</dd></div>
-          <div><dt>状态</dt><dd>${message.unread ? "未读" : "已读"}</dd></div>
-        </dl>
-      `}
-      <section class="mail-detail-body">${body}</section>
-      ${attachments}
-      <footer>
-        <button class="mail-mark-read-button" type="button" disabled>${message.unread ? "标记已读" : "已读"}</button>
-        <button class="mail-open-external-button" type="button">在 QQ 邮箱中打开</button>
-      </footer>
-    </aside>`;
+    <div class="mail-detail-backdrop" data-mail-detail-backdrop>
+      <section
+        class="mail-detail-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mail-detail-title"
+        aria-label="邮件详情"
+      >
+        <header class="mail-detail-sheet-header">
+          <div class="mail-detail-sheet-heading">
+            <span>邮件详情</span>
+            <h2 id="mail-detail-title">${escapeHtml(subject)}</h2>
+            ${sender && !mailDetail.loading && !mailDetail.error
+              ? `<p class="mail-detail-sender">${escapeHtml(sender)}</p>`
+              : ""}
+          </div>
+          <button class="mail-detail-close" type="button" aria-label="关闭邮件详情">关闭</button>
+        </header>
+        ${meta}
+        <section class="mail-detail-body">${body}</section>
+        ${attachments}
+        <footer class="mail-detail-sheet-footer">
+          <button class="mail-mark-read-button" type="button" disabled>${message.unread ? "标记已读" : "已读"}</button>
+          <button class="mail-open-external-button" type="button">在 QQ 邮箱中打开</button>
+        </footer>
+      </section>
+    </div>`;
 }
 
 function notificationDetailValue(value) {
@@ -2633,14 +2691,19 @@ function mailItemCard(item) {
   const uid = item.uid || item.messageId || item.threadId || "";
   const labels = Array.isArray(item.labels) ? item.labels : [];
   const unread = item.unread || labels.includes("UNREAD");
+  const sender = item.sender || "未知发件人";
+  const subject = item.subject || "(无主题)";
+  const summary = item.summary || item.snippet || "暂无可用摘要";
   return `
     <article class="mail-outline-item ${unread ? "unread" : ""} ${String(uid) === String(mailHighlightedUid || "") ? "focused" : ""}">
-      <div class="mail-outline-meta">
-        <strong>${escapeHtml(item.sender)}</strong>
+      <div class="mail-outline-row">
+        <strong class="mail-outline-sender">${escapeHtml(sender)}</strong>
+        <h2 class="mail-outline-title">${escapeHtml(subject)}</h2>
+      </div>
+      <div class="mail-outline-summary-row">
+        <p class="mail-outline-summary">${escapeHtml(summary)}</p>
         <time>${mailTimeLabel(item.sentAt)}</time>
       </div>
-      <h2>${escapeHtml(item.subject)}</h2>
-      <p>${escapeHtml(item.summary || item.snippet || "暂无可用摘要")}</p>
       <footer>
         <button class="mail-open-button" type="button" data-mail-uid="${escapeHtml(uid)}" ${uid ? "" : "disabled"}>${escapeHtml(item.action || "查看")}</button>
         <div class="mail-labels">${mailLabelPills(labels)}</div>
@@ -2690,7 +2753,7 @@ function mailContent() {
       </div>
       ${stateNotice}
       ${list}
-      ${mailDetailDrawer()}
+      ${mailDetailSheet()}
     </section>`;
 }
 
@@ -3173,6 +3236,9 @@ function renderMain() {
   document.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextSection = button.dataset.section;
+      if (mailDetail.open && nextSection !== "Mail") {
+        closeMailDetail();
+      }
       const crossesSettingsWorkspace = (currentSection === "Settings") !== (nextSection === "Settings");
       if (crossesSettingsWorkspace) {
         currentSection = nextSection;
@@ -3634,6 +3700,7 @@ async function openMailDetail(uid, triggerButton = null) {
   mailHighlightedUid = uid;
   mailDetail = { open: true, loading: true, uid, requestId, message: null, error: "" };
   updateMainStatusDom();
+  queueMicrotask(() => document.querySelector(".mail-detail-close")?.focus?.());
   try {
     const message = await readMailMessageWithFallback(uid);
     if (mailDetail.requestId !== requestId) return;
@@ -3674,8 +3741,8 @@ async function handleMailPageClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target || !target.closest(".mail-page")) return;
 
-  if (target.closest(".mail-detail-close")) {
-    mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
+  if (target.closest(".mail-detail-close") || target.matches("[data-mail-detail-backdrop]")) {
+    closeMailDetail();
     updateMainStatusDom();
     return;
   }
@@ -4101,6 +4168,12 @@ function handleNotificationDocumentKeydown(event) {
     updateNotificationAcknowledgement();
     updateMainStatusDom();
     queueMicrotask(() => returnFocus?.focus?.());
+    return;
+  }
+  if (event.key === "Escape" && mailDetail.open) {
+    event.preventDefault();
+    closeMailDetail();
+    updateMainStatusDom();
     return;
   }
   if (event.key === "Escape" && notificationDrawerState.open) {

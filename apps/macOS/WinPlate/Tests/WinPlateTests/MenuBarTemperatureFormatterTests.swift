@@ -150,6 +150,49 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertFalse(result.connected)
     }
 
+    func testDecodesMailMessageWithHTMLBody() throws {
+        let payload = """
+        {
+          "uid": "42",
+          "from": "Alice <alice@example.com>",
+          "subject": "Weekly report",
+          "textBody": "Hello plain",
+          "htmlBody": "<html><head><style>.x{color:red}</style></head><body><p class=\\"x\\">Hello</p></body></html>",
+          "to": "me@example.com",
+          "date": "Mon, 27 Jul 2026 10:00:00 +0800",
+          "unread": true
+        }
+        """
+        let message = try JSONDecoder().decode(MailMessage.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(message.uid, "42")
+        XCTAssertEqual(message.sender, "Alice <alice@example.com>")
+        XCTAssertEqual(message.subject, "Weekly report")
+        XCTAssertEqual(message.textBody, "Hello plain")
+        XCTAssertTrue(message.hasHTMLBody)
+        XCTAssertTrue(message.htmlBody.contains(".x{color:red}"))
+        XCTAssertEqual(message.to, "me@example.com")
+        XCTAssertTrue(message.unread)
+    }
+
+    func testDecodesMailMessageWithoutHTMLBody() throws {
+        let payload = """
+        {
+          "uid": "7",
+          "sender": "Bob",
+          "subject": "Hi",
+          "textBody": "plain only",
+          "unread": false
+        }
+        """
+        let message = try JSONDecoder().decode(MailMessage.self, from: Data(payload.utf8))
+
+        XCTAssertEqual(message.sender, "Bob")
+        XCTAssertEqual(message.htmlBody, "")
+        XCTAssertFalse(message.hasHTMLBody)
+        XCTAssertEqual(message.textBody, "plain only")
+    }
+
     func testDecodesGitHubSnapshotWithHeatmapAndRepositories() throws {
         let payload = """
         {

@@ -675,8 +675,32 @@ struct MailMessage: Decodable {
     let sender: String
     let subject: String
     let textBody: String
+    let htmlBody: String
+    let to: String
+    let date: String
     let unread: Bool
-    enum CodingKeys: String, CodingKey { case uid, sender, subject, textBody, unread }
+
+    var hasHTMLBody: Bool {
+        !htmlBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        uid = try container.decodeIfPresent(String.self, forKey: .uid) ?? ""
+        sender = try container.decodeIfPresent(String.self, forKey: .sender)
+            ?? container.decodeIfPresent(String.self, forKey: .from)
+            ?? ""
+        subject = try container.decodeIfPresent(String.self, forKey: .subject) ?? "(无主题)"
+        textBody = try container.decodeIfPresent(String.self, forKey: .textBody) ?? ""
+        htmlBody = try container.decodeIfPresent(String.self, forKey: .htmlBody) ?? ""
+        to = try container.decodeIfPresent(String.self, forKey: .to) ?? ""
+        date = try container.decodeIfPresent(String.self, forKey: .date) ?? ""
+        unread = try container.decodeIfPresent(Bool.self, forKey: .unread) ?? false
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uid, sender, from, subject, textBody, htmlBody, to, date, unread
+    }
 }
 
 struct NotificationSummary: Decodable {
