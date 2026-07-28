@@ -1297,6 +1297,7 @@ function brandIconMarkup(name, className = "") {
 const openaiBrandIcon = brandIconMarkup("openai");
 const deepseekBrandIcon = brandIconMarkup("deepseek");
 const grokBrandIcon = brandIconMarkup("grok");
+const dashboardAgentIcon = '<img class="dashboard-agent-icon" src="../../assets/codex-icon.png" alt="" aria-hidden="true">';
 // Original sidebar / capsule glyph (unchanged by the Agent rename).
 const sidebarCodexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -2369,15 +2370,15 @@ function dashboardCodexCard() {
   return `
     <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${moduleHealthAttributes("codex")}>
       <div class="dashboard-codex-header">
-        <div class="card-icon codex-card-icon"><img src="../../assets/codex-icon.png" alt="" aria-hidden="true"></div>
+        <div class="card-icon codex-card-icon">${openaiBrandIcon}</div>
         <div class="dashboard-codex-copy">
           <strong>Agent</strong>
           <small>${relativeUpdatedAt(statusData.codex.updatedAt)}</small>
         </div>
       </div>
       <div class="dashboard-codex-windows">
-        ${dashboardCodexRow("Codex · 5 hours", fiveHour, { icon: openaiBrandIcon })}
-        ${dashboardCodexRow("Codex · 7d", sevenDay, { icon: openaiBrandIcon })}
+        ${dashboardCodexRow("Codex · 5 hours", fiveHour, { icon: dashboardAgentIcon })}
+        ${dashboardCodexRow("Codex · 7d", sevenDay, { icon: dashboardAgentIcon })}
         ${dashboardCodexRow("SuperGrok · 7d", supergrok, { icon: grokBrandIcon })}
       </div>
     </article>`;
