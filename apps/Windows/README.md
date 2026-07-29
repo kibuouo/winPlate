@@ -6,3 +6,20 @@ notification integration.
 
 macOS is implemented independently in `apps/macOS/WinPlate` with SwiftUI and
 AppKit. This workspace must not import or package macOS client code.
+
+## Installed application
+
+From the repository root, run:
+
+```powershell
+npm run windows:app
+```
+
+This command runs the Windows and backend tests, packages the FastAPI service
+as a standalone executable, builds a per-user NSIS installer, installs WinPlate
+at `%LOCALAPPDATA%\Programs\WinPlate\WinPlate.exe`, and verifies
+`http://127.0.0.1:8765/api/health`.
+
+Use the installed desktop or Start menu shortcut for normal use. `npm run dev`
+remains the development entry point. Settings and the SQLite database remain
+under the stable Electron user-data directory across application updates.

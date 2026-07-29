@@ -131,6 +131,10 @@ test("floating shell IPC handlers require the live floating-window sender", () =
   );
   assert.match(
     main,
+    /ipcMain\.handle\("floating:restore-capsule",\s*\(event\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?restoreFloatingCapsule\(\);[\s\S]*?\}\);/
+  );
+  assert.match(
+    main,
     /ipcMain\.on\("tooltip:show",\s*\(event,\s*payload\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?showTooltipWindow\(payload\);[\s\S]*?\}\);/
   );
   assert.match(

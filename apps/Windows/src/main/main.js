@@ -23,6 +23,7 @@ const {
   setQuitting,
   setFloatingPinned,
   setFloatingPinInteractive,
+  restoreFloatingCapsule,
   showTooltipWindow,
   hideTooltipWindow,
   setMainWindowTheme,
@@ -404,7 +405,7 @@ if (!gotLock) {
       await registerWindowsDesktopApp({
         app,
         shell,
-        iconPath: desktopIconPath
+        iconPath: app.isPackaged ? app.getPath("exe") : desktopIconPath
       });
     } catch (error) {
       console.warn("WinPlate desktop app registration skipped:", error.message);
@@ -553,6 +554,10 @@ if (!gotLock) {
       ipcMain.on("floating:pin-interactive", (event, value) => {
         requireFloatingWindowSender(event);
         setFloatingPinInteractive(value);
+      });
+      ipcMain.handle("floating:restore-capsule", (event) => {
+        requireFloatingWindowSender(event);
+        return restoreFloatingCapsule();
       });
       ipcMain.on("tooltip:show", (event, payload) => {
         requireFloatingWindowSender(event);

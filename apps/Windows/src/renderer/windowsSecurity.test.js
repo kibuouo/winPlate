@@ -31,6 +31,8 @@ test("preload exposes a Windows-only, narrow bridge", () => {
   assert.equal(windows.platform, "win32");
   assert.equal(unsupported.platform, "unsupported");
   assert.equal(typeof windows.setFloatingPinned, "function");
+  assert.equal(typeof windows.restoreFloatingCapsule, "function");
+  assert.equal(typeof windows.onFloatingDockState, "function");
   assert.equal(windows.getAppSettings, undefined);
   assert.equal(windows.saveAppSettings, undefined);
   assert.equal(windows.ipcRenderer, undefined);
@@ -56,6 +58,28 @@ test("renderer always renders the Windows titlebar and Windows platform class", 
   assert.match(source, /<header class="app-titlebar">/);
   assert.doesNotMatch(source, /applicationSettings|macApplicationSettingsSection|getAppSettings|saveAppSettings/);
   assert.doesNotMatch(source, /bindApplicationSettingsControls/);
+});
+
+test("top-docked floating view is a single frosted row with only requested controls", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const start = appSource.indexOf("function renderDockedFloating()");
+  const end = appSource.indexOf("function renderFloating()", start);
+  const dockedRenderer = appSource.slice(start, end);
+
+  assert.match(dockedRenderer, /docked-status-line/);
+  assert.match(dockedRenderer, /docked-weather/);
+  assert.match(dockedRenderer, /docked-usage/);
+  assert.match(dockedRenderer, /id="restore-capsule-button"/);
+  assert.match(dockedRenderer, /restore-capsule-icon-back/);
+  assert.match(dockedRenderer, /restore-capsule-icon-front/);
+  assert.match(dockedRenderer, /document\.onmousemove = null/);
+  assert.doesNotMatch(dockedRenderer, /id="pin-button"|github-module|notification-strip|heart-module|network-module|settings-button/);
+  assert.doesNotMatch(dockedRenderer, /<button class="docked-module/);
+  assert.match(styles, /\.docked-status-line\s*\{[\s\S]*?display:\s*flex/);
+  assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?backdrop-filter:\s*blur\(38px\)\s+saturate\(160%\)/);
+  assert.match(styles, /\.restore-capsule-icon-back\s*\{[\s\S]*?fill:\s*none/);
+  assert.match(styles, /\.restore-capsule-icon-front\s*\{[\s\S]*?fill:\s*none/);
 });
 
 test("renderer CSP allows only the intended external image capability", () => {

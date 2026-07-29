@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld("winplate", {
   ...(platform === "win32" ? {
     setFloatingPinned: (value) => ipcRenderer.invoke("floating:set-pinned", value),
     setFloatingPinInteractive: (value) => ipcRenderer.send("floating:pin-interactive", value),
+    restoreFloatingCapsule: () => ipcRenderer.invoke("floating:restore-capsule"),
+    onFloatingDockState: (callback) => ipcRenderer.on("floating:dock-state", (_event, state) => callback(state)),
     showTooltip: (payload) => ipcRenderer.send("tooltip:show", payload),
     hideTooltip: () => ipcRenderer.send("tooltip:hide"),
     onTooltipUpdate: (callback) => ipcRenderer.on("tooltip:update", (_event, data) => callback(data))

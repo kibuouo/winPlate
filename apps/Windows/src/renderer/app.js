@@ -34,6 +34,7 @@ let activeSettingsSection = "settings-appearance";
 let activeSettingsService = "settings-github";
 let currentSection = "Dashboard";
 let floatingPinned = false;
+let floatingDocked = false;
 let systemClockTimer = null;
 let tooltipHideTimer = null;
 let mainWindowMaximized = false;
@@ -1809,7 +1810,82 @@ function weatherDashboardCard() {
     </article>`;
 }
 
+function bindFloatingPinControls(pinButton) {
+  if (pinButton) {
+    pinButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      floatingPinned = !floatingPinned;
+      pinButton.classList.toggle("active", floatingPinned);
+      await window.winplate.setFloatingPinned(floatingPinned);
+
+      if (floatingPinned) {
+        window.winplate.setFloatingPinInteractive(true);
+      }
+    });
+  }
+
+  document.onmousemove = (event) => {
+    if (!floatingPinned) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const overFloatingControl = Boolean(target?.closest?.("#pin-button"));
+    window.winplate.setFloatingPinInteractive(overFloatingControl);
+  };
+
+  document.onmouseleave = () => {
+    if (floatingPinned) {
+      window.winplate.setFloatingPinInteractive(false);
+    }
+  };
+}
+
+function renderDockedFloating() {
+  const weather = statusData.weather || mockStatus.weather;
+  document.body.className = "floating-body floating-body-docked";
+  document.onmousemove = null;
+  document.onmouseleave = null;
+  appRoot.innerHTML = `
+    <main class="floating-shell floating-shell-docked" id="floating-shell" aria-label="WinPlate 顶部吸附栏">
+      <section class="status-capsule docked-capsule">
+        <div class="docked-status-line">
+          <div class="docked-module docked-weather" aria-label="天气">
+            ${weatherIconMarkup(weather.icon)}
+            <strong class="metric">${weather.temperature}°C</strong>
+            <span class="weather-condition">${weather.condition}</span>
+          </div>
+          <span class="docked-divider" aria-hidden="true"></span>
+          <div class="docked-module docked-usage" aria-label="Usage">
+            <span class="docked-usage-label">Usage</span>
+            ${progressBar(statusData.codex.remainingPct, "usage-track")}
+            <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
+          </div>
+          <span class="docked-divider" aria-hidden="true"></span>
+          <div class="docked-controls no-drag">
+            <button class="restore-capsule-button" id="restore-capsule-button" type="button" aria-label="恢复浮动胶囊" title="恢复胶囊">
+              <svg class="restore-capsule-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect class="restore-capsule-icon-back" x="8" y="4" width="12" height="12" rx="1.8"></rect>
+                <rect class="restore-capsule-icon-front" x="4" y="8" width="12" height="12" rx="1.8"></rect>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>`;
+  updateProgressBars(appRoot);
+  bindWeatherIconFallbacks(appRoot);
+
+  const restoreButton = document.querySelector("#restore-capsule-button");
+
+  restoreButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await window.winplate.restoreFloatingCapsule();
+  });
+}
+
 function renderFloating() {
+  if (floatingDocked) {
+    renderDockedFloating();
+    return;
+  }
   const weather = statusData.weather || mockStatus.weather;
   document.body.className = "floating-body";
   appRoot.innerHTML = `
@@ -1850,7 +1926,7 @@ function renderFloating() {
                 <span class="network-speed">${networkSpeedMarkup()}</span>
               </div>
               <div class="right-controls no-drag">
-                <button class="pin-button" id="pin-button" aria-label="Pin floating window" title="Pin / click-through">
+                <button class="pin-button${floatingPinned ? " active" : ""}" id="pin-button" aria-label="Pin floating window" title="Pin / click-through">
                   <svg class="pin-icon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M9 3h6v2l-1.4 1.4v4.8L18 15.6V17h-5v4h-2v-4H6v-1.4l4.4-4.4V6.4L9 5V3Z"></path>
                   </svg>
@@ -2012,34 +2088,7 @@ function renderFloating() {
     latency: formatLatency(networkSpeed.latencyMs)
   }));
 
-  pinButton.addEventListener("click", async (event) => {
-    event.stopPropagation();
-
-    floatingPinned = !floatingPinned;
-    pinButton.classList.toggle("active", floatingPinned);
-
-    await window.winplate.setFloatingPinned(floatingPinned);
-
-    // 刚点击后，鼠标仍在按钮上，所以保持按钮可点击
-    if (floatingPinned) {
-      window.winplate.setFloatingPinInteractive(true);
-    }
-  });
-
-  document.addEventListener("mousemove", (event) => {
-    if (!floatingPinned) return;
-
-    const target = document.elementFromPoint(event.clientX, event.clientY);
-    const overPin = Boolean(target?.closest?.("#pin-button"));
-
-    window.winplate.setFloatingPinInteractive(overPin);
-  });
-
-  document.addEventListener("mouseleave", () => {
-    if (floatingPinned) {
-      window.winplate.setFloatingPinInteractive(false);
-    }
-  });
+  bindFloatingPinControls(pinButton);
 }
 
 function bindNotificationStrip() {
@@ -3416,6 +3465,10 @@ function updateMainStatusDom(moduleIds = null) {
 }
 
 function updateFloatingStatusDom(moduleIds = null) {
+  if (floatingDocked) {
+    renderFloating();
+    return;
+  }
   const shell = document.querySelector("#floating-shell");
   if (!shell) {
     renderFloating();
@@ -4653,6 +4706,14 @@ Promise.all([hydrateAppearanceSettings(), hydrateQWeatherUsage()]).then(async ()
   return refreshStatus();
 });
 if (view !== "tooltip") {
+  if (view === "floating") {
+    window.winplate?.onFloatingDockState?.((state) => {
+      const nextDocked = Boolean(state?.docked);
+      if (nextDocked === floatingDocked) return;
+      floatingDocked = nextDocked;
+      renderFloating();
+    });
+  }
   window.winplate?.onNotificationDigestUpdated?.((digest) => {
     notificationDigest = digest || notificationDigest;
     updateCurrentViewDom("notifications");

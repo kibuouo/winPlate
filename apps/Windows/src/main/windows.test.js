@@ -3,6 +3,8 @@ const { EventEmitter } = require("node:events");
 const Module = require("node:module");
 const test = require("node:test");
 
+let fakeCursorPoint = { x: -1, y: -1 };
+
 class FakeWebContents extends EventEmitter {
   constructor() {
     super();
@@ -20,6 +22,9 @@ class FakeBrowserWindow extends EventEmitter {
     this.options = options;
     this.webContents = new FakeWebContents();
     this.backgroundColors = [];
+    this.moveTopCalls = 0;
+    this.ignoreMouseEvents = [];
+    this.bounds = { x: 0, y: 0, width: options.width, height: options.height };
   }
 
   isDestroyed() { return false; }
@@ -28,10 +33,12 @@ class FakeBrowserWindow extends EventEmitter {
   show() {}
   focus() {}
   hide() {}
-  setPosition() {}
-  setBounds() {}
+  setPosition(x, y) { this.bounds = { ...this.bounds, x, y }; }
+  setBounds(bounds) { this.bounds = { ...this.bounds, ...bounds }; }
+  getBounds() { return { ...this.bounds }; }
   setAlwaysOnTop() {}
-  setIgnoreMouseEvents() {}
+  moveTop() { this.moveTopCalls += 1; }
+  setIgnoreMouseEvents(ignore, options) { this.ignoreMouseEvents.push({ ignore, options }); }
 }
 
 function loadWindows() {
@@ -42,7 +49,8 @@ function loadWindows() {
         BrowserWindow: FakeBrowserWindow,
         screen: {
           getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
-          getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } })
+          getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+          getCursorScreenPoint: () => ({ ...fakeCursorPoint })
         }
       };
     }
@@ -85,4 +93,59 @@ test("showing the main window requests a full renderer refresh", () => {
     { channel: "main:navigate", payload: "GitHub" },
     { channel: "status:refresh", payload: null }
   ]);
+});
+
+test("floating window docks at the display top center and restores its capsule bounds", async () => {
+  const windows = loadWindows();
+  const window = windows.createFloatingWindow();
+
+  window.setBounds({ x: 640, y: 4, width: 460, height: 104 });
+  window.emit("move");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  assert.deepEqual(window.getBounds(), {
+    x: 764,
+    y: 0,
+    width: 392,
+    height: 58
+  });
+  assert.deepEqual(window.webContents.sent.at(-1), {
+    channel: "floating:dock-state",
+    payload: { docked: true }
+  });
+  assert.ok(window.moveTopCalls > 0);
+  assert.deepEqual(window.ignoreMouseEvents.at(-1), {
+    ignore: true,
+    options: { forward: true }
+  });
+
+  fakeCursorPoint = { x: 1130, y: 29 };
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.deepEqual(window.ignoreMouseEvents.at(-1), {
+    ignore: false,
+    options: { forward: true }
+  });
+
+  fakeCursorPoint = { x: 800, y: 29 };
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.deepEqual(window.ignoreMouseEvents.at(-1), {
+    ignore: true,
+    options: { forward: true }
+  });
+
+  assert.equal(windows.restoreFloatingCapsule(), false);
+  assert.deepEqual(window.getBounds(), {
+    x: 1428,
+    y: 80,
+    width: 460,
+    height: 104
+  });
+  assert.deepEqual(window.webContents.sent.at(-1), {
+    channel: "floating:dock-state",
+    payload: { docked: false }
+  });
+  assert.deepEqual(window.ignoreMouseEvents.at(-1), {
+    ignore: false,
+    options: { forward: true }
+  });
 });

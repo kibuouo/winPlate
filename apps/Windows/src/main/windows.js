@@ -14,6 +14,11 @@ const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
 const preloadPath = path.join(__dirname, "..", "preload", "preload.js");
 const iconPath = assetPath("icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
+const FLOATING_WINDOW_HEIGHT = 104;
+const FLOATING_DOCK_WIDTH = 392;
+const FLOATING_DOCK_HEIGHT = 58;
+const FLOATING_DOCK_THRESHOLD = 18;
+const FLOATING_RESTORE_HITBOX = { right: 8, top: 10, width: 36, height: 38 };
 // Taller to fit peer Codex + SuperGrok sections without clipping.
 const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
@@ -21,6 +26,12 @@ const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 const NOTIFICATION_TOOLTIP_SIZE = { width: 300, height: 216 };
 let floatingPinned = false;
+let floatingDocked = false;
+let floatingRestoreBounds = null;
+let floatingMoveTimer = null;
+let floatingTopmostTimer = null;
+let floatingInteractionTimer = null;
+let floatingDockControlInteractive = false;
 function isLiveNativeSurface(surface) {
   if (!surface) return false;
   try {
@@ -37,8 +48,7 @@ function setFloatingPinned(value) {
     return floatingPinned;
   }
 
-  // 置顶
-  floatingWindow.setAlwaysOnTop(true, "screen-saver");
+  enforceFloatingAlwaysOnTop();
 
   // pinned=true 时默认鼠标穿透
   floatingWindow.setIgnoreMouseEvents(floatingPinned, { forward: true });
@@ -47,12 +57,11 @@ function setFloatingPinned(value) {
 }
 
 function setFloatingPinInteractive(value) {
-  if (!floatingWindow || !floatingPinned) {
+  if (!floatingWindow || !floatingPinned || floatingDocked) {
     return;
   }
 
-  // 鼠标在 pin 按钮上：允许点击悬浮窗
-  // 鼠标不在 pin 按钮上：点击穿透到下面软件
+  // 置顶胶囊或顶部刘海只在指定控制按钮上临时接管鼠标。
   floatingWindow.setIgnoreMouseEvents(!value, { forward: true });
 }
 
@@ -65,10 +74,147 @@ function secureWebPreferences() {
   };
 }
 
-function positionFloatingWindow() {
-  const display = screen.getPrimaryDisplay();
+function enforceFloatingAlwaysOnTop() {
+  if (!isLiveNativeSurface(floatingWindow)) {
+    return;
+  }
+  if (typeof floatingWindow.isVisible === "function" && !floatingWindow.isVisible()) {
+    return;
+  }
+  floatingWindow.setAlwaysOnTop(true, "screen-saver", 1);
+  floatingWindow.moveTop?.();
+}
+
+function startFloatingTopmostWatchdog() {
+  clearInterval(floatingTopmostTimer);
+  floatingTopmostTimer = setInterval(enforceFloatingAlwaysOnTop, 1_000);
+  floatingTopmostTimer.unref?.();
+}
+
+function updateDockedFloatingInteraction() {
+  if (!isLiveNativeSurface(floatingWindow) || !floatingDocked) {
+    return;
+  }
+  const bounds = floatingWindow.getBounds();
+  const cursor = screen.getCursorScreenPoint();
+  const right = bounds.x + bounds.width - FLOATING_RESTORE_HITBOX.right;
+  const left = right - FLOATING_RESTORE_HITBOX.width;
+  const top = bounds.y + FLOATING_RESTORE_HITBOX.top;
+  const bottom = top + FLOATING_RESTORE_HITBOX.height;
+  const overRestore = cursor.x >= left
+    && cursor.x <= right
+    && cursor.y >= top
+    && cursor.y <= bottom;
+  if (overRestore === floatingDockControlInteractive) {
+    return;
+  }
+  floatingDockControlInteractive = overRestore;
+  floatingWindow.setIgnoreMouseEvents(!overRestore, { forward: true });
+}
+
+function startFloatingInteractionWatchdog() {
+  clearInterval(floatingInteractionTimer);
+  floatingInteractionTimer = setInterval(updateDockedFloatingInteraction, 60);
+  floatingInteractionTimer.unref?.();
+}
+
+function displayForFloatingBounds(bounds) {
+  return screen.getDisplayNearestPoint({
+    x: Math.round(bounds.x + bounds.width / 2),
+    y: Math.round(bounds.y + bounds.height / 2)
+  });
+}
+
+function defaultFloatingBounds(display = screen.getPrimaryDisplay()) {
   const { x, y, width } = display.workArea;
-  floatingWindow.setPosition(x + width - FLOATING_WINDOW_WIDTH - 32, y + 80);
+  return {
+    x: x + width - FLOATING_WINDOW_WIDTH - 32,
+    y: y + 80,
+    width: FLOATING_WINDOW_WIDTH,
+    height: FLOATING_WINDOW_HEIGHT
+  };
+}
+
+function positionFloatingWindow() {
+  floatingRestoreBounds = defaultFloatingBounds();
+  floatingWindow.setBounds(floatingRestoreBounds);
+}
+
+function notifyFloatingDockState() {
+  sendToWindow(floatingWindow, "floating:dock-state", { docked: floatingDocked });
+}
+
+function dockFloatingWindow() {
+  if (!isLiveNativeSurface(floatingWindow) || floatingDocked) {
+    return floatingDocked;
+  }
+
+  const currentBounds = floatingWindow.getBounds();
+  const { workArea } = displayForFloatingBounds(currentBounds);
+  floatingDocked = true;
+  floatingDockControlInteractive = false;
+  hideTooltipWindow();
+  floatingWindow.setBounds({
+    x: workArea.x + Math.round((workArea.width - FLOATING_DOCK_WIDTH) / 2),
+    y: workArea.y,
+    width: FLOATING_DOCK_WIDTH,
+    height: FLOATING_DOCK_HEIGHT
+  });
+  floatingWindow.setIgnoreMouseEvents(true, { forward: true });
+  enforceFloatingAlwaysOnTop();
+  notifyFloatingDockState();
+  return floatingDocked;
+}
+
+function clampFloatingRestoreBounds(bounds, workArea) {
+  const width = FLOATING_WINDOW_WIDTH;
+  const height = FLOATING_WINDOW_HEIGHT;
+  const minimumY = Math.min(workArea.y + 48, workArea.y + workArea.height - height);
+  return {
+    x: Math.max(workArea.x, Math.min(bounds.x, workArea.x + workArea.width - width)),
+    y: Math.max(minimumY, Math.min(bounds.y, workArea.y + workArea.height - height)),
+    width,
+    height
+  };
+}
+
+function restoreFloatingCapsule() {
+  if (!isLiveNativeSurface(floatingWindow)) {
+    return false;
+  }
+
+  const fallbackBounds = defaultFloatingBounds(displayForFloatingBounds(floatingWindow.getBounds()));
+  const targetBounds = floatingRestoreBounds || fallbackBounds;
+  const { workArea } = displayForFloatingBounds(targetBounds);
+  floatingDocked = false;
+  floatingDockControlInteractive = false;
+  floatingRestoreBounds = clampFloatingRestoreBounds(targetBounds, workArea);
+  floatingWindow.setBounds(floatingRestoreBounds);
+  floatingWindow.setIgnoreMouseEvents(floatingPinned, { forward: true });
+  enforceFloatingAlwaysOnTop();
+  notifyFloatingDockState();
+  return floatingDocked;
+}
+
+function handleFloatingWindowMove() {
+  if (!isLiveNativeSurface(floatingWindow) || floatingDocked) {
+    return;
+  }
+
+  clearTimeout(floatingMoveTimer);
+  floatingMoveTimer = setTimeout(() => {
+    if (!isLiveNativeSurface(floatingWindow) || floatingDocked) {
+      return;
+    }
+    const bounds = floatingWindow.getBounds();
+    const { workArea } = displayForFloatingBounds(bounds);
+    const offsetFromTop = bounds.y - workArea.y;
+    if (offsetFromTop >= -Math.round(bounds.height / 2) && offsetFromTop <= FLOATING_DOCK_THRESHOLD) {
+      dockFloatingWindow();
+      return;
+    }
+    floatingRestoreBounds = bounds;
+  }, 90);
 }
 
 function createFloatingWindow() {
@@ -76,7 +222,7 @@ function createFloatingWindow() {
 
   floatingWindow = new BrowserWindow({
     width: FLOATING_WINDOW_WIDTH,
-    height: 104,
+    height: FLOATING_WINDOW_HEIGHT,
     frame: false,
     transparent: true,
     resizable: false,
@@ -92,15 +238,37 @@ function createFloatingWindow() {
 
   floatingWindow.loadFile(rendererPath, { query: { view: "floating" } });
   floatingWindow.once("ready-to-show", () => {
-    if (isLiveNativeSurface(createdWindow)) createdWindow.show();
+    if (isLiveNativeSurface(createdWindow)) {
+      enforceFloatingAlwaysOnTop();
+      createdWindow.show();
+      enforceFloatingAlwaysOnTop();
+    }
+  });
+  floatingWindow.on("move", handleFloatingWindowMove);
+  floatingWindow.on("blur", enforceFloatingAlwaysOnTop);
+  floatingWindow.on("show", enforceFloatingAlwaysOnTop);
+  floatingWindow.on("always-on-top-changed", (_event, alwaysOnTop) => {
+    if (!alwaysOnTop) {
+      setImmediate(enforceFloatingAlwaysOnTop);
+    }
   });
   floatingWindow.on("closed", () => {
     if (floatingWindow === createdWindow) {
+      clearTimeout(floatingMoveTimer);
+      floatingMoveTimer = null;
+      clearInterval(floatingTopmostTimer);
+      floatingTopmostTimer = null;
+      clearInterval(floatingInteractionTimer);
+      floatingInteractionTimer = null;
       hideTooltipWindow();
       floatingWindow = null;
+      floatingDocked = false;
+      floatingRestoreBounds = null;
     }
   });
   positionFloatingWindow();
+  startFloatingTopmostWatchdog();
+  startFloatingInteractionWatchdog();
 
   return floatingWindow;
 }
@@ -350,6 +518,7 @@ function showFloatingWindow() {
     createFloatingWindow();
   } else {
     floatingWindow.show();
+    enforceFloatingAlwaysOnTop();
   }
 }
 
@@ -381,5 +550,6 @@ module.exports = {
   closeMainWindow,
   setFloatingPinned,
   setFloatingPinInteractive,
+  restoreFloatingCapsule,
   sendToWindow
 };
