@@ -16,9 +16,9 @@ const iconPath = assetPath("icon.ico");
 const FLOATING_WINDOW_WIDTH = 460;
 const FLOATING_WINDOW_HEIGHT = 104;
 const FLOATING_DOCK_WIDTH = 392;
-const FLOATING_DOCK_HEIGHT = 58;
+const FLOATING_DOCK_HEIGHT = 44;
 const FLOATING_DOCK_THRESHOLD = 18;
-const FLOATING_RESTORE_HITBOX = { right: 8, top: 10, width: 36, height: 38 };
+const FLOATING_RESTORE_HITBOX = { right: 10, top: 6, width: 32, height: 32 };
 // Taller to fit peer Codex + SuperGrok sections without clipping.
 const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };

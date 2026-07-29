@@ -107,7 +107,7 @@ test("floating window docks at the display top center and restores its capsule b
     x: 764,
     y: 0,
     width: 392,
-    height: 58
+    height: 44
   });
   assert.deepEqual(window.webContents.sent.at(-1), {
     channel: "floating:dock-state",

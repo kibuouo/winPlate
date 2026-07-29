@@ -93,19 +93,18 @@ html[data-theme="light"] .status-capsule {
 }
 
 .docked-capsule {
-  height: 58px;
-  padding: 0 14px;
+  height: 44px;
+  padding: 0 12px;
   overflow: hidden;
   border-top: 0;
-  border-radius: 0 0 26px 26px;
-  background:
-    linear-gradient(115deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .035) 38%, rgba(255, 255, 255, .08) 68%, rgba(8, 12, 20, .08)),
-    rgba(18, 22, 30, .58);
+  border-color: rgba(255, 255, 255, .12);
+  border-radius: 0 0 14px 14px;
+  background: rgba(20, 27, 36, .34);
   box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, .16),
-    inset 0 1px 0 rgba(255, 255, 255, .24);
-  backdrop-filter: blur(38px) saturate(160%);
-  -webkit-backdrop-filter: blur(38px) saturate(160%);
+    inset 0 -1px 0 rgba(255, 255, 255, .11),
+    inset 0 1px 0 rgba(255, 255, 255, .045);
+  backdrop-filter: blur(26px) saturate(135%);
+  -webkit-backdrop-filter: blur(26px) saturate(135%);
 }
 
 .docked-capsule::before {
@@ -114,29 +113,34 @@ html[data-theme="light"] .status-capsule {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: .78;
-  background:
-    linear-gradient(105deg, rgba(255, 255, 255, .16), transparent 28% 72%, rgba(255, 255, 255, .08));
+  background: rgba(255, 255, 255, .018);
 }
 
 .docked-capsule::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: auto 11px 0;
+  height: 1px;
   z-index: 0;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .14), transparent 38%),
-    radial-gradient(ellipse at 50% 110%, rgba(255, 255, 255, .07), transparent 60%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .1);
 }
 
 html[data-theme="light"] .docked-capsule {
-  background:
-    linear-gradient(115deg, rgba(255, 255, 255, .6), rgba(255, 255, 255, .16) 40%, rgba(214, 225, 239, .2)),
-    rgba(226, 233, 242, .48);
+  border-color: rgba(15, 23, 42, .11);
+  background: rgba(238, 243, 249, .36);
   box-shadow:
-    inset 0 -1px 0 rgba(15, 23, 42, .1),
-    inset 0 1px 0 rgba(255, 255, 255, .78);
+    inset 0 -1px 0 rgba(15, 23, 42, .08),
+    inset 0 1px 0 rgba(255, 255, 255, .26);
+}
+
+html[data-theme="light"] .docked-capsule::before {
+  background: rgba(255, 255, 255, .08);
+}
+
+html[data-theme="light"] .docked-capsule::after {
+  background: rgba(255, 255, 255, .24);
 }
 
 .docked-status-line {
@@ -147,20 +151,20 @@ html[data-theme="light"] .docked-capsule {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 5px;
   white-space: nowrap;
 }
 
 .docked-module {
   min-width: 0;
-  height: 34px;
-  padding: 0 7px;
+  height: 30px;
+  padding: 0 5px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   color: var(--capsule-text);
   border: 0;
-  border-radius: 12px;
+  border-radius: 9px;
   background: transparent;
 }
 
@@ -170,45 +174,126 @@ html[data-theme="light"] .docked-capsule {
 }
 
 .docked-weather {
-  flex: 0 1 112px;
+  flex: 0 1 104px;
+  padding-right: 2px;
 }
 
 .docked-weather .weather-icon {
-  width: 19px;
-  height: 19px;
+  width: 17px;
+  height: 17px;
 }
 
 .docked-weather .weather-condition {
-  max-width: 44px;
+  max-width: 40px;
+  color: color-mix(in srgb, var(--capsule-text-soft) 76%, transparent);
+  font-size: 10.5px;
 }
 
+.docked-weather .metric {
+  font-size: 11.5px;
+  font-weight: 680;
+}
+
+.docked-alert-slot {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--capsule-text-muted);
+  pointer-events: none;
+}
+
+.docked-alert-slot.is-empty {
+  visibility: hidden;
+}
+
+.docked-alert-slot .smart-notification-icon {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  filter: drop-shadow(0 1px 3px color-mix(in srgb, currentColor 24%, transparent));
+}
+
+.docked-alert-slot.alert-color-red { color: #fb7185; }
+.docked-alert-slot.alert-color-yellow { color: #fbbf24; }
+.docked-alert-slot.alert-color-blue { color: #60a5fa; }
+.docked-alert-slot.alert-color-green { color: #4ade80; }
+
 .docked-usage {
-  flex: 1 1 150px;
-  justify-content: center;
+  flex: 1 1 132px;
+  justify-content: flex-start;
+  padding-left: 3px;
+  padding-right: 3px;
 }
 
 .docked-usage-label {
   color: var(--capsule-text-soft);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 680;
-  letter-spacing: .02em;
+  letter-spacing: .015em;
 }
 
 .docked-usage .usage-track {
-  flex: 1 1 54px;
-  min-width: 42px;
-  max-width: 66px;
+  flex: 1 1 46px;
+  min-width: 32px;
+  max-width: 58px;
+  height: 3px;
 }
 
 .docked-usage .metric {
-  min-width: 32px;
+  min-width: 30px;
+  font-size: 11.5px;
+  font-weight: 680;
 }
 
 .docked-divider {
   flex: 0 0 1px;
   width: 1px;
-  height: 22px;
-  background: color-mix(in srgb, var(--capsule-border) 82%, transparent);
+  height: 16px;
+  background: color-mix(in srgb, var(--capsule-border) 68%, transparent);
+}
+
+.docked-mail-status {
+  position: relative;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--capsule-control);
+  background: transparent;
+  pointer-events: none;
+}
+
+.docked-mail-status .smart-notification-icon {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.docked-mail-unread-badge {
+  position: absolute;
+  top: 1px;
+  right: -3px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(20, 27, 36, .82);
+  border-radius: 999px;
+  color: #fff;
+  background: #3b82f6;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .22);
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+html[data-theme="light"] .docked-mail-unread-badge {
+  border-color: rgba(238, 243, 249, .9);
 }
 
 .docked-controls {
@@ -227,10 +312,10 @@ html[data-theme="light"] .docked-capsule {
 }
 
 .restore-capsule-icon {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   overflow: visible;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .18));
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .12));
 }
 
 .restore-capsule-icon-back {
@@ -245,6 +330,17 @@ html[data-theme="light"] .docked-capsule {
   stroke: currentColor;
   stroke-width: 1.45;
   opacity: .96;
+}
+
+.docked-capsule .restore-capsule-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .035);
+}
+
+html[data-theme="light"] .docked-capsule .restore-capsule-button {
+  background: rgba(15, 23, 42, .035);
 }
 
 .no-drag, .no-drag * { -webkit-app-region: no-drag; }

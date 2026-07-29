@@ -1838,8 +1838,53 @@ function bindFloatingPinControls(pinButton) {
   };
 }
 
+const DOCKED_ALERT_COLOR_RANK = Object.freeze({
+  red: 4,
+  yellow: 3,
+  blue: 2,
+  green: 1
+});
+
+function dockedWeatherAlertState(current = weatherAlerts, summary = notificationSummary) {
+  const alerts = Array.isArray(current?.alerts) ? current.alerts : [];
+  const items = Array.isArray(summary?.items) ? summary.items : [];
+  const inactiveLifecycles = new Set(["resolved", "cancelled", "ended"]);
+  return alerts
+    .filter((alert) => !inactiveLifecycles.has(String(alert?.lifecycle || "").toLowerCase()))
+    .map((alert) => {
+      const alertId = String(alert?.id || "");
+      const item = items.find((candidate) =>
+        candidate?.source === "qweather"
+        && (
+          String(candidate.sourceId || "") === alertId
+          || String(candidate.id || "") === `qweather:${alertId}`
+        )
+      );
+      return {
+        alert,
+        color: item ? window.WinPlateNotificationDigest.notificationAlertColor(item) : null
+      };
+    })
+    .sort((left, right) =>
+      (DOCKED_ALERT_COLOR_RANK[right.color] || 0) - (DOCKED_ALERT_COLOR_RANK[left.color] || 0)
+        || Number(right.alert.createdAt || 0) - Number(left.alert.createdAt || 0)
+    )[0] || null;
+}
+
+function dockedUnreadMailCount(outline = mailOutline) {
+  const items = Array.isArray(outline?.items) ? outline.items : [];
+  return items.filter((item) => {
+    const labels = Array.isArray(item?.labels) ? item.labels : [];
+    return Boolean(item?.unread) || labels.includes("UNREAD");
+  }).length;
+}
+
 function renderDockedFloating() {
   const weather = statusData.weather || mockStatus.weather;
+  const weatherAlert = dockedWeatherAlertState();
+  const weatherAlertColorClass = weatherAlert?.color ? ` alert-color-${weatherAlert.color}` : "";
+  const unreadMailCount = dockedUnreadMailCount();
+  const unreadMailLabel = unreadMailCount > 99 ? "99+" : String(unreadMailCount);
   document.body.className = "floating-body floating-body-docked";
   document.onmousemove = null;
   document.onmouseleave = null;
@@ -1852,6 +1897,10 @@ function renderDockedFloating() {
             <strong class="metric">${weather.temperature}°C</strong>
             <span class="weather-condition">${weather.condition}</span>
           </div>
+          <span class="docked-alert-slot${weatherAlert ? weatherAlertColorClass : " is-empty"}"
+            ${weatherAlert ? `aria-label="${escapeHtml(weatherAlert.alert.title || "天气预警")}"` : 'aria-hidden="true"'}>
+            ${weatherAlert ? window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("alert-triangle") : ""}
+          </span>
           <span class="docked-divider" aria-hidden="true"></span>
           <div class="docked-module docked-usage" aria-label="Usage">
             <span class="docked-usage-label">Usage</span>
@@ -1859,6 +1908,10 @@ function renderDockedFloating() {
             <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
           </div>
           <span class="docked-divider" aria-hidden="true"></span>
+          <span class="docked-mail-status" aria-label="${unreadMailCount ? `${unreadMailCount} 封未读邮件` : "无未读邮件"}">
+            ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("mail")}
+            ${unreadMailCount ? `<span class="docked-mail-unread-badge">${unreadMailLabel}</span>` : ""}
+          </span>
           <div class="docked-controls no-drag">
             <button class="restore-capsule-button" id="restore-capsule-button" type="button" aria-label="恢复浮动胶囊" title="恢复胶囊">
               <svg class="restore-capsule-icon" viewBox="0 0 24 24" aria-hidden="true">
