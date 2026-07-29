@@ -2527,9 +2527,9 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-timeline-main .notification-source { color: var(--text-soft); font-size: 10px; font-weight: 700; }
 .notification-timeline-main .notification-source::after { margin: 0 6px 0 4px; content: "·"; }
 .notification-timeline-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.notification-timeline-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.notification-timeline-title .unread-badge { color: var(--accent); font-size: 10px; font-style: normal; font-weight: 800; }
-.notification-timeline-title .notification-update-count { padding: 1px 5px; color: var(--text-soft); border-radius: 999px; background: var(--surface-muted); font-size: 10px; font-style: normal; font-weight: 750; white-space: nowrap; }
+.notification-timeline-title strong { min-width: 0; flex: 1 1 auto; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.notification-timeline-title .unread-badge { flex: 0 0 auto; color: var(--accent); font-size: 10px; font-style: normal; font-weight: 800; white-space: nowrap; }
+.notification-timeline-title .notification-update-count { flex: 0 0 auto; padding: 1px 5px; color: var(--text-soft); border-radius: 999px; background: var(--surface-muted); font-size: 10px; font-style: normal; font-weight: 750; white-space: nowrap; }
 .notification-timeline-main p { margin: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .notification-timeline-meta { display: grid; grid-template-columns: 56px 74px 60px; align-items: center; justify-content: end; gap: 10px; color: var(--text-soft); font-size: 12px; white-space: nowrap; }
 .notification-timeline-meta time { font-variant-numeric: tabular-nums; text-align: right; }

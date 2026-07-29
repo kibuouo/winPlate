@@ -76,3 +76,17 @@ test("red-alert acknowledgement consumes the manager contract", () => {
     meta: { alertColor: "red", lifecycle: "resolved" }
   }), false);
 });
+
+test("long notification titles truncate before fixed status badges", () => {
+  const styles = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  const titleRule = styles.match(/\.notification-timeline-title strong \{([^}]*)\}/)?.[1] || "";
+  const unreadRule = styles.match(/\.notification-timeline-title \.unread-badge \{([^}]*)\}/)?.[1] || "";
+  const updateRule = styles.match(/\.notification-timeline-title \.notification-update-count \{([^}]*)\}/)?.[1] || "";
+
+  assert.match(titleRule, /min-width:\s*0/);
+  assert.match(titleRule, /flex:\s*1 1 auto/);
+  assert.match(titleRule, /text-overflow:\s*ellipsis/);
+  assert.match(unreadRule, /flex:\s*0 0 auto/);
+  assert.match(unreadRule, /white-space:\s*nowrap/);
+  assert.match(updateRule, /flex:\s*0 0 auto/);
+});
