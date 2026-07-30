@@ -1879,8 +1879,8 @@ html[data-theme="light"] .weather-forecast-icon {
 .weather-settings-panel legend { width: 100%; box-sizing: border-box; display: grid; gap: 5px; padding: 18px 22px 12px; border-bottom: 1px solid var(--border); }
 .weather-settings-panel legend strong { font-size: 14px; }
 .weather-settings-panel legend small { font-size: 11px; font-weight: 400; }
-.weather-settings-panel label { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 48%); align-items: center; gap: 32px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
-.weather-settings-panel label > span { min-width: 0; }
+.weather-settings-panel label { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 48%); align-items: center; gap: 32px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+.weather-settings-panel label > * { min-width: 0; }
 .weather-settings-panel input, .weather-settings-panel textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; color: var(--text); border: 1px solid var(--border-strong); border-radius: 9px; outline: none; background: var(--surface); font: inherit; resize: vertical; }
 .weather-settings-panel input:focus, .weather-settings-panel textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 .weather-settings-actions { display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; }
