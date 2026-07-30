@@ -60,6 +60,15 @@ test("renderer always renders the Windows titlebar and Windows platform class", 
   assert.doesNotMatch(source, /bindApplicationSettingsControls/);
 });
 
+test("SuperGrok renders the remaining quota derived from Grok usage", () => {
+  const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(source, /usageRow\("7d", supergrok\)/);
+  assert.match(source, /dashboardCodexRow\("SuperGrok · 7d", supergrok, \{ icon: grokBrandIcon \}\)/);
+  assert.match(source, /usageWindowCard\("7d", supergrok\)/);
+  assert.match(source, /const percentage = normalizePercent\(usage\?\.remainingPct\)/);
+});
+
 test("top-docked floating view is a single frosted row with only requested controls", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");

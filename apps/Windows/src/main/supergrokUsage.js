@@ -137,7 +137,10 @@ function readGrokAuth(home = resolveGrokHome()) {
     const selected = entries[0];
     if (!selected) return { error: "Grok Build session missing; run `grok login`" };
     if (selected.expiresMs != null && selected.expiresMs <= Date.now()) {
-      return { error: "Grok Build login expired; run `grok login`" };
+      return {
+        error: "Grok Build login expired; run `grok login`",
+        refreshable: Boolean(selected.entry.refresh_token)
+      };
     }
     return {
       token: selected.entry.key.trim(),
@@ -167,13 +170,20 @@ function parseBillingConfig(config, {
     return unavailableUsage("Failed to parse Grok Build billing response");
   }
 
-  const usedPct = clampPercent(config.creditUsagePercent);
+  // Grok Build omits creditUsagePercent for a fresh period with no history.
+  // Its TUI renders that shape as "Weekly limit: 0%", i.e. 0% used.
+  const usedPct = config.creditUsagePercent == null && Number(config.historyLen) === 0
+    ? 0
+    : clampPercent(config.creditUsagePercent);
   if (usedPct === null) {
     return unavailableUsage("Grok Build weekly usage percentage unavailable");
   }
   const remainingPct = 100 - usedPct;
   const periodEnd = config.currentPeriod?.end || config.billingPeriodEnd || null;
   const resetAt = periodEnd ? Date.parse(periodEnd) : NaN;
+  if (Number.isFinite(resetAt) && resetAt <= now) {
+    return unavailableUsage("Grok Build billing period has ended; refresh Grok Build or run `grok login`");
+  }
   const periodStart = config.currentPeriod?.start || config.billingPeriodStart || null;
   let windowDays = 7;
   if (periodStart && Number.isFinite(resetAt)) {
@@ -197,6 +207,33 @@ function parseBillingConfig(config, {
     status: "Normal",
     raw: ""
   };
+}
+
+function hasActiveUsagePeriod(usage, now = Date.now()) {
+  return !Number.isFinite(usage?.resetAt) || usage.resetAt > now;
+}
+
+function refreshGrokAuth(launch, { spawnImpl = spawn, timeoutMs = READ_TIMEOUT_MS } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const proc = spawnImpl(launch.command, [...launch.args, "models"], {
+      shell: launch.shell,
+      windowsHide: true,
+      stdio: "ignore"
+    });
+    const timer = setTimeout(() => {
+      proc.kill();
+      finish();
+    }, timeoutMs);
+    proc.on("error", finish);
+    proc.on("exit", finish);
+  });
 }
 
 function parseBillingResponse(payload, now = Date.now()) {
@@ -446,9 +483,13 @@ async function fetchBillingJson(token, { fetchImpl = null, now = Date.now() } = 
   return unavailableUsage(errors.filter(Boolean).join(" | ") || "Failed to read Grok Build billing");
 }
 
-async function spawnGrokUsage({ fetchImpl = null, now = Date.now() } = {}) {
+async function spawnGrokUsage({ fetchImpl = null, now = Date.now(), refreshAuth = refreshGrokAuth } = {}) {
   const launch = resolveGrokLaunch();
-  const auth = readGrokAuth(launch.home);
+  let auth = readGrokAuth(launch.home);
+  if (auth.error && auth.refreshable) {
+    await refreshAuth(launch);
+    auth = readGrokAuth(launch.home);
+  }
 
   // Network-first when logged in.
   if (!auth.error) {
@@ -478,11 +519,11 @@ async function spawnGrokUsage({ fetchImpl = null, now = Date.now() } = {}) {
 }
 
 async function readSuperGrokUsage(options = {}) {
-  const { force = false, now = Date.now(), fetchImpl = null } = options;
+  const { force = false, now = Date.now(), fetchImpl = null, refreshAuth = refreshGrokAuth } = options;
   const cacheTtl = cachedUsage?.status === "Normal" || cachedUsage?.status === "Cached"
     ? SUCCESS_CACHE_TTL_MS
     : FAILURE_CACHE_TTL_MS;
-  if (!force && cachedUsage && now - cachedAt < cacheTtl) {
+  if (!force && cachedUsage && hasActiveUsagePeriod(cachedUsage, now) && now - cachedAt < cacheTtl) {
     if ((cachedUsage.status === "Normal" || cachedUsage.status === "Cached") && cachedUsage.resetAt) {
       return {
         ...cachedUsage,
@@ -494,7 +535,7 @@ async function readSuperGrokUsage(options = {}) {
   }
   if (pendingRead) return pendingRead;
 
-  pendingRead = spawnGrokUsage({ fetchImpl, now })
+  pendingRead = spawnGrokUsage({ fetchImpl, now, refreshAuth })
     .catch((error) => unavailableUsage(error.message || "Grok Build usage failed"))
     .then((usage) => {
       cachedAt = Date.now();
@@ -503,7 +544,7 @@ async function readSuperGrokUsage(options = {}) {
         cachedUsage = usage;
         return usage;
       }
-      if (lastSuccessfulUsage) {
+      if (lastSuccessfulUsage && hasActiveUsagePeriod(lastSuccessfulUsage, now)) {
         cachedUsage = {
           ...lastSuccessfulUsage,
           source: `${lastSuccessfulUsage.source}-cache`,

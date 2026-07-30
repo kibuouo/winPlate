@@ -42,10 +42,46 @@ test("parseBillingResponse maps SuperGrok weekly credit usage", () => {
   assert.equal(usage.resetText, "16h 56m");
 });
 
+test("parseBillingResponse treats Grok's no-history period as zero used", () => {
+  const now = Date.parse("2026-07-30T06:30:00.000Z");
+  const usage = parseBillingResponse({
+    subscriptionTier: "SuperGrok",
+    config: {
+      historyLen: 0,
+      currentPeriod: {
+        type: "USAGE_PERIOD_TYPE_WEEKLY",
+        start: "2026-07-28T04:55:52.954563+00:00",
+        end: "2026-08-04T04:55:52.954563+00:00"
+      }
+    }
+  }, now);
+
+  assert.equal(usage.status, "Normal");
+  assert.equal(usage.usedPct, 0);
+  assert.equal(usage.remainingPct, 100);
+  assert.equal(usage.resetText, "4d 22h");
+});
+
 test("parseBillingResponse returns unavailable without percentage", () => {
   const usage = parseBillingResponse({ config: {} });
   assert.equal(usage.status, "Unavailable");
   assert.equal(usage.remainingPct, null);
+});
+
+test("parseBillingResponse rejects a completed billing period", () => {
+  const usage = parseBillingResponse({
+    config: {
+      creditUsagePercent: 100,
+      currentPeriod: {
+        type: "USAGE_PERIOD_TYPE_WEEKLY",
+        start: "2026-07-21T04:55:52.954563+00:00",
+        end: "2026-07-28T04:55:52.954563+00:00"
+      }
+    }
+  }, Date.parse("2026-07-30T12:00:00.000Z"));
+
+  assert.equal(usage.status, "Unavailable");
+  assert.match(usage.raw, /period has ended/);
 });
 
 test("readUsageFromGrokLogs parses latest billing config line", () => {
@@ -133,6 +169,115 @@ test("readSuperGrokUsage falls back to Grok Build logs when network fails", asyn
     assert.equal(usage.source, "grok-build-log");
     assert.equal(usage.usedPct, 72);
     assert.equal(usage.remainingPct, 28);
+  } finally {
+    if (previousHome === undefined) delete process.env.GROK_HOME;
+    else process.env.GROK_HOME = previousHome;
+    clearSuperGrokUsageCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("readSuperGrokUsage does not retain a completed period after a refresh failure", async () => {
+  clearSuperGrokUsageCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "winplate-supergrok-period-"));
+  const now = Date.now();
+  const resetAt = now + 60_000;
+  fs.writeFileSync(
+    path.join(directory, "auth.json"),
+    JSON.stringify({
+      "https://auth.x.ai::test": {
+        key: "test-session-token",
+        auth_mode: "oidc",
+        expires_at: new Date(now + 60 * 60_000).toISOString()
+      }
+    }),
+    "utf8"
+  );
+  const previousHome = process.env.GROK_HOME;
+  process.env.GROK_HOME = directory;
+  try {
+    const current = await readSuperGrokUsage({
+      force: true,
+      now,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          config: {
+            creditUsagePercent: 100,
+            currentPeriod: { start: new Date(now - 6 * 24 * 60 * 60_000).toISOString(), end: new Date(resetAt).toISOString() }
+          }
+        })
+      })
+    });
+    assert.equal(current.remainingPct, 0);
+
+    const afterReset = await readSuperGrokUsage({
+      force: true,
+      now: resetAt + 1,
+      fetchImpl: async () => {
+        throw new Error("fetch failed");
+      }
+    });
+    assert.equal(afterReset.status, "Unavailable");
+    assert.notEqual(afterReset.status, "Cached");
+  } finally {
+    if (previousHome === undefined) delete process.env.GROK_HOME;
+    else process.env.GROK_HOME = previousHome;
+    clearSuperGrokUsageCache();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("readSuperGrokUsage silently refreshes an expired Grok Build access token", async () => {
+  clearSuperGrokUsageCache();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "winplate-supergrok-refresh-"));
+  const now = Date.now();
+  const scope = "https://auth.x.ai::test";
+  const writeAuth = (entry) => fs.writeFileSync(
+    path.join(directory, "auth.json"),
+    JSON.stringify({ [scope]: entry }),
+    "utf8"
+  );
+  writeAuth({
+    key: "expired-access-token",
+    refresh_token: "refresh-token",
+    auth_mode: "oidc",
+    expires_at: new Date(now - 60_000).toISOString()
+  });
+  const previousHome = process.env.GROK_HOME;
+  process.env.GROK_HOME = directory;
+  try {
+    let refreshes = 0;
+    const usage = await readSuperGrokUsage({
+      force: true,
+      now,
+      refreshAuth: async () => {
+        refreshes += 1;
+        writeAuth({
+          key: "refreshed-access-token",
+          refresh_token: "rotated-refresh-token",
+          auth_mode: "oidc",
+          expires_at: new Date(now + 60 * 60_000).toISOString()
+        });
+      },
+      fetchImpl: async (_url, options) => {
+        assert.equal(options.headers.Authorization, "Bearer refreshed-access-token");
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            config: {
+              creditUsagePercent: 0,
+              currentPeriod: { start: new Date(now).toISOString(), end: new Date(now + 6 * 24 * 60 * 60_000).toISOString() }
+            }
+          })
+        };
+      }
+    });
+    assert.equal(refreshes, 1);
+    assert.equal(usage.status, "Normal");
+    assert.equal(usage.remainingPct, 100);
   } finally {
     if (previousHome === undefined) delete process.env.GROK_HOME;
     else process.env.GROK_HOME = previousHome;

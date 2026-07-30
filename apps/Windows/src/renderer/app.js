@@ -2224,9 +2224,7 @@ function renderTooltip(data = {}) {
     const weekly = windows.sevenDay || {};
     const supergrok = data.supergrok || {};
     const usageRow = (title, usage) => {
-      const percentage = Number.isFinite(usage?.remainingPct)
-        ? Math.max(0, Math.min(100, usage.remainingPct))
-        : null;
+      const percentage = normalizePercent(usage?.remainingPct);
       return `
         <div class="usage-compact-row">
           <span class="compact-title">${title}</span>
