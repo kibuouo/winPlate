@@ -95,9 +95,13 @@ test("showing the main window requests a full renderer refresh", () => {
   ]);
 });
 
-test("floating window docks at the display top center and restores its capsule bounds", async () => {
+test("floating window is keyboard-inert, resists accidental close, docks, and restores its capsule bounds", async () => {
   const windows = loadWindows();
   const window = windows.createFloatingWindow();
+  assert.equal(window.options.focusable, false);
+  let closePrevented = false;
+  window.emit("close", { preventDefault() { closePrevented = true; } });
+  assert.equal(closePrevented, true);
 
   window.setBounds({ x: 640, y: 4, width: 460, height: 104 });
   window.emit("move");

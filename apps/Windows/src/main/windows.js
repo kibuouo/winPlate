@@ -227,6 +227,10 @@ function createFloatingWindow() {
     transparent: true,
     resizable: false,
     movable: true,
+    // The floating capsule is a pointer-only status surface. Keeping it out of
+    // the keyboard focus chain prevents close accelerators such as Alt+F4 from
+    // reaching it while it is in click-through mode.
+    focusable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
@@ -251,6 +255,11 @@ function createFloatingWindow() {
     if (!alwaysOnTop) {
       setImmediate(enforceFloatingAlwaysOnTop);
     }
+  });
+  floatingWindow.on("close", (event) => {
+    // The capsule/notch is persistent UI, not a separately closable document.
+    // Only the explicit application quit flow may close its native window.
+    if (!quitting) event.preventDefault();
   });
   floatingWindow.on("closed", () => {
     if (floatingWindow === createdWindow) {

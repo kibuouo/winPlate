@@ -139,6 +139,16 @@ test("top-docked status derives alert color and unread mail from source-owned st
   }), 2);
 });
 
+test("scheduled mail refreshes force an IMAP pull instead of rereading the outline cache", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const start = appSource.indexOf("async function refreshMailData(");
+  const end = appSource.indexOf("function moduleHealthMessage", start);
+  const refreshMailData = appSource.slice(start, end);
+
+  assert.match(refreshMailData, /hydrateMail\(\{\s*force:\s*true\s*\}\)/);
+  assert.doesNotMatch(refreshMailData, /hydrateMail\(\{\s*force\s*\}\)/);
+});
+
 test("renderer CSP allows only the intended external image capability", () => {
   const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
   assert.match(html, /img-src[^;]*https:/);

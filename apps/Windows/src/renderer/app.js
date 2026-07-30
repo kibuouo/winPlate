@@ -4609,7 +4609,11 @@ async function refreshSuperGrokData({ force = false } = {}) {
 }
 
 async function refreshMailData({ force = false } = {}) {
-  await hydrateMail({ force });
+  // Unlike the other status modules, the non-forced mail endpoint intentionally
+  // returns its SQLite outline cache. A scheduled mail refresh must therefore
+  // use the IMAP refresh endpoint too; otherwise new messages appear only
+  // after the user presses the manual refresh button.
+  await hydrateMail({ force: true });
   updateCurrentViewDom("mail");
   hydrateNotifications({ force }).then(() => {
     updateCurrentViewDom("notifications");
