@@ -23,9 +23,6 @@ function defaultSettings() {
     },
     integrations: {
       github: { username: "kibuouo" }
-    },
-    notificationDigest: {
-      enabled: true
     }
   };
 }
@@ -59,9 +56,6 @@ function normalizeSettings(value = {}, fallback = defaultSettings()) {
   const github = source.integrations?.github && typeof source.integrations.github === "object"
     ? source.integrations.github
     : {};
-  const digest = source.notificationDigest && typeof source.notificationDigest === "object"
-    ? source.notificationDigest
-    : {};
   const username = String(github.username || fallback.integrations.github.username || "kibuouo").trim();
 
   return {
@@ -94,13 +88,6 @@ function normalizeSettings(value = {}, fallback = defaultSettings()) {
           ? username
           : fallback.integrations.github.username
       }
-    },
-    notificationDigest: {
-      enabled: digest.privacyMode === "local-only"
-        ? false
-        : typeof digest.enabled === "boolean"
-          ? digest.enabled
-          : fallback.notificationDigest.enabled
     }
   };
 }

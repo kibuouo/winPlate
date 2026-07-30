@@ -110,8 +110,7 @@ let appSettings = {
     order: [...moduleDefinitions].sort((a, b) => a.defaultOrder - b.defaultOrder).map((module) => module.id),
     refreshSeconds: Object.fromEntries(moduleDefinitions.map((module) => [module.id, module.defaultRefreshSeconds]))
   },
-  integrations: { github: { username: "kibuouo", hasToken: false } },
-  notificationDigest: { enabled: true }
+  integrations: { github: { username: "kibuouo", hasToken: false } }
 };
 const refreshController = window.WinPlateRefresh.createRefreshController({
   onHealthChange: (taskId, health) => {
@@ -491,7 +490,6 @@ function updateSettingsServiceStatus(service, text) {
 }
 
 function productSettingsPanel() {
-  const digest = appSettings.notificationDigest || {};
   const ordered = window.WinPlateModuleRegistry.orderedModules(appSettings.modules.order);
   return `
     <form class="settings-panel product-settings-panel" id="product-settings-form">
@@ -505,11 +503,7 @@ function productSettingsPanel() {
         </div>
       </fieldset>
       <fieldset>
-        <legend><strong>智能通知摘要</strong><small>本地规则始终保留，AI 不可用时自动降级</small></legend>
-        <label>
-          <span><strong>启用 AI 摘要</strong><small>关闭后仅使用本地分级、去重和聚合</small></span>
-          <input id="notification-ai-enabled" type="checkbox" ${digest.enabled ? "checked" : ""}>
-        </label>
+        <legend><strong>通知摘要</strong><small>始终使用本地规则自动分级、去重和聚合</small></legend>
       </fieldset>
       <div class="product-settings-actions">
         <small id="product-settings-status">配置保存在当前 Windows 用户目录</small>
@@ -555,10 +549,7 @@ function bindProductSettings() {
     ]));
     const nextSettings = {
       ...appSettings,
-      modules: { ...appSettings.modules, enabled },
-      notificationDigest: {
-        enabled: form.querySelector("#notification-ai-enabled").checked
-      }
+      modules: { ...appSettings.modules, enabled }
     };
     try {
       appSettings = await window.winplate.saveSettings(nextSettings);
@@ -807,42 +798,19 @@ async function bindDeepSeekSettings() {
   if (!form) return;
   const keyInput = form.querySelector("#deepseek-api-key");
   const status = form.querySelector("#deepseek-settings-status");
-  const chatStatus = form.querySelector("#deepseek-chat-status");
   const button = form.querySelector("button[type='submit']");
-  const testButton = form.querySelector("#deepseek-test-chat");
   const setStatus = (text, className = "") => {
     status.textContent = `DeepSeek API：${text}`;
     status.className = className;
   };
-  const setChatStatus = (text, className = "") => {
-    if (!chatStatus) return;
-    chatStatus.textContent = `AI 调用：${text}`;
-    chatStatus.className = className;
-  };
   try {
     deepseekSettings = await window.winplate.getDeepSeekSettings();
-    keyInput.placeholder = deepseekSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
+    keyInput.placeholder = deepseekSettings.hasApiKey ? "已配置，重新填写可覆盖" : "请输入 API Key";
     updateSettingsServiceStatus("deepseek", deepseekSettings.hasApiKey ? "已配置" : "未配置");
     setStatus(deepseekSettings.hasApiKey ? "已配置" : "未配置", deepseekSettings.hasApiKey ? "configured" : "");
-    setChatStatus(deepseekSettings.hasApiKey ? "可测试" : "未配置", deepseekSettings.hasApiKey ? "" : "error");
   } catch {
     updateSettingsServiceStatus("deepseek", "读取失败");
     setStatus("读取失败", "error");
-    setChatStatus("读取失败", "error");
-  }
-  if (testButton) {
-    testButton.onclick = async () => {
-      testButton.disabled = true;
-      setChatStatus("测试中...");
-      try {
-        const result = await window.winplate.testDeepSeekChat();
-        setChatStatus(result?.message || "AI 调用正常", "configured");
-      } catch (error) {
-        setChatStatus(error.message || "测试失败", "error");
-      } finally {
-        testButton.disabled = false;
-      }
-    };
   }
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -854,14 +822,13 @@ async function bindDeepSeekSettings() {
         baseUrl: deepseekSettings.baseUrl
       });
       keyInput.value = "";
-      keyInput.placeholder = "已配置，留空则保持不变";
+      keyInput.placeholder = "已配置，重新填写可覆盖";
       updateSettingsServiceStatus("deepseek", deepseekSettings.hasApiKey ? "已配置" : "未配置");
       statusData.deepseek = await window.winplate.getDeepSeekUsage({ force: true });
       setStatus(
         statusData.deepseek.status === "Normal" ? "已配置，余额读取正常" : "已保存，余额暂不可用",
         statusData.deepseek.status === "Normal" ? "configured" : "error"
       );
-      setChatStatus("可测试");
     } catch (error) {
       setStatus(error.message || "保存失败", "error");
     } finally {
@@ -2728,7 +2695,7 @@ function notificationDrawer() {
     return `
       <aside id="notification-digest-drawer" class="notification-detail-drawer" role="dialog" aria-modal="true" aria-label="通知摘要">
         <header>
-          <div><span>智能摘要</span><h2>${escapeHtml(digest.headline)}</h2></div>
+          <div><span>通知摘要</span><h2>${escapeHtml(digest.headline)}</h2></div>
           <button class="notification-detail-close" type="button" aria-label="关闭通知摘要">×</button>
         </header>
         <section class="notification-detail-content">${list}</section>
@@ -3081,10 +3048,7 @@ function dashboardContent(section) {
           <div class="weather-settings-actions">
             <div class="weather-settings-statuses">
               <small id="deepseek-settings-status">DeepSeek API：正在读取...</small>
-              <small id="deepseek-chat-status">AI 调用：正在读取...</small>
-              <small class="configured">智能通知：开启</small>
             </div>
-            <button type="button" id="deepseek-test-chat">测试 AI 调用</button>
             <button type="submit">保存配置</button>
           </div>
         </form>
@@ -3141,34 +3105,12 @@ function usageWindowCard(title, data) {
     </article>`;
 }
 
-function formatDeepSeekTokenCount(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "--";
-  return number.toLocaleString("en-US");
-}
-
-function deepseekTokenTotals(deepseek = statusData.deepseek) {
-  const tokenUsage = deepseek?.tokenUsage || {};
-  const sumUsage = (usage = {}) => {
-    const total = Number(usage.totalTokens);
-    if (Number.isFinite(total)) return total;
-    return ["cacheHitTokens", "cacheMissTokens", "inputTokens", "outputTokens"]
-      .map((key) => Number(usage[key]) || 0)
-      .reduce((sum, value) => sum + value, 0);
-  };
-  return {
-    today: sumUsage(tokenUsage.today),
-    total: sumUsage(tokenUsage.total)
-  };
-}
-
 function deepseekCompactSection() {
   const deepseek = statusData.deepseek || {};
   const balance = primaryDeepSeekBalance(deepseek);
   const amount = balance
     ? `${deepseekCurrencySymbol(balance.currency)}${formatDeepSeekBalance(balance)}`
     : "¥--";
-  const tokens = deepseekTokenTotals(deepseek);
   const deepseekActive = deepseek.status === "Normal";
   const balanceMeta = balance
     ? (deepseekActive ? "API 正常 · 自动刷新 60s" : `状态 ${deepseek.status || "未知"}`)
@@ -3181,16 +3123,11 @@ function deepseekCompactSection() {
         <div>${deepseekBrandIcon}<h2>DeepSeek</h2></div>
         <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
       </div>
-      <div class="usage-window-grid deepseek-compact-grid">
+      <div class="usage-window-grid usage-window-grid-single deepseek-compact-grid">
         <article class="usage-window-card deepseek-compact-card">
           <span>可用余额</span>
           <strong class="deepseek-balance-value">${amount}</strong>
           <small>${balanceMeta}</small>
-        </article>
-        <article class="usage-window-card deepseek-compact-card">
-          <span>今日 Token</span>
-          <strong>${formatDeepSeekTokenCount(tokens.today)}</strong>
-          <small>应用累计 · ${formatDeepSeekTokenCount(tokens.total)}</small>
         </article>
       </div>
       <div class="deepseek-panel-footer ${deepseekActive ? "" : "inactive"}">
@@ -4624,13 +4561,6 @@ async function refreshMailData({ force = false } = {}) {
 
 async function refreshNotificationData({ force = false } = {}) {
   await hydrateNotifications({ force });
-  if (force && window.winplate?.refreshSmartBrief) {
-    try {
-      notificationDigest = await window.winplate.refreshSmartBrief();
-    } catch (error) {
-      console.warn("Smart brief force refresh failed:", error.message);
-    }
-  }
   updateCurrentViewDom("notifications");
   return notificationSummary;
 }

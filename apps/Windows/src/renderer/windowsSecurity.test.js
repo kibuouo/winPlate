@@ -69,6 +69,37 @@ test("SuperGrok renders the remaining quota derived from Grok usage", () => {
   assert.match(source, /const percentage = normalizePercent\(usage\?\.remainingPct\)/);
 });
 
+test("DeepSeek exposes only balance configuration and balance display", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+  const sectionStart = appSource.indexOf("function deepseekCompactSection()");
+  const sectionEnd = appSource.indexOf("function superGrokUsageSection()", sectionStart);
+  const deepSeekSection = appSource.slice(sectionStart, sectionEnd);
+
+  assert.match(deepSeekSection, /可用余额/);
+  assert.match(deepSeekSection, /usage-window-grid-single/);
+  assert.equal((deepSeekSection.match(/usage-window-card/g) || []).length, 1);
+  assert.doesNotMatch(appSource, /今日 Token|应用累计|测试 AI 调用|启用 AI 摘要/);
+  assert.doesNotMatch(preloadSource, /testDeepSeekChat|SmartBrief|smart-brief/);
+  assert.doesNotMatch(mainSource, /deepseekChatClient|deepseekTokenUsage|chat\/completions/);
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekChatClient.js")), false);
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekTokenUsage.js")), false);
+});
+
+test("notification summaries are generated automatically by local rules", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const summarySource = fs.readFileSync(
+    path.join(__dirname, "..", "main", "ai", "notificationSummaryService.js"),
+    "utf8"
+  );
+
+  assert.match(appSource, /通知摘要/);
+  assert.match(appSource, /始终使用本地规则自动分级、去重和聚合/);
+  assert.match(summarySource, /createLocalDigest/);
+  assert.doesNotMatch(summarySource, /callChat|DeepSeek|responseFormat|persistDigest/);
+});
+
 test("top-docked floating view is a single frosted row with only requested controls", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");

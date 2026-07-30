@@ -1138,33 +1138,6 @@ class DatabaseTests(unittest.TestCase):
         finally:
             main.DATABASE_PATH = original_path
 
-    def test_persist_notification_digest_record_stores_time_and_content(self):
-        original_path = main.DATABASE_PATH
-        with tempfile.TemporaryDirectory() as directory:
-            main.DATABASE_PATH = Path(directory) / "test.db"
-            main.initialize_database()
-            created = main.persist_notification_digest_record(main.NotificationDigestRecordPayload(
-                source="deepseek",
-                model="deepseek-v4-flash",
-                title="开发任务已完成",
-                summary="Codex 测试已通过。",
-                content="开发任务已完成\nCodex 测试已通过。",
-                severity="info",
-                category="development",
-                iconKey="check-circle",
-                unreadCount=1,
-                generatedAt=1780000000000,
-                sourceIds=["codex:1"],
-            ))
-            records = main.notification_digest_records()
-        main.DATABASE_PATH = original_path
-        self.assertEqual(created["model"], "deepseek-v4-flash")
-        self.assertEqual(created["generatedAt"], 1780000000000)
-        self.assertTrue(created["generatedAtIso"].startswith("2026-"))
-        self.assertEqual(created["content"], "开发任务已完成 Codex 测试已通过。")
-        self.assertEqual(created["payload"]["sourceIds"], ["codex:1"])
-        self.assertEqual(records["items"][0]["summary"], "Codex 测试已通过。")
-
     def test_clear_notifications_removes_all_items(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:

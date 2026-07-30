@@ -45,11 +45,9 @@ const { readCodexUsage } = require("./codexUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
 const { readSuperGrokUsage } = require("./supergrokUsage");
 const {
-  DEFAULT_BASE_URL: DEEPSEEK_DEFAULT_BASE_URL,
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
   readDeepSeekUsage
 } = require("./deepseekUsage");
-const { DEFAULT_MODEL: DEEPSEEK_CHAT_MODEL, callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
 const {
   DEFAULT_SERVICE_SETTINGS,
   serviceSettingsFileExists,
@@ -66,10 +64,6 @@ const {
 } = require("./serviceSettingsLifecycle");
 const { registerSettingsIpc } = require("./settingsIpc");
 const { readWindowsServiceEnvironment } = require("./windowsEnvironment");
-const {
-  readDeepSeekTokenUsage,
-  recordDeepSeekTokenUsage
-} = require("./deepseekTokenUsage");
 const { createNotificationManager } = require("./notifications/notificationStore");
 const { createNotificationDetailService } = require("./notifications/detailService");
 const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
@@ -361,13 +355,6 @@ async function publicSettingsPayload(settings = currentSettings) {
   };
 }
 
-async function recordDeepSeekTokenUsageSafely(usage, feature = "unknown") {
-  try {
-    await recordDeepSeekTokenUsage(app.getPath("userData"), usage, { feature });
-  } catch (error) {
-    console.warn("deepseek token usage record failed:", error.message);
-  }
-}
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -471,7 +458,6 @@ if (!gotLock) {
     ipcMain.handle("settings:save", async (event, settings) => {
       requireMainWindowSender(event);
       validateSettingsInput(settings);
-      const previousDigestEnabled = currentSettings.notificationDigest.enabled;
       const github = settings?.integrations?.github || {};
       const username = typeof github.username === "string" ? github.username.trim() : "";
       const token = typeof github.token === "string" ? github.token.trim() : "";
@@ -483,10 +469,6 @@ if (!gotLock) {
       currentSettings = await writeSettings(userDataPath, settings);
       setAppWindowOpacity(1);
       invalidateResponseCache("Status");
-      if (previousDigestEnabled !== currentSettings.notificationDigest.enabled) {
-        clearNotificationCaches();
-        await notificationSummaryService?.refreshNow({ force: true });
-      }
       const payload = await publicSettingsPayload();
       broadcastSettingsUpdated(payload);
       return payload;
@@ -540,7 +522,6 @@ if (!gotLock) {
       normalizeDeepSeekBaseUrl,
       defaultDeepSeekBaseUrl: DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl,
       readDeepSeekUsage,
-      readDeepSeekTokenUsage,
       publicServiceSettings,
       safeObject
     });
@@ -866,47 +847,9 @@ if (!gotLock) {
     });
     notificationSummaryService = createNotificationSummaryService({
       store: notificationManager,
-      onUpdated: broadcastNotificationDigest,
-      shouldUseAi: () => currentSettings.notificationDigest.enabled,
-      aiModel: DEEPSEEK_CHAT_MODEL,
-      persistDigest: async ({ digest, snapshot, model }) => {
-        const response = await fetch("http://127.0.0.1:8765/api/notifications/digest-records", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source: "deepseek",
-            model,
-            title: digest.title,
-            summary: digest.summary,
-            content: `${digest.title}\n${digest.summary}`.trim(),
-            severity: digest.severity,
-            category: digest.category,
-            iconKey: digest.iconKey,
-            unreadCount: digest.unreadCount,
-            generatedAt: digest.generatedAt,
-            sourceIds: Array.isArray(snapshot?.items) ? snapshot.items.map((item) => item.id).filter(Boolean) : []
-          })
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-      },
-      callChat: async (options) => {
-        const settings = serviceSettingsLifecycle.effectiveSettings();
-        return callDeepSeekChat({
-          ...options,
-          apiKey: settings.deepseekApiKey,
-          baseUrl: settings.deepseekBaseUrl || DEEPSEEK_DEFAULT_BASE_URL,
-          onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, options.feature || "unknown")
-        });
-      }
+      onUpdated: broadcastNotificationDigest
     });
     ipcMain.handle("notification:get-digest", () => notificationSummaryService.getDigest());
-    ipcMain.handle("notifications:get-smart-brief", () => notificationSummaryService.getDigest());
-    ipcMain.handle("notifications:refresh-smart-brief", async (event) => {
-      requireMainWindowSender(event);
-      return notificationSummaryService.refreshNow({ force: true });
-    });
     ipcMain.handle("notifications:get-detail", async (_event, id) => notificationDetailService.getNotificationDetail(id));
     ipcMain.handle("notifications:copy", (_event, value) => {
       const text = typeof value === "string" ? value : "";
@@ -969,15 +912,6 @@ if (!gotLock) {
     ipcMain.handle("supergrok:usage", (_event, options) => readSuperGrokUsage(
       (options && typeof options === "object") ? options : {}
     ));
-    ipcMain.handle("deepseek:test-chat", async (event) => {
-      requireMainWindowSender(event);
-      const settings = serviceSettingsLifecycle.effectiveSettings();
-      return testDeepSeekChat({
-        apiKey: settings.deepseekApiKey,
-        baseUrl: settings.deepseekBaseUrl || DEEPSEEK_DEFAULT_BASE_URL,
-        onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, "testChat")
-      });
-    });
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));
     ipcMain.on("window:minimize", minimizeMainWindow);
     ipcMain.handle("window:toggle-maximize", toggleMaximizeMainWindow);

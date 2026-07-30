@@ -186,20 +186,6 @@ class NotificationReadManyPayload(BaseModel):
     ids: list[str]
 
 
-class NotificationDigestRecordPayload(BaseModel):
-    title: str
-    summary: str
-    content: str | None = None
-    severity: str = "info"
-    category: str = "system"
-    iconKey: str = "bell"
-    unreadCount: int = 0
-    generatedAt: int | None = None
-    source: str = "deepseek"
-    model: str | None = None
-    sourceIds: list[str] | None = None
-
-
 def environment_setting(name: str, default: str | None = None) -> str | None:
     environment_has_value = name in os.environ
     value = os.environ.get(name)
@@ -517,109 +503,6 @@ def normalize_notification_level(level: str) -> str:
 
 def notification_row_to_item(row: sqlite3.Row) -> dict:
     return NotificationManager.row_to_item(row)
-
-
-def normalize_digest_severity(severity: str) -> str:
-    value = str(severity or "info").strip().lower()
-    return value if value in {"info", "warning", "danger"} else "info"
-
-
-def notification_digest_record_row_to_item(row: sqlite3.Row) -> dict:
-    try:
-        payload = json.loads(row["payload"])
-    except (TypeError, json.JSONDecodeError):
-        payload = {}
-    return {
-        "id": int(row["id"]),
-        "source": row["source"],
-        "model": row["model"] or None,
-        "title": row["title"],
-        "summary": row["summary"],
-        "content": row["content"],
-        "severity": row["severity"],
-        "category": row["category"],
-        "iconKey": row["icon_key"],
-        "unreadCount": int(row["unread_count"]),
-        "generatedAt": int(row["generated_at"]),
-        "generatedAtIso": row["generated_at_iso"],
-        "createdAt": int(row["created_at"]),
-        "payload": payload if isinstance(payload, dict) else {},
-    }
-
-
-def persist_notification_digest_record(payload: NotificationDigestRecordPayload) -> dict:
-    generated_at = int(payload.generatedAt or utc_epoch_seconds() * 1000)
-    created_at = utc_epoch_seconds() * 1000
-    title = clean_mail_text(payload.title, limit=120) or "智能摘要"
-    summary = clean_mail_text(payload.summary, limit=500) or title
-    content = clean_mail_text(payload.content or f"{title} {summary}", limit=800) or summary
-    severity = normalize_digest_severity(payload.severity)
-    category = clean_mail_text(payload.category, limit=40).lower() or "system"
-    icon_key = clean_mail_text(payload.iconKey, limit=80) or "bell"
-    source = normalize_notification_source(payload.source)
-    model = clean_mail_text(payload.model or "", limit=80)
-    unread_count = max(0, int(payload.unreadCount or 0))
-    source_ids = [
-        clean_mail_text(str(item), limit=160)
-        for item in (payload.sourceIds or [])
-        if clean_mail_text(str(item), limit=160)
-    ]
-    stored_payload = json.dumps({
-        "sourceIds": source_ids,
-        "generatedAtIso": datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
-    }, ensure_ascii=False)
-    with closing(connect()) as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO notification_digest_records
-            (source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                source,
-                model,
-                title,
-                summary,
-                content,
-                severity,
-                category,
-                icon_key,
-                unread_count,
-                generated_at,
-                datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
-                created_at,
-                stored_payload,
-            ),
-        )
-        row = connection.execute(
-            """
-            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
-            FROM notification_digest_records
-            WHERE id = ?
-            """,
-            (cursor.lastrowid,),
-        ).fetchone()
-        connection.commit()
-    return notification_digest_record_row_to_item(row)
-
-
-def notification_digest_records(limit: int = 20) -> dict:
-    safe_limit = max(1, min(100, int(limit or 20)))
-    with closing(connect()) as connection:
-        rows = connection.execute(
-            """
-            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
-            FROM notification_digest_records
-            ORDER BY generated_at DESC, id DESC
-            LIMIT ?
-            """,
-            (safe_limit,),
-        ).fetchall()
-    items = [notification_digest_record_row_to_item(row) for row in rows]
-    return {
-        "items": items,
-        "updatedAt": utc_epoch_seconds() * 1000,
-    }
 
 
 def sync_mail_notifications(items: list[dict]) -> None:
@@ -1392,29 +1275,6 @@ def initialize_database() -> None:
                 updated_at INTEGER NOT NULL
             )
             """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS notification_digest_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source TEXT NOT NULL,
-                model TEXT NOT NULL DEFAULT '',
-                title TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                content TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                category TEXT NOT NULL,
-                icon_key TEXT NOT NULL,
-                unread_count INTEGER NOT NULL DEFAULT 0,
-                generated_at INTEGER NOT NULL,
-                generated_at_iso TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                payload TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_notification_digest_records_generated ON notification_digest_records (generated_at DESC, id DESC)"
         )
         for module, payload in DEFAULT_STATUS.items():
             initial_payload = deepcopy(payload)
@@ -2904,19 +2764,9 @@ def get_notifications(limit: int = 50) -> dict:
     return notification_summary(limit)
 
 
-@api.get("/api/notifications/digest-records")
-def get_notification_digest_records(limit: int = 20) -> dict:
-    return notification_digest_records(limit)
-
-
 @api.post("/api/notifications")
 def create_notification(payload: NotificationPayload) -> dict:
     return push_notification(payload)
-
-
-@api.post("/api/notifications/digest-records")
-def create_notification_digest_record(payload: NotificationDigestRecordPayload) -> dict:
-    return persist_notification_digest_record(payload)
 
 
 @api.post("/api/notifications/{notification_id}/read")

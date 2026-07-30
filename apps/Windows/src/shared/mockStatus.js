@@ -35,7 +35,6 @@ const mockStatus = {
     configured: false,
     available: false,
     balances: [],
-    tokenUsage: null,
     updatedAt: null,
     status: "Unconfigured"
   },

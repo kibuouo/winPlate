@@ -18,8 +18,7 @@ test("normalizes settings ranges and keeps every registered module", () => {
       order: ["network", "network", "unknown"],
       refreshSeconds: { network: 0, mail: 99999 }
     },
-    integrations: { github: { username: "bad username" } },
-    notificationDigest: { enabled: false }
+    integrations: { github: { username: "bad username" } }
   });
   assert.equal(value.appearance.opacity, 1);
   assert.equal(value.appearance.accent, "purple");
@@ -30,7 +29,7 @@ test("normalizes settings ranges and keeps every registered module", () => {
   assert.equal(value.modules.refreshSeconds.network, 1);
   assert.equal(value.modules.refreshSeconds.mail, 1800);
   assert.equal(value.integrations.github.username, "kibuouo");
-  assert.equal(value.notificationDigest.enabled, false);
+  assert.equal(Object.hasOwn(value, "notificationDigest"), false);
 });
 
 test("keeps accent colors on an explicit allowlist", () => {
@@ -38,11 +37,11 @@ test("keeps accent colors on an explicit allowlist", () => {
   assert.equal(normalizeSettings({ appearance: { accent: "#ff00ff" } }).appearance.accent, "green");
 });
 
-test("migrates the removed local-only privacy mode to disabled AI summaries", () => {
+test("drops the removed AI summary setting", () => {
   const value = normalizeSettings({
     notificationDigest: { enabled: true, privacyMode: "local-only" }
   });
-  assert.deepEqual(value.notificationDigest, { enabled: false });
+  assert.equal(Object.hasOwn(value, "notificationDigest"), false);
 });
 
 test("migrates legacy appearance and mail refresh settings", async () => {

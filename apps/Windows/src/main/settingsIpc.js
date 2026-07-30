@@ -21,13 +21,11 @@ function registerSettingsIpc({
   ipcMain,
   ownsMainWindowSender,
   ownsFloatingWindowSender = () => false,
-  userDataPath,
   serviceSettingsLifecycle,
   afterServiceSettingsPersist = async () => {},
   normalizeDeepSeekBaseUrl,
   defaultDeepSeekBaseUrl,
   readDeepSeekUsage,
-  readDeepSeekTokenUsage,
   publicServiceSettings,
   safeObject
 }) {
@@ -116,15 +114,11 @@ function registerSettingsIpc({
   ipcMain.handle("deepseek:usage", async (event, options) => {
     requireUsageSender(event);
     const settings = serviceSettingsLifecycle.effectiveSettings();
-    const usage = await readDeepSeekUsage({
+    return readDeepSeekUsage({
       ...safeObject(options),
       apiKey: settings.deepseekApiKey,
       baseUrl: settings.deepseekBaseUrl
     });
-    return {
-      ...usage,
-      tokenUsage: await readDeepSeekTokenUsage(userDataPath)
-    };
   });
 }
 
