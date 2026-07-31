@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Darwin
 import SwiftUI
 
@@ -14,12 +15,20 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var menuBarController: MenuBarController?
+    private let systemNotificationCoordinator = SystemNotificationCoordinator()
+    private var notificationSummaryCancellable: AnyCancellable?
     private var instanceLockFileDescriptor: Int32 = -1
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard claimPrimaryInstance() else { return }
         state.loadSensitiveSettings()
         state.settings.applyAppearanceTheme()
+        systemNotificationCoordinator.configure(state: state)
+        notificationSummaryCancellable = state.$notifications
+            .dropFirst()
+            .sink { [weak systemNotificationCoordinator] summary in
+                systemNotificationCoordinator?.synchronize(summary)
+            }
         state.start()
         NSApp.setActivationPolicy(.regular)
         NotificationCenter.default.addObserver(
@@ -73,6 +82,7 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        notificationSummaryCancellable = nil
         state.stop()
     }
 
@@ -85,8 +95,11 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
             let controller = NSHostingController(rootView: rootView)
             let window = NSWindow(contentViewController: controller)
             window.title = "WinPlate"
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-            window.titlebarAppearsTransparent = false
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.titlebarSeparatorStyle = .none
+            window.toolbarStyle = .unified
             window.setContentSize(NSSize(width: 1040, height: 720))
             window.minSize = NSSize(width: 880, height: 580)
             window.center()

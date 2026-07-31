@@ -850,6 +850,7 @@ class DatabaseTests(unittest.TestCase):
             "severity": "moderate",
             "lifecycle": "issued",
             "riskDelta": "active",
+            "alertId": "a1",
         })
 
     def test_qweather_active_red_alert_persists_exact_acknowledgement_metadata(self):
@@ -873,6 +874,7 @@ class DatabaseTests(unittest.TestCase):
             "severity": "red",
             "lifecycle": "issued",
             "riskDelta": "active",
+            "alertId": "red-1",
         })
 
     def test_qweather_alerts_use_stored_display_location_in_notifications(self):
@@ -920,7 +922,45 @@ class DatabaseTests(unittest.TestCase):
             "severity": "extreme",
             "lifecycle": "resolved",
             "riskDelta": "decreased",
+            "alertId": "a1",
         })
+
+    def test_qweather_resolution_settles_previous_notification_in_same_family(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            issued = {"alerts": [{
+                "id": "issued-1",
+                "senderName": "江夏区气象台",
+                "type": "rainstorm",
+                "headline": "暴雨红色预警",
+                "description": "未来两小时有强降雨。",
+                "severity": "red",
+                "status": "issued",
+            }]}
+            resolved = {"alerts": [{
+                "id": "resolved-1",
+                "senderName": "江夏区气象台",
+                "type": "rainstorm",
+                "headline": "暴雨红色预警解除",
+                "description": "本轮降雨过程结束。",
+                "severity": "red",
+                "status": "cancelled",
+            }]}
+            with patch.object(main, "qweather_jwt_request", side_effect=[issued, resolved]):
+                main.qweather_alerts(22.3193, 114.1694)
+                main.qweather_alerts(22.3193, 114.1694)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        by_id = {item["id"]: item for item in summary["items"]}
+        self.assertFalse(by_id["qweather:issued-1"]["unread"])
+        self.assertTrue(by_id["qweather:resolved-1"]["unread"])
+        self.assertEqual(summary["unreadCount"], 1)
+        self.assertEqual(
+            by_id["qweather:resolved-1"]["metadata"]["familyKey"],
+            "江夏区气象台 rainstorm",
+        )
 
     def test_qweather_alert_detail_returns_single_alert_or_404_equivalent(self):
         with patch.object(main, "qweather_alerts", return_value={

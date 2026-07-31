@@ -95,6 +95,19 @@ actor LocalAPIClient {
         await request(path: "/api/notifications/read-all", method: "POST")
     }
 
+    func markNotificationsRead(ids: [String]) async -> ResultValue<NotificationSummary> {
+        struct Payload: Encodable { let ids: [String] }
+        return await request(
+            path: "/api/notifications/read-many",
+            method: "POST",
+            payload: AnyEncodable(Payload(ids: ids))
+        )
+    }
+
+    func clearReadNotifications() async -> ResultValue<NotificationSummary> {
+        await request(path: "/api/notifications/read", method: "DELETE")
+    }
+
     func searchWeatherLocations(query: String) async -> ResultValue<WeatherLocationSearch> {
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         return await request(path: "/api/weather/locations/search?q=\(encoded)")
@@ -365,15 +378,18 @@ final class AppSettingsStore: ObservableObject {
         AppearanceTheme.apply(appearanceTheme)
     }
 
-    func loadSensitiveValues() {
-        guard !hasLoadedSensitiveValues else { return }
+    func loadSensitiveValues() async -> Bool {
+        guard !hasLoadedSensitiveValues else { return false }
         hasLoadedSensitiveValues = true
-        let context = LAContext()
         isLoadingSensitiveValues = true
-        if let values = Keychain.readSensitiveValues(context: context) {
+        let values = await Task.detached(priority: .userInitiated) {
+            Keychain.readSensitiveValues(context: LAContext())
+        }.value
+        if let values {
             applySensitiveValues(values)
         }
         isLoadingSensitiveValues = false
+        return values != nil
     }
 
     private func applySensitiveValues(_ values: SensitiveValues) {
@@ -417,7 +433,7 @@ final class AppSettingsStore: ObservableObject {
     }
 }
 
-private struct SensitiveValues: Codable {
+private struct SensitiveValues: Codable, Sendable {
     let deepSeekAPIKey: String?
     let weatherAPIKey: String?
     let weatherProjectID: String?

@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ServiceManagement
 import SwiftUI
+import UserNotifications
 import WebKit
 
 struct MenuBarPopoverView: View {
@@ -457,21 +458,27 @@ private struct WeatherSection: View {
 
 struct DashboardView: View {
     @EnvironmentObject private var state: AppState
-    @State private var selection: WorkspaceDestination? = .overview
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var columnVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { SidebarPresentation.visibility(isVisible: state.isMainSidebarVisible) },
+            set: { state.isMainSidebarVisible = SidebarPresentation.isVisible($0) }
+        )
+    }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
+        NavigationSplitView(columnVisibility: columnVisibility) {
+            List(selection: $state.selectedWorkspace) {
                 ForEach(WorkspaceDestination.allCases, id: \.self) { destination in
                     Label(destination.title, systemImage: destination.symbol)
                         .tag(destination)
                 }
             }
-            .navigationTitle("WinPlate")
             .frame(minWidth: 190)
         } detail: {
             Group {
-                switch selection ?? .overview {
+                switch state.selectedWorkspace ?? .overview {
                 case .overview: OverviewWorkspace()
                 case .weather: WeatherWorkspace()
                 case .github: GitHubWorkspace()
@@ -485,10 +492,65 @@ struct DashboardView: View {
         .sheet(isPresented: Binding(get: { state.selectedMail != nil }, set: { if !$0 { state.closeMail() } })) {
             if let message = state.selectedMail { MailDetail(message: message) }
         }
+        .alert(item: Binding(
+            get: { state.pendingAcknowledgement },
+            set: { value in
+                if value == nil, let current = state.pendingAcknowledgement {
+                    state.dismissAcknowledgement(current)
+                }
+            }
+        )) { notification in
+            Alert(
+                title: Text("红色天气预警"),
+                message: Text("\(notification.title)\n\n\(notification.message)"),
+                primaryButton: .default(Text("我已知悉")) {
+                    state.acknowledgeNotification(notification)
+                },
+                secondaryButton: .cancel(Text("稍后")) {
+                    state.dismissAcknowledgement(notification)
+                }
+            )
+        }
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    if reduceMotion {
+                        state.toggleMainSidebar()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            state.toggleMainSidebar()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                }
+                .help(SidebarPresentation.actionLabel(isVisible: state.isMainSidebarVisible))
+                .accessibilityLabel(
+                    SidebarPresentation.actionLabel(isVisible: state.isMainSidebarVisible)
+                )
+            }
+        }
     }
 }
 
-private enum WorkspaceDestination: CaseIterable, Hashable {
+enum SidebarPresentation {
+    static let visibilityDefaultsKey = "main-sidebar-visible-v1"
+
+    static func visibility(isVisible: Bool) -> NavigationSplitViewVisibility {
+        isVisible ? .all : .detailOnly
+    }
+
+    static func isVisible(_ visibility: NavigationSplitViewVisibility) -> Bool {
+        visibility != .detailOnly
+    }
+
+    static func actionLabel(isVisible: Bool) -> String {
+        isVisible ? "隐藏侧栏" : "显示侧栏"
+    }
+}
+
+enum WorkspaceDestination: CaseIterable, Hashable {
     case overview, weather, github, mail, notifications, settings
     var title: String {
         switch self { case .overview: "概览"; case .weather: "天气"; case .github: "GitHub"; case .mail: "邮件"; case .notifications: "通知"; case .settings: "设置" }
@@ -938,6 +1000,7 @@ private struct SettingsForm: View {
     let state: AppState
     @ObservedObject private var settings: AppSettingsStore
     @State private var loginItemError: String?
+    @State private var notificationAuthorization = "正在检查权限"
     @State private var deepSeekAPIKey = ""
     @State private var deepSeekBaseURL = ""
     @State private var githubUsername = ""
@@ -990,6 +1053,31 @@ private struct SettingsForm: View {
 
                 SettingsCard(title: "外观", symbol: "paintpalette.fill") {
                     AppearanceThemePicker(selection: $settings.appearanceTheme)
+                }
+                SettingsCard(title: "系统通知", symbol: "bell.badge.fill") {
+                    Text("新通知会进入 macOS 通知中心；普通通知保持安静，只有生效中的红色天气预警会主动提醒。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SettingsCardActions {
+                        ConfigurationStatus(
+                            notificationAuthorization,
+                            symbol: notificationAuthorization == "已允许"
+                                ? "checkmark.circle.fill"
+                                : "exclamationmark.circle",
+                            color: notificationAuthorization == "已允许" ? .green : .secondary
+                        )
+                    } actions: {
+                        Button("发送测试通知") {
+                            SystemNotificationCoordinator.sendTestNotification()
+                        }
+                        .buttonStyle(.bordered)
+                        Button("系统设置") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
 
                 Text("服务连接")
@@ -1222,6 +1310,23 @@ private struct SettingsForm: View {
             weatherPrivateKey = ""
             qqMailAddress = settings.qqMailAddress
             qqMailAuthCode = ""
+            refreshNotificationAuthorization()
+        }
+    }
+
+    private func refreshNotificationAuthorization() {
+        Task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                notificationAuthorization = "已允许"
+            case .denied:
+                notificationAuthorization = "已关闭，请在系统设置中开启"
+            case .notDetermined:
+                notificationAuthorization = "尚未选择"
+            @unknown default:
+                notificationAuthorization = "状态未知"
+            }
         }
     }
 

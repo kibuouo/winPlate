@@ -2,6 +2,19 @@ import XCTest
 @testable import WinPlate
 
 final class MenuBarTemperatureFormatterTests: XCTestCase {
+    func testSidebarPresentationMapsStoredVisibilityToSplitViewVisibility() {
+        XCTAssertEqual(SidebarPresentation.visibility(isVisible: true), .all)
+        XCTAssertEqual(SidebarPresentation.visibility(isVisible: false), .detailOnly)
+        XCTAssertTrue(SidebarPresentation.isVisible(.all))
+        XCTAssertTrue(SidebarPresentation.isVisible(.automatic))
+        XCTAssertFalse(SidebarPresentation.isVisible(.detailOnly))
+    }
+
+    func testSidebarPresentationUsesStateSpecificAccessibleLabels() {
+        XCTAssertEqual(SidebarPresentation.actionLabel(isVisible: true), "隐藏侧栏")
+        XCTAssertEqual(SidebarPresentation.actionLabel(isVisible: false), "显示侧栏")
+    }
+
     func testFormatsRoundedCelsiusTemperature() {
         XCTAssertEqual(MenuBarTemperatureFormatter.title(for: 25.6), "26°C")
         XCTAssertEqual(MenuBarTemperatureFormatter.title(for: -4.6), "-5°C")
@@ -307,5 +320,179 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(GitHubContributionFormatting.cacheKey(date: "2026-07-24"), "date:2026-07-24")
         XCTAssertEqual(GitHubContributionFormatting.cacheKey(month: "2026-07"), "month:2026-07")
         XCTAssertNil(GitHubContributionFormatting.cacheKey())
+    }
+
+    func testNotificationDerivesMailSourceID() throws {
+        let payload = """
+        {
+          "id": "mail:12345",
+          "source": "mail",
+          "level": "info",
+          "title": "新邮件",
+          "message": "sender@example.com",
+          "unread": true,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+
+        let notification = try JSONDecoder().decode(AppNotification.self, from: payload)
+
+        XCTAssertEqual(notification.sourceID, "12345")
+    }
+
+    func testNotificationRejectsMismatchedSourceID() throws {
+        let payload = """
+        {
+          "id": "mail:12345",
+          "source": "system",
+          "level": "info",
+          "title": "系统通知",
+          "message": "",
+          "unread": false,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+
+        let notification = try JSONDecoder().decode(AppNotification.self, from: payload)
+
+        XCTAssertNil(notification.sourceID)
+    }
+
+    func testNotificationUsesStructuredSourceMetadata() throws {
+        let payload = """
+        {
+          "id": "external:opaque",
+          "source": "mail",
+          "level": "info",
+          "title": "新邮件",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "externalUrl": "https://mail.qq.com/",
+          "metadata": {
+            "messageId": "67890"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let notification = try JSONDecoder().decode(AppNotification.self, from: payload)
+
+        XCTAssertEqual(notification.sourceID, "67890")
+        XCTAssertEqual(notification.resolvedExternalURL?.host, "mail.qq.com")
+    }
+
+    func testFoldsDevelopmentNotificationsWithinFourHours() throws {
+        let payload = """
+        [
+          {
+            "id": "codex:latest",
+            "source": "codex",
+            "level": "success",
+            "title": "  Build   WinPlate ",
+            "message": "完成",
+            "unread": false,
+            "createdAt": 1780003600000
+          },
+          {
+            "id": "codex:earlier",
+            "source": "codex",
+            "level": "info",
+            "title": "build winplate",
+            "message": "处理中",
+            "unread": true,
+            "createdAt": 1780000000000
+          },
+          {
+            "id": "mail:1",
+            "source": "mail",
+            "level": "info",
+            "title": "Build WinPlate",
+            "message": "邮件",
+            "unread": true,
+            "createdAt": 1780000000000
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let items = try JSONDecoder().decode([AppNotification].self, from: payload)
+        let conversations = NotificationConversation.fold(items)
+
+        XCTAssertEqual(conversations.count, 2)
+        XCTAssertEqual(conversations.first?.updateCount, 2)
+        XCTAssertEqual(conversations.first?.memberIDs, ["codex:latest", "codex:earlier"])
+        XCTAssertTrue(conversations.first?.unread == true)
+        XCTAssertEqual(conversations.last?.latest.id, "mail:1")
+    }
+
+    func testDoesNotFoldDevelopmentNotificationsOutsideFourHours() throws {
+        let payload = """
+        [
+          {
+            "id": "chatgpt:new",
+            "source": "chatgpt",
+            "level": "success",
+            "title": "Review",
+            "message": "完成",
+            "unread": true,
+            "createdAt": 1780020000000
+          },
+          {
+            "id": "chatgpt:old",
+            "source": "chatgpt",
+            "level": "info",
+            "title": "Review",
+            "message": "开始",
+            "unread": true,
+            "createdAt": 1780000000000
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let items = try JSONDecoder().decode([AppNotification].self, from: payload)
+
+        XCTAssertEqual(NotificationConversation.fold(items).count, 2)
+    }
+
+    func testOnlyActiveRedWeatherAlertRequiresAcknowledgement() throws {
+        let payload = """
+        [
+          {
+            "id": "qweather:red-active",
+            "source": "qweather",
+            "level": "critical",
+            "title": "红色预警",
+            "message": "",
+            "unread": true,
+            "createdAt": 1780000000000,
+            "metadata": {"severity": "red", "lifecycle": "issued"}
+          },
+          {
+            "id": "qweather:red-resolved",
+            "source": "qweather",
+            "level": "success",
+            "title": "红色预警解除",
+            "message": "",
+            "unread": true,
+            "createdAt": 1780000000000,
+            "metadata": {"severity": "red", "lifecycle": "resolved"}
+          },
+          {
+            "id": "qweather:orange",
+            "source": "qweather",
+            "level": "critical",
+            "title": "橙色预警",
+            "message": "",
+            "unread": true,
+            "createdAt": 1780000000000,
+            "metadata": {"severity": "severe", "lifecycle": "issued"}
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let items = try JSONDecoder().decode([AppNotification].self, from: payload)
+
+        XCTAssertTrue(items[0].requiresAcknowledgement)
+        XCTAssertFalse(items[1].requiresAcknowledgement)
+        XCTAssertFalse(items[2].requiresAcknowledgement)
     }
 }

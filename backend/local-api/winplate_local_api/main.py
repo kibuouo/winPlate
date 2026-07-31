@@ -2272,6 +2272,82 @@ def weather_alert_lifecycle(alert: dict, title: str = "", message: str = "") -> 
     return "issued"
 
 
+def weather_alert_family_key(alert: dict) -> str | None:
+    issuer = clean_mail_text(str(
+        alert.get("senderName")
+        or alert.get("sender")
+        or alert.get("issuer")
+        or alert.get("organization")
+        or ""
+    ), limit=120).casefold()
+    event_type = clean_mail_text(str(
+        alert.get("type")
+        or alert.get("typeName")
+        or alert.get("eventType")
+        or alert.get("event")
+        or ""
+    ), limit=120).casefold()
+    if not issuer or not event_type:
+        return None
+    normalized = re.sub(r"\s+", " ", f"{issuer}\x1f{event_type}").strip()
+    return normalized[:240] or None
+
+
+def settle_weather_notification_family(family_key: str, current_notification_id: str) -> None:
+    if not family_key:
+        return
+    now = utc_epoch_seconds() * 1000
+    with closing(connect()) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, metadata
+            FROM notifications
+            WHERE source = 'qweather' AND unread = 1 AND id != ?
+            """,
+            (current_notification_id,),
+        ).fetchall()
+        settled_ids = []
+        for row in rows:
+            try:
+                metadata = json.loads(row["metadata"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(metadata, dict) and metadata.get("familyKey") == family_key:
+                settled_ids.append(row["id"])
+        if settled_ids:
+            placeholders = ", ".join("?" for _ in settled_ids)
+            connection.execute(
+                f"UPDATE notifications SET unread = 0, updated_at = ? WHERE id IN ({placeholders})",
+                [now, *settled_ids],
+            )
+            connection.commit()
+
+
+def settle_stale_weather_notifications(current_notification_ids: set[str]) -> None:
+    now = utc_epoch_seconds() * 1000
+    with closing(connect()) as connection:
+        if current_notification_ids:
+            placeholders = ", ".join("?" for _ in current_notification_ids)
+            connection.execute(
+                f"""
+                UPDATE notifications
+                SET unread = 0, updated_at = ?
+                WHERE source = 'qweather' AND unread = 1 AND id NOT IN ({placeholders})
+                """,
+                [now, *sorted(current_notification_ids)],
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE notifications
+                SET unread = 0, updated_at = ?
+                WHERE source = 'qweather' AND unread = 1
+                """,
+                (now,),
+            )
+        connection.commit()
+
+
 def qweather_alerts(latitude: float | None = None, longitude: float | None = None) -> dict:
     location = {"latitude": latitude, "longitude": longitude}
     if latitude is None or longitude is None:
@@ -2289,6 +2365,7 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
     if not isinstance(alerts, list):
         alerts = []
     normalized = []
+    current_notification_ids: set[str] = set()
     for alert in alerts:
         if not isinstance(alert, dict):
             continue
@@ -2300,6 +2377,7 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         message = clean_mail_text(str(alert.get("description") or alert.get("text") or ""), limit=360)
         severity = str(alert.get("severity") or alert.get("color") or "warning").lower()
         lifecycle = weather_alert_lifecycle(alert, title, message)
+        family_key = weather_alert_family_key(alert)
         level = "success" if lifecycle == "resolved" else "critical" if severity in {"red", "extreme", "severe"} else "warning"
         if lifecycle == "resolved" and "风险降低" not in f"{title} {message}":
             message = clean_mail_text(f"预警已解除，风险降低。{message}", limit=360)
@@ -2322,21 +2400,32 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
             "riskDelta": "decreased" if lifecycle == "resolved" else "increased" if lifecycle == "upgraded" else "active",
             "createdAt": created_at,
         }
+        if family_key:
+            normalized_alert["familyKey"] = family_key
         normalized.append(normalized_alert)
         if alert_id:
+            notification_id = f"qweather:{alert_id}"
+            current_notification_ids.add(notification_id)
+            if family_key and lifecycle in {"resolved", "upgraded"}:
+                settle_weather_notification_family(family_key, notification_id)
+            metadata = {
+                "severity": severity,
+                "lifecycle": lifecycle,
+                "riskDelta": normalized_alert["riskDelta"],
+            }
+            if family_key:
+                metadata["familyKey"] = family_key
+            metadata["alertId"] = alert_id
             upsert_notification(
-                notification_id=f"qweather:{alert_id}",
+                notification_id=notification_id,
                 source="qweather",
                 level=level,
                 title=title,
                 message=message,
                 created_at=created_at,
-                metadata={
-                    "severity": severity,
-                    "lifecycle": lifecycle,
-                    "riskDelta": normalized_alert["riskDelta"],
-                },
+                metadata=metadata,
             )
+    settle_stale_weather_notifications(current_notification_ids)
     return {
         "source": "qweather",
         "alerts": normalized,

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -24,6 +25,8 @@ final class AppState: ObservableObject {
     @Published private(set) var isRefreshingGitHub = false
     @Published private(set) var isRefreshingMail = false
     @Published private(set) var isRefreshingNotifications = false
+    @Published private(set) var isClearingReadNotifications = false
+    @Published private(set) var notificationError: String?
     @Published private(set) var lastError: String?
     @Published private(set) var codexUpdatedAt: Date?
     @Published private(set) var deepSeekUpdatedAt: Date?
@@ -34,6 +37,16 @@ final class AppState: ObservableObject {
     @Published private(set) var selectedGitHubDateKey: String?
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
+    @Published var selectedWorkspace: WorkspaceDestination? = .overview
+    @Published var selectedNotificationID: String?
+    @Published var isMainSidebarVisible: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                isMainSidebarVisible,
+                forKey: SidebarPresentation.visibilityDefaultsKey
+            )
+        }
+    }
 
     let settings = AppSettingsStore()
     private let api = LocalAPIClient()
@@ -41,13 +54,22 @@ final class AppState: ObservableObject {
     private let deepSeekClient = DeepSeekUsageClient()
     private let backend = LocalBackendSupervisor()
     private var refreshTask: Task<Void, Never>?
+    private var notificationStartupTask: Task<Void, Never>?
     private var weatherAlertsUpdatedAt: Date?
     private var hasStarted = false
     private var githubContributionRequestID = 0
     private var githubContributionDetailCache: [String: GitHubContributionDetail] = [:]
+    private var dismissedAcknowledgementIDs: Set<String> = []
 
     init() {
         menuBarEnabled = settings.menuBarEnabled
+        isMainSidebarVisible = UserDefaults.standard.object(
+            forKey: SidebarPresentation.visibilityDefaultsKey
+        ) as? Bool ?? true
+    }
+
+    func toggleMainSidebar() {
+        isMainSidebarVisible.toggle()
     }
 
     func start() {
@@ -69,11 +91,14 @@ final class AppState: ObservableObject {
             githubUsername: settings.githubUsername
         )
         refresh()
+        refreshWhenLocalAPIReady()
         refreshMailWhenLocalAPIReady()
+        refreshNotificationsWhenLocalAPIReady()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 self?.refresh()
+                self?.loadNotifications()
             }
         }
     }
@@ -96,17 +121,28 @@ final class AppState: ObservableObject {
     }
 
     func loadSensitiveSettings() {
-        settings.loadSensitiveValues()
+        Task { [weak self] in
+            guard let self else { return }
+            let loaded = await self.settings.loadSensitiveValues()
+            guard loaded else { return }
+            self.restartLocalBackend()
+            self.refreshWhenLocalAPIReady()
+            self.refreshNotificationsWhenLocalAPIReady()
+            self.refreshMailWhenLocalAPIReady()
+        }
     }
 
     func stop() {
         refreshTask?.cancel()
         refreshTask = nil
+        notificationStartupTask?.cancel()
+        notificationStartupTask = nil
         backend.stop()
     }
 
     deinit {
         refreshTask?.cancel()
+        notificationStartupTask?.cancel()
         backend.stop()
     }
 
@@ -114,6 +150,22 @@ final class AppState: ObservableObject {
         MenuBarTemperatureFormatter.title(
             for: snapshot.weather.isAvailable ? snapshot.weather.temperature : nil
         )
+    }
+
+    var pendingAcknowledgement: AppNotification? {
+        notifications.items
+            .filter { $0.unread && $0.requiresAcknowledgement && !dismissedAcknowledgementIDs.contains($0.id) }
+            .max { $0.createdAt < $1.createdAt }
+    }
+
+    func acknowledgeNotification(_ notification: AppNotification) {
+        dismissedAcknowledgementIDs.insert(notification.id)
+        markNotificationRead(notification)
+    }
+
+    func dismissAcknowledgement(_ notification: AppNotification) {
+        dismissedAcknowledgementIDs.insert(notification.id)
+        objectWillChange.send()
     }
 
     func setMenuBarEnabled(_ enabled: Bool) {
@@ -451,7 +503,7 @@ final class AppState: ObservableObject {
     private func refreshWhenLocalAPIReady() {
         Task { [weak self] in
             guard let self else { return }
-            for attempt in 0..<8 {
+            for attempt in 0..<20 {
                 guard !Task.isCancelled else { return }
                 if attempt > 0 {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -462,6 +514,10 @@ final class AppState: ObservableObject {
                     if status.weather.isAvailable { self.weatherUpdatedAt = Date() }
                     self.weatherError = status.weather.error
                     self.lastError = status.weather.error ?? result.error
+                    if status.weather.isAvailable {
+                        _ = await self.refreshWeatherAlerts()
+                    }
+                    self.loadNotifications()
                     return
                 }
                 if result.error != "本地服务不可用" { return }
@@ -535,24 +591,100 @@ final class AppState: ObservableObject {
     }
 
     func openMail(_ item: MailItem) {
+        openMail(uid: item.uid)
+    }
+
+    private func openMail(uid: String) {
         Task {
-            let result = await api.readMail(uid: item.uid)
+            let result = await api.readMail(uid: uid)
             selectedMail = result.value
             lastError = result.error
-            if result.value != nil { loadMail() }
+            if result.value != nil {
+                loadMail()
+                loadNotifications()
+            }
         }
     }
 
     func closeMail() { selectedMail = nil }
+
+    func openNotification(_ notification: AppNotification) {
+        openNotification(NotificationConversation(latest: notification, updates: [notification]))
+    }
+
+    func openNotification(_ conversation: NotificationConversation) {
+        let notification = conversation.latest
+        if notification.source == "mail", let uid = notification.sourceID {
+            openMail(uid: uid)
+        } else if conversation.unreadIDs.count > 1 {
+            markNotificationsRead(conversation.unreadIDs)
+        } else if notification.unread {
+            markNotificationRead(notification)
+        }
+    }
+
+    func openNotificationSource(_ notification: AppNotification) {
+        switch notification.source {
+        case "mail":
+            if let uid = notification.sourceID { openMail(uid: uid) }
+        case "qweather":
+            selectedWorkspace = .weather
+        case "github":
+            selectedWorkspace = .github
+        default:
+            if let url = notification.resolvedExternalURL {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
 
     func loadNotifications() {
         guard !isRefreshingNotifications else { return }
         isRefreshingNotifications = true
         Task {
             let result = await api.notifications()
-            notifications = result.value ?? .empty
+            if let value = result.value {
+                notifications = value
+                notificationError = nil
+            } else {
+                notificationError = result.error
+            }
             lastError = result.error
             isRefreshingNotifications = false
+        }
+    }
+
+    private func refreshNotificationsWhenLocalAPIReady() {
+        notificationStartupTask?.cancel()
+        isRefreshingNotifications = true
+        notificationStartupTask = Task { [weak self] in
+            guard let self else { return }
+            for attempt in 0..<20 {
+                guard !Task.isCancelled else { return }
+                if attempt > 0 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                let result = await self.api.notifications()
+                if let value = result.value {
+                    self.notifications = value
+                    self.notificationError = nil
+                    self.lastError = nil
+                    self.isRefreshingNotifications = false
+                    self.notificationStartupTask = nil
+                    return
+                }
+                if result.error != "本地服务不可用" {
+                    self.notificationError = result.error
+                    self.lastError = result.error
+                    self.isRefreshingNotifications = false
+                    self.notificationStartupTask = nil
+                    return
+                }
+            }
+            self.notificationError = "本地通知服务启动超时"
+            self.lastError = self.notificationError
+            self.isRefreshingNotifications = false
+            self.notificationStartupTask = nil
         }
     }
 
@@ -561,6 +693,22 @@ final class AppState: ObservableObject {
         Task {
             let result = await api.markNotificationRead(id: notification.id)
             notifications = result.value ?? notifications
+            notificationError = result.error
+            lastError = result.error
+        }
+    }
+
+    func markNotificationRead(id: String) {
+        guard let notification = notifications.items.first(where: { $0.id == id }) else { return }
+        markNotificationRead(notification)
+    }
+
+    private func markNotificationsRead(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Task {
+            let result = await api.markNotificationsRead(ids: ids)
+            notifications = result.value ?? notifications
+            notificationError = result.error
             lastError = result.error
         }
     }
@@ -569,7 +717,20 @@ final class AppState: ObservableObject {
         Task {
             let result = await api.markAllNotificationsRead()
             notifications = result.value ?? notifications
+            notificationError = result.error
             lastError = result.error
+        }
+    }
+
+    func clearReadNotifications() {
+        guard !isClearingReadNotifications else { return }
+        isClearingReadNotifications = true
+        Task {
+            let result = await api.clearReadNotifications()
+            notifications = result.value ?? notifications
+            notificationError = result.error
+            lastError = result.error
+            isClearingReadNotifications = false
         }
     }
 
