@@ -71,6 +71,23 @@ actor LocalAPIClient {
         return await request(path: "/api/github/contributions\(query)")
     }
 
+    func githubRepositoryCommits(
+        repository: String,
+        month: String? = nil,
+        date: String? = nil
+    ) async -> ResultValue<GitHubRepositoryCommits> {
+        var items: [String] = [
+            "repository=\(repository.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? repository)"
+        ]
+        if let month, !month.isEmpty {
+            items.append("month=\(month.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? month)")
+        }
+        if let date, !date.isEmpty {
+            items.append("date=\(date.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? date)")
+        }
+        return await request(path: "/api/github/commits?\(items.joined(separator: "&"))")
+    }
+
     func mail(force: Bool) async -> ResultValue<MailOutline> {
         await request(path: force ? "/api/mail/refresh" : "/api/mail/outline", method: force ? "POST" : "GET")
     }

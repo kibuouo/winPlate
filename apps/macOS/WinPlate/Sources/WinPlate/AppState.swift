@@ -35,6 +35,10 @@ final class AppState: ObservableObject {
     @Published private(set) var isLoadingGitHubContributionDetail = false
     @Published private(set) var githubContributionError: String?
     @Published private(set) var selectedGitHubDateKey: String?
+    @Published private(set) var selectedGitHubContributionRepository: GitHubContributionRepository?
+    @Published private(set) var githubRepositoryCommits = GitHubRepositoryCommits.empty
+    @Published private(set) var isLoadingGitHubRepositoryCommits = false
+    @Published private(set) var githubRepositoryCommitsError: String?
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
     @Published var selectedWorkspace: WorkspaceDestination? = .overview
@@ -59,6 +63,8 @@ final class AppState: ObservableObject {
     private var hasStarted = false
     private var githubContributionRequestID = 0
     private var githubContributionDetailCache: [String: GitHubContributionDetail] = [:]
+    private var githubRepositoryCommitsRequestID = 0
+    private var githubRepositoryCommitsCache: [String: GitHubRepositoryCommits] = [:]
     private var dismissedAcknowledgementIDs: Set<String> = []
 
     init() {
@@ -366,6 +372,20 @@ final class AppState: ObservableObject {
         }
     }
 
+    func selectGitHubContributionRepository(_ repository: GitHubContributionRepository) {
+        guard selectedGitHubContributionRepository?.nameWithOwner != repository.nameWithOwner else { return }
+        selectedGitHubContributionRepository = repository
+        let rangeKey = githubContributionDetail.rangeKey
+        let dateKey = selectedGitHubDateKey
+        Task {
+            await loadGitHubRepositoryCommits(
+                repository,
+                rangeKey: rangeKey,
+                dateKey: dateKey
+            )
+        }
+    }
+
     /// Toggle a calendar day: re-selecting the same day returns to the month summary.
     func selectGitHubDate(_ dateKey: String) {
         if selectedGitHubDateKey == dateKey {
@@ -395,6 +415,8 @@ final class AppState: ObservableObject {
         let dateKey = date
         guard dateKey != nil || monthKey != nil else { return }
 
+        resetGitHubRepositoryCommitSelection()
+
         if let dateKey {
             selectedGitHubDateKey = dateKey
         } else {
@@ -406,6 +428,7 @@ final class AppState: ObservableObject {
             githubContributionDetail = cached
             githubContributionError = cached.message.isEmpty ? nil : cached.message
             isLoadingGitHubContributionDetail = false
+            await loadDefaultGitHubRepositoryCommits(for: cached)
             return
         }
 
@@ -433,6 +456,7 @@ final class AppState: ObservableObject {
             if let cacheKey {
                 githubContributionDetailCache[cacheKey] = detail
             }
+            await loadDefaultGitHubRepositoryCommits(for: detail)
         } else if let fallback = contributionFallback(
             monthKey: monthKey,
             dateKey: dateKey,
@@ -449,7 +473,9 @@ final class AppState: ObservableObject {
 
     private func clearGitHubContributionCache(resetSelectionToCurrentMonth: Bool, github: GitHubSnapshot?) {
         githubContributionDetailCache.removeAll()
+        githubRepositoryCommitsCache.removeAll()
         selectedGitHubDateKey = nil
+        resetGitHubRepositoryCommitSelection()
         githubContributionRequestID += 1
         if resetSelectionToCurrentMonth {
             if let github {
@@ -460,6 +486,65 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    private func loadDefaultGitHubRepositoryCommits(for detail: GitHubContributionDetail) async {
+        guard let repository = detail.repositories.first else { return }
+        selectedGitHubContributionRepository = repository
+        await loadGitHubRepositoryCommits(
+            repository,
+            rangeKey: detail.rangeKey,
+            dateKey: selectedGitHubDateKey
+        )
+    }
+
+    private func loadGitHubRepositoryCommits(
+        _ repository: GitHubContributionRepository,
+        rangeKey: String,
+        dateKey: String?
+    ) async {
+        guard !rangeKey.isEmpty else { return }
+        let cacheKey = GitHubContributionFormatting.cacheKey(
+            month: dateKey == nil ? rangeKey : nil,
+            date: dateKey
+        ).map { "\($0)|repository:\(repository.nameWithOwner)" }
+        if let cacheKey, let cached = githubRepositoryCommitsCache[cacheKey] {
+            githubRepositoryCommits = cached
+            githubRepositoryCommitsError = cached.message.isEmpty ? nil : cached.message
+            isLoadingGitHubRepositoryCommits = false
+            return
+        }
+
+        githubRepositoryCommitsRequestID += 1
+        let requestID = githubRepositoryCommitsRequestID
+        isLoadingGitHubRepositoryCommits = true
+        githubRepositoryCommitsError = nil
+        let result = await api.githubRepositoryCommits(
+            repository: repository.nameWithOwner,
+            month: dateKey == nil ? rangeKey : nil,
+            date: dateKey
+        )
+        guard requestID == githubRepositoryCommitsRequestID else { return }
+
+        if let commits = result.value {
+            githubRepositoryCommits = commits
+            githubRepositoryCommitsError = commits.message.isEmpty ? nil : commits.message
+            if let cacheKey, commits.detailsAvailable {
+                githubRepositoryCommitsCache[cacheKey] = commits
+            }
+        } else {
+            githubRepositoryCommits = .empty
+            githubRepositoryCommitsError = result.error
+        }
+        isLoadingGitHubRepositoryCommits = false
+    }
+
+    private func resetGitHubRepositoryCommitSelection() {
+        selectedGitHubContributionRepository = nil
+        githubRepositoryCommits = .empty
+        githubRepositoryCommitsError = nil
+        githubRepositoryCommitsRequestID += 1
+        isLoadingGitHubRepositoryCommits = false
     }
 
     private func contributionFallback(

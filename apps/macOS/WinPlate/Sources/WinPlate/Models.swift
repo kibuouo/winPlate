@@ -614,6 +614,96 @@ struct GitHubContributionRepository: Decodable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey { case nameWithOwner, url, count }
 }
 
+struct GitHubRepositoryCommits: Decodable {
+    let rangeType: String
+    let rangeKey: String
+    let label: String
+    let repository: String
+    let commits: [GitHubCommit]
+    let hasMore: Bool
+    let detailsAvailable: Bool
+    let message: String
+
+    static let empty = GitHubRepositoryCommits(
+        rangeType: "month",
+        rangeKey: "",
+        label: "",
+        repository: "",
+        commits: [],
+        hasMore: false,
+        detailsAvailable: false,
+        message: ""
+    )
+
+    init(
+        rangeType: String,
+        rangeKey: String,
+        label: String,
+        repository: String,
+        commits: [GitHubCommit],
+        hasMore: Bool,
+        detailsAvailable: Bool,
+        message: String
+    ) {
+        self.rangeType = rangeType
+        self.rangeKey = rangeKey
+        self.label = label
+        self.repository = repository
+        self.commits = commits
+        self.hasMore = hasMore
+        self.detailsAvailable = detailsAvailable
+        self.message = message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rangeType = try c.decodeIfPresent(String.self, forKey: .rangeType) ?? "month"
+        rangeKey = try c.decodeIfPresent(String.self, forKey: .rangeKey) ?? ""
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        repository = try c.decodeIfPresent(String.self, forKey: .repository) ?? ""
+        commits = try c.decodeIfPresent([GitHubCommit].self, forKey: .commits) ?? []
+        hasMore = try c.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
+        detailsAvailable = try c.decodeIfPresent(Bool.self, forKey: .detailsAvailable) ?? false
+        message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rangeType, rangeKey, label, repository, commits, hasMore, detailsAvailable, message
+    }
+
+    var displayLabel: String {
+        let localized = GitHubContributionFormatting.localizedLabel(rangeType: rangeType, rangeKey: rangeKey)
+        return localized.isEmpty ? label : localized
+    }
+}
+
+struct GitHubCommit: Decodable, Identifiable, Hashable {
+    let sha: String
+    let message: String
+    let url: String
+    let authorName: String
+    let authorLogin: String
+    let authoredAt: String
+
+    var id: String { sha }
+    var shortSHA: String { String(sha.prefix(7)) }
+    var subject: String {
+        message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sha = try c.decodeIfPresent(String.self, forKey: .sha) ?? ""
+        message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        authorName = try c.decodeIfPresent(String.self, forKey: .authorName) ?? ""
+        authorLogin = try c.decodeIfPresent(String.self, forKey: .authorLogin) ?? ""
+        authoredAt = try c.decodeIfPresent(String.self, forKey: .authoredAt) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey { case sha, message, url, authorName, authorLogin, authoredAt }
+}
+
 enum GitHubContributionFormatting {
     static func localizedLabel(rangeType: String, rangeKey: String) -> String {
         if rangeType == "date" {

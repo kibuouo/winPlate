@@ -292,6 +292,39 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertTrue(detail.summaryText.contains("10"))
     }
 
+    func testDecodesGitHubRepositoryCommits() throws {
+        let payload = """
+        {
+          "rangeType": "month",
+          "rangeKey": "2026-07",
+          "label": "July 2026",
+          "repository": "kibuouo/winPlate",
+          "commits": [{
+            "sha": "abcdef1234567890",
+            "message": "Add contribution history\\n\\nDetails",
+            "url": "https://github.com/kibuouo/winPlate/commit/abcdef1234567890",
+            "authorName": "Kibo",
+            "authorLogin": "kibuouo",
+            "authoredAt": "2026-07-20T08:30:00Z"
+          }],
+          "hasMore": false,
+          "detailsAvailable": true,
+          "message": ""
+        }
+        """
+
+        let commits = try JSONDecoder().decode(
+            GitHubRepositoryCommits.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(commits.repository, "kibuouo/winPlate")
+        XCTAssertEqual(commits.commits.first?.shortSHA, "abcdef1")
+        XCTAssertEqual(commits.commits.first?.subject, "Add contribution history")
+        XCTAssertEqual(commits.commits.first?.authorLogin, "kibuouo")
+        XCTAssertTrue(commits.detailsAvailable)
+    }
+
     func testGitHubContributionFallbackUsesCalendarTotalsWithoutGuessingRepos() throws {
         let monthPayload = """
         {

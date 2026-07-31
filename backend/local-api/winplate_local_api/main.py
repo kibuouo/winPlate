@@ -2725,6 +2725,99 @@ def github_contribution_detail(
         return {**base, "message": "Repository details are temporarily unavailable."}
 
 
+def github_repository_commits(
+    username: str,
+    repository_name: str,
+    *,
+    date_text: str | None = None,
+    month_text: str | None = None,
+) -> dict:
+    if bool(date_text) == bool(month_text):
+        raise ValueError("exactly one contribution range is required")
+
+    repository_parts = repository_name.strip().split("/")
+    if len(repository_parts) != 2 or not all(repository_parts):
+        raise ValueError("invalid repository name")
+
+    try:
+        if date_text:
+            start = datetime.strptime(date_text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+            range_type, range_key = "date", date_text
+            label = start.strftime("%B %-d, %Y") if os.name != "nt" else start.strftime("%B %#d, %Y")
+        else:
+            start = datetime.strptime(month_text, "%Y-%m").replace(tzinfo=timezone.utc)
+            next_year, next_month = (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+            end = datetime(next_year, next_month, 1, tzinfo=timezone.utc)
+            range_type, range_key = "month", month_text or ""
+            label = start.strftime("%B %Y")
+    except ValueError as error:
+        raise ValueError("invalid contribution range") from error
+
+    base = {
+        "rangeType": range_type,
+        "rangeKey": range_key,
+        "label": label,
+        "repository": repository_name.strip(),
+        "commits": [],
+        "hasMore": False,
+        "detailsAvailable": False,
+    }
+    if not github_token():
+        return {**base, "message": "仓库 Git 提交记录需要配置 GitHub Token。"}
+
+    owner, name = repository_parts
+    params = urlencode({
+        "author": username,
+        "since": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "until": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "per_page": 100,
+    })
+    path = f"/repos/{quote(owner, safe='')}/{quote(name, safe='')}/commits?{params}"
+    try:
+        payload = github_request(path)
+        if not isinstance(payload, list):
+            raise RuntimeError("unavailable: GitHub commits response was invalid")
+
+        commits = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            commit = item.get("commit")
+            if not isinstance(commit, dict):
+                continue
+            sha = item.get("sha")
+            message = commit.get("message")
+            if not isinstance(sha, str) or not sha or not isinstance(message, str) or not message:
+                continue
+            commit_author = commit.get("author") if isinstance(commit.get("author"), dict) else {}
+            github_author = item.get("author") if isinstance(item.get("author"), dict) else {}
+            commits.append({
+                "sha": sha,
+                "message": message,
+                "url": item.get("html_url") if isinstance(item.get("html_url"), str) else "",
+                "authorName": commit_author.get("name") if isinstance(commit_author.get("name"), str) else username,
+                "authorLogin": github_author.get("login") if isinstance(github_author.get("login"), str) else username,
+                "authoredAt": commit_author.get("date") if isinstance(commit_author.get("date"), str) else "",
+            })
+        return {
+            **base,
+            "commits": commits,
+            "hasMore": len(payload) >= 100,
+            "detailsAvailable": True,
+            "message": "" if commits else "该时段没有可读取的 Git 提交记录。",
+        }
+    except RuntimeError as error:
+        _reason, _, _detail = str(error).partition(":")
+        messages = {
+            "auth": "GitHub 身份验证失败，无法读取该仓库的提交记录。",
+            "rate-limit": "GitHub 请求频率受限，暂时无法读取提交记录。",
+            "slow": "GitHub 响应较慢，暂时无法读取提交记录。",
+            "unavailable": "GitHub 当前不可用，暂时无法读取提交记录。",
+        }
+        return {**base, "message": messages.get(_reason, messages["unavailable"])}
+
+
 def map_github_repository(repository: object) -> dict | None:
     if not isinstance(repository, dict):
         return None
@@ -2966,6 +3059,23 @@ def github_contributions(date: str | None = None, month: str | None = None) -> d
     try:
         return github_contribution_detail(
             github_username(),
+            date_text=date,
+            month_text=month,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@api.get("/api/github/commits")
+def github_commits(
+    repository: str,
+    date: str | None = None,
+    month: str | None = None,
+) -> dict:
+    try:
+        return github_repository_commits(
+            github_username(),
+            repository,
             date_text=date,
             month_text=month,
         )

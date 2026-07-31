@@ -814,6 +814,34 @@ class DatabaseTests(unittest.TestCase):
         self.assertFalse(result["detailsAvailable"])
         self.assertIn("Token", result["message"])
 
+    def test_github_repository_commits_maps_commit_records_for_a_month(self):
+        payload = [{
+            "sha": "abcdef1234567890",
+            "html_url": "https://github.com/octocat/one/commit/abcdef1234567890",
+            "commit": {
+                "message": "Add contribution history\n\nDetails",
+                "author": {"name": "Mona", "date": "2026-07-20T08:30:00Z"},
+            },
+            "author": {"login": "octocat"},
+        }]
+        with (
+            patch.object(main, "github_token", return_value="token"),
+            patch.object(main, "github_request", return_value=payload) as request,
+        ):
+            result = main.github_repository_commits(
+                "octocat",
+                "octocat/one",
+                month_text="2026-07",
+            )
+
+        self.assertEqual(result["repository"], "octocat/one")
+        self.assertTrue(result["detailsAvailable"])
+        self.assertEqual(result["commits"][0]["sha"], "abcdef1234567890")
+        self.assertEqual(result["commits"][0]["authorName"], "Mona")
+        self.assertEqual(result["commits"][0]["authoredAt"], "2026-07-20T08:30:00Z")
+        self.assertIn("/repos/octocat/one/commits?", request.call_args.args[0])
+        self.assertIn("author=octocat", request.call_args.args[0])
+
     def test_named_metric_sum_supports_api_keyed_objects(self):
         payload = {
             "data": {
