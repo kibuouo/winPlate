@@ -560,9 +560,33 @@ if (!gotLock) {
     }
 
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
-    ipcMain.on("github:open-profile", (_event, url) => {
-      if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
-        shell.openExternal(url);
+    ipcMain.on("github:open-profile", (event, url) => {
+      requireMainWindowSender(event);
+      if (typeof url !== "string") return;
+      try {
+        const target = new URL(url);
+        const segments = target.pathname.split("/").filter(Boolean);
+        const safeSegment = (value) => /^[A-Za-z0-9_.-]+$/.test(value || "");
+        const isProfile = segments.length === 1 && safeSegment(segments[0]);
+        const isRepository = segments.length === 2 && segments.every(safeSegment);
+        const isCommit = segments.length === 4
+          && safeSegment(segments[0])
+          && safeSegment(segments[1])
+          && segments[2] === "commit"
+          && /^[a-f0-9]{7,64}$/i.test(segments[3]);
+        if (
+          target.protocol === "https:"
+          && target.hostname === "github.com"
+          && !target.username
+          && !target.password
+          && !target.search
+          && !target.hash
+          && (isProfile || isRepository || isCommit)
+        ) {
+          shell.openExternal(target.href);
+        }
+      } catch {
+        // Ignore malformed or non-GitHub URLs from renderer content.
       }
     });
     ipcMain.handle("mail:open", async () => {

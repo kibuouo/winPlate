@@ -95,9 +95,81 @@ test("notification summaries are generated automatically by local rules", () => 
   );
 
   assert.match(appSource, /通知摘要/);
-  assert.match(appSource, /始终使用本地规则自动分级、去重和聚合/);
+  assert.match(appSource, /Local rules automatically classify, deduplicate, and group updates/);
   assert.match(summarySource, /createLocalDigest/);
   assert.doesNotMatch(summarySource, /callChat|DeepSeek|responseFormat|persistDigest/);
+});
+
+test("workspace settings use registry labels and card controls without changing the settings payload", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const panelStart = appSource.indexOf("const WORKSPACE_MODULE_COPY");
+  const panelEnd = appSource.indexOf("function githubSettingsPanel()", panelStart);
+  const panelSource = appSource.slice(panelStart, panelEnd);
+  const bindingStart = appSource.indexOf("function bindProductSettings()");
+  const bindingEnd = appSource.indexOf("function bindGithubSettings()", bindingStart);
+  const bindingSource = appSource.slice(bindingStart, bindingEnd);
+
+  assert.match(panelSource, /workspace-settings-summary/);
+  assert.match(panelSource, /workspace-module-card/);
+  assert.match(panelSource, /const title = module\.title/);
+  assert.match(panelSource, /Dashboard/);
+  assert.match(panelSource, /Floating/);
+  assert.match(panelSource, /Notification digest/);
+  assert.doesNotMatch(panelSource, /WORKSPACE_MODULE_TITLES|WORKSPACE_VIEW_LABELS/);
+  assert.doesNotMatch(panelSource, /module\.views\.join/);
+  assert.match(bindingSource, /modules:\s*\{\s*\.\.\.appSettings\.modules,\s*enabled\s*\}/);
+  assert.match(bindingSource, /configureRefreshTasks\(\)/);
+  assert.match(styles, /\.workspace-module-card:has\(input:checked\)/);
+  assert.match(styles, /\.workspace-module-switch input:focus-visible \+ span/);
+});
+
+test("connected services use one status-led card system while preserving service handlers", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(appSource, /const SETTINGS_SERVICE_PRESENTATION/);
+  assert.match(appSource, /settings-services-summary/);
+  assert.match(appSource, /settingsServiceNavButton\("github"/);
+  assert.match(appSource, /settingsServiceNavButton\("weather"/);
+  assert.match(appSource, /settingsServiceNavButton\("deepseek"/);
+  assert.match(appSource, /settingsServiceNavButton\("mail"/);
+  assert.match(appSource, /Sensitive values stay blank and are stored encrypted for the current Windows user/);
+  assert.match(appSource, /window\.winplate\.saveWeatherSettings/);
+  assert.match(appSource, /window\.winplate\.saveDeepSeekSettings/);
+  assert.match(appSource, /window\.winplate\.saveMailSettings/);
+  assert.match(appSource, /window\.winplate\.connectMail/);
+  assert.match(styles, /\.settings-service-nav\s*\{[^}]*grid-template-columns:\s*repeat\(2,/);
+  assert.match(styles, /\.settings-service-nav b\[data-state="ready"\]/);
+});
+
+test("GitHub workspace exposes annual navigation, Git commit history, and maintained repositories", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const githubStart = appSource.indexOf("function formattedGithubMonthLabel");
+  const githubEnd = appSource.indexOf("const previewIcons", githubStart);
+  const githubSource = appSource.slice(githubStart, githubEnd);
+
+  assert.match(githubSource, /function githubYearHeatmap/);
+  assert.match(githubSource, /data-contribution-month/);
+  assert.match(githubSource, /function renderGithubContributionActivity/);
+  assert.match(githubSource, /Git commit history/);
+  assert.match(githubSource, /data-github-contribution-repository/);
+  assert.match(githubSource, /commit\?\.message/);
+  assert.match(githubSource, /commit\?\.author/);
+  assert.match(githubSource, /commit\?\.committedAt/);
+  assert.match(githubSource, /function githubRepositoryCards/);
+  assert.match(githubSource, /github\.repositories/);
+  assert.doesNotMatch(githubSource, /Pinned repository/);
+  assert.match(appSource, /function revealSelectedGithubMonth\(\)/);
+  assert.match(appSource, /strip\.scrollLeft = Math\.min\(maximumScroll, Math\.max\(0, selectedEnd - strip\.clientWidth \+ 2\)\)/);
+  assert.match(appSource, /function bindGithubControls\(\) \{\s*revealSelectedGithubMonth\(\);/);
+  assert.match(appSource, /pageContent\.onchange = \(event\) =>/);
+  assert.match(styles, /\.github-year-heatmap-scroll\s*\{[^}]*overflow-x:\s*auto/);
+  assert.match(styles, /\.github-year-month\s*\{[^}]*width:\s*89px[^}]*flex:\s*0 0 89px/);
+  assert.match(styles, /\.github-year-month-grid\s*\{[^}]*grid-template-columns:\s*repeat\(7, 9px\)[^}]*grid-auto-flow:\s*row[^}]*grid-auto-rows:\s*9px[^}]*gap:\s*2px/);
+  assert.match(styles, /\.github-commit-records ol\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(styles, /\.github-maintained-grid\s*\{[^}]*repeat\(auto-fit,/);
 });
 
 test("top-docked floating view is a single frosted row with only requested controls", () => {

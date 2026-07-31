@@ -2312,6 +2312,8 @@ def github_contribution_detail(
         "totalCount": fallback_total,
         "repositoryCount": 0,
         "repositories": [],
+        "commitRecordsAvailable": False,
+        "commitRecordsTruncated": False,
         "detailsAvailable": False,
     }
     if not github_token():
@@ -2353,17 +2355,97 @@ def github_contribution_detail(
             if isinstance(name, str) and isinstance(url, str) and isinstance(count, int) and count >= 0:
                 repositories.append({"nameWithOwner": name, "url": url, "count": count})
         repositories.sort(key=lambda item: (-item["count"], item["nameWithOwner"].lower()))
+        repositories = github_commit_records(repositories, username, start, end)
         total = collection.get("totalCommitContributions")
+        fetched_commit_count = sum(len(item.get("commits", [])) for item in repositories)
+        commit_records_available = any(item.get("recordsAvailable") for item in repositories)
         return {
             **base,
             "totalCount": max(0, total) if isinstance(total, int) else sum(item["count"] for item in repositories),
             "repositoryCount": len(repositories),
             "repositories": repositories,
+            "commitRecordsAvailable": commit_records_available,
+            "commitRecordsTruncated": fetched_commit_count < sum(item["count"] for item in repositories),
             "detailsAvailable": True,
-            "message": "",
+            "message": "" if commit_records_available or not repositories else "Git commit records are temporarily unavailable.",
         }
     except RuntimeError:
         return {**base, "message": "Repository details are temporarily unavailable."}
+
+
+def map_github_commit_record(item: object, repository_name: str) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    commit = item.get("commit")
+    if not isinstance(commit, dict):
+        return None
+    sha = item.get("sha")
+    message = commit.get("message")
+    commit_author = commit.get("author") if isinstance(commit.get("author"), dict) else {}
+    github_author = item.get("author") if isinstance(item.get("author"), dict) else {}
+    committed_at = commit_author.get("date")
+    url = item.get("html_url")
+    if not isinstance(sha, str) or not sha.strip() or not isinstance(message, str):
+        return None
+    title = message.splitlines()[0].strip()
+    if not title:
+        return None
+    author = github_author.get("login") or commit_author.get("name") or "Unknown"
+    return {
+        "sha": sha.strip(),
+        "message": title,
+        "author": str(author),
+        "committedAt": committed_at if isinstance(committed_at, str) else "",
+        "url": url if isinstance(url, str) else "",
+        "repository": repository_name,
+    }
+
+
+def github_commit_records(
+    repositories: list[dict],
+    username: str,
+    start: datetime,
+    end: datetime,
+    *,
+    max_repositories: int = 8,
+    max_commits_per_repository: int = 100,
+) -> list[dict]:
+    candidates = repositories[:max_repositories]
+
+    def fetch(repository: dict) -> dict:
+        name_with_owner = str(repository.get("nameWithOwner") or "")
+        parts = name_with_owner.split("/")
+        if len(parts) != 2 or not all(parts):
+            return {**repository, "commits": [], "recordsAvailable": False}
+        owner, name = parts
+        query = urlencode({
+            "author": username,
+            "since": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "until": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "per_page": min(max_commits_per_repository, max(1, int(repository.get("count") or 1))),
+        })
+        path = f"/repos/{quote(owner, safe='')}/{quote(name, safe='')}/commits?{query}"
+        try:
+            payload = github_request(path)
+        except RuntimeError:
+            return {**repository, "commits": [], "recordsAvailable": False}
+        commits = [
+            record
+            for item in payload if isinstance(payload, list)
+            if (record := map_github_commit_record(item, name_with_owner)) is not None
+        ]
+        commits.sort(key=lambda item: item["committedAt"], reverse=True)
+        return {**repository, "commits": commits, "recordsAvailable": True}
+
+    if not candidates:
+        return repositories
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as executor:
+        fetched = list(executor.map(fetch, candidates))
+    remainder = [
+        {**repository, "commits": [], "recordsAvailable": False}
+        for repository in repositories[max_repositories:]
+    ]
+    return fetched + remainder
 
 
 def map_github_repository(repository: object) -> dict | None:

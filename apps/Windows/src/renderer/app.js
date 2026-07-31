@@ -23,6 +23,20 @@ function normalizeGithub(github = {}, fallback = mockStatus.github) {
       : Array(30).fill(0),
     contributionMonths: Array.isArray(merged.contributionMonths)
       ? merged.contributionMonths
+      : [],
+    repositories: Array.isArray(merged.repositories)
+      ? merged.repositories.map((repository) => ({
+          name: String(repository?.name || repository?.fullName || "Unnamed repository"),
+          fullName: String(repository?.fullName || repository?.name || "Unnamed repository"),
+          description: String(repository?.description || ""),
+          language: String(repository?.language || "Unknown"),
+          stars: Math.max(0, Number(repository?.stars) || 0),
+          forks: Math.max(0, Number(repository?.forks) || 0),
+          url: String(repository?.url || ""),
+          pushedAt: String(repository?.pushedAt || ""),
+          isPrivate: Boolean(repository?.isPrivate),
+          isFork: Boolean(repository?.isFork)
+        }))
       : []
   };
 }
@@ -41,6 +55,7 @@ let mainWindowMaximized = false;
 let sidebarCollapsed = false;
 let selectedContributionMonth = null;
 let selectedContributionDate = null;
+let selectedContributionRepository = null;
 const githubContributionDetailCache = new Map();
 let githubContributionRequestId = 0;
 let githubRefreshInFlight = false;
@@ -469,6 +484,7 @@ function bindSettingsNavigation() {
   };
   showSection(activeSettingsSection, { scroll: false });
   showService(activeSettingsService);
+  updateSettingsServicesSummary();
 }
 
 function bindThemeControls() {
@@ -484,30 +500,142 @@ function bindThemeControls() {
   });
 }
 
+const SETTINGS_SERVICE_PRESENTATION = Object.freeze({
+  github: { target: "settings-github", title: "GitHub", description: "Profile, contributions, and repositories", icon: "github" },
+  weather: { target: "settings-weather", title: "QWeather", description: "Weather service and location", icon: "cloud-rain-alert" },
+  deepseek: { target: "settings-deepseek", title: "DeepSeek", description: "Account balance service", icon: "sparkles" },
+  mail: { target: "settings-mail", title: "QQ Mail", description: "IMAP inbox", icon: "mail" }
+});
+
+function settingsServiceStatusKind(text) {
+  if (/读取失败|保存失败|连接失败|不可用|failed|unavailable/i.test(text)) return "error";
+  if (/正在|loading|saving|connecting/i.test(text)) return "pending";
+  if (/已配置|已连接|公开数据|正常|configured|connected|public data|normal/i.test(text)) return "ready";
+  return "empty";
+}
+
+function updateSettingsServicesSummary() {
+  const statuses = [...document.querySelectorAll("[data-settings-service-status]")];
+  const readyCount = statuses.filter((status) => settingsServiceStatusKind(status.textContent) === "ready").length;
+  const count = document.querySelector("[data-settings-services-ready-count]");
+  if (count) count.textContent = String(readyCount);
+}
+
 function updateSettingsServiceStatus(service, text) {
   const status = document.querySelector(`[data-settings-service-status="${service}"]`);
-  if (status) status.textContent = text;
+  if (status) {
+    status.textContent = text;
+    status.dataset.state = settingsServiceStatusKind(text);
+  }
+  updateSettingsServicesSummary();
+}
+
+function settingsServiceNavButton(service, statusText) {
+  const item = SETTINGS_SERVICE_PRESENTATION[service];
+  const active = activeSettingsService === item.target;
+  return `
+    <button class="${active ? "active" : ""}" data-settings-service-target="${item.target}" type="button" role="tab" aria-selected="${active}">
+      <span class="settings-service-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(item.icon)}</span>
+      <span class="settings-service-copy"><strong>${item.title}</strong><small>${item.description}</small></span>
+      <b data-settings-service-status="${service}" data-state="${settingsServiceStatusKind(statusText)}">${statusText}</b>
+    </button>`;
+}
+
+const WORKSPACE_MODULE_COPY = Object.freeze({
+  github: "Contribution heatmap, recent activity, and repositories",
+  codex: "Codex, DeepSeek, and SuperGrok usage status",
+  notifications: "Cross-module alerts and local notification digest",
+  mail: "QQ Mail inbox and unread alerts",
+  weather: "Live weather, forecasts, and severe weather alerts",
+  heart: "Health data and recent measurements",
+  network: "Live network speed in the floating window"
+});
+
+const WORKSPACE_MODULE_ICONS = Object.freeze({
+  github: "github",
+  codex: "codex",
+  notifications: "bell",
+  mail: "mail",
+  weather: "cloud-rain-alert",
+  heart: "monitor",
+  network: "wifi"
+});
+
+function workspaceModuleIcon(moduleId) {
+  return window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(
+    WORKSPACE_MODULE_ICONS[moduleId] || "monitor"
+  );
+}
+
+function workspaceModuleCard(module) {
+  const title = module.title;
+  const viewLabels = module.views.map((view) => view.charAt(0).toUpperCase() + view.slice(1));
+  return `
+    <article class="workspace-module-card" data-module-setting="${module.id}">
+      <label class="workspace-module-toggle">
+        <span class="workspace-module-icon">${workspaceModuleIcon(module.id)}</span>
+        <span class="workspace-module-copy">
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(WORKSPACE_MODULE_COPY[module.id] || "WinPlate workspace module")}</small>
+        </span>
+        <span class="workspace-module-switch">
+          <input
+            type="checkbox"
+            data-module-enabled
+            aria-label="Show ${escapeHtml(title)} module"
+            ${moduleEnabled(module.id) ? "checked" : ""}
+          >
+          <span aria-hidden="true"></span>
+        </span>
+      </label>
+      <div class="workspace-module-views" aria-label="Available views">
+        ${viewLabels.map((label) => `<span>${label}</span>`).join("")}
+      </div>
+    </article>`;
 }
 
 function productSettingsPanel() {
   const ordered = window.WinPlateModuleRegistry.orderedModules(appSettings.modules.order);
+  const enabledCount = ordered.filter((module) => moduleEnabled(module.id)).length;
+  const dashboardCount = ordered.filter((module) => module.views.includes("dashboard")).length;
+  const floatingCount = ordered.filter((module) => module.views.includes("floating")).length;
   return `
-    <form class="settings-panel product-settings-panel" id="product-settings-form">
-      <fieldset>
-        <legend><strong>显示模块</strong><small>关闭后会从界面隐藏，并停止对应的自动刷新</small></legend>
-        <div class="module-settings-list">
-          ${ordered.map((module) => `
-            <div class="module-settings-row" data-module-setting="${module.id}">
-              <label class="module-enabled"><span><strong>${module.title}</strong><small>${module.views.join(" · ")}</small></span><input type="checkbox" data-module-enabled ${moduleEnabled(module.id) ? "checked" : ""}></label>
-            </div>`).join("")}
+    <form class="product-settings-panel" id="product-settings-form">
+      <section class="workspace-settings-summary" aria-labelledby="workspace-summary-title">
+        <div class="workspace-summary-copy">
+          <span class="workspace-summary-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("monitor")}</span>
+          <span>
+            <strong id="workspace-summary-title">Workspace modules</strong>
+            <small>Control what appears in the app and which modules refresh automatically</small>
+          </span>
         </div>
-      </fieldset>
-      <fieldset>
-        <legend><strong>通知摘要</strong><small>始终使用本地规则自动分级、去重和聚合</small></legend>
-      </fieldset>
+        <dl class="workspace-summary-metrics">
+          <div><dt data-workspace-enabled-count>${enabledCount}</dt><dd>Enabled</dd></div>
+          <div><dt>${ordered.length}</dt><dd>All modules</dd></div>
+          <div><dt>${dashboardCount}</dt><dd>Dashboard</dd></div>
+          <div><dt>${floatingCount}</dt><dd>Floating</dd></div>
+        </dl>
+      </section>
+      <section class="workspace-module-section" aria-labelledby="workspace-module-title">
+        <div class="workspace-module-heading">
+          <span>
+            <strong id="workspace-module-title">Visible modules</strong>
+            <small>Disabled modules are hidden and no longer refresh automatically</small>
+          </span>
+          <small>Use the switch on each card</small>
+        </div>
+        <div class="workspace-module-grid">
+          ${ordered.map(workspaceModuleCard).join("")}
+        </div>
+      </section>
+      <aside class="workspace-notification-policy">
+        <span class="workspace-policy-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("bell")}</span>
+        <span><strong>Notification digest</strong><small>Local rules automatically classify, deduplicate, and group updates</small></span>
+        <b>Automatic</b>
+      </aside>
       <div class="product-settings-actions">
-        <small id="product-settings-status">配置保存在当前 Windows 用户目录</small>
-        <button type="submit">保存工作区设置</button>
+        <small id="product-settings-status" aria-live="polite">Saved for the current Windows user</small>
+        <button type="submit" disabled>Save workspace settings</button>
       </div>
     </form>`;
 }
@@ -536,13 +664,32 @@ function githubSettingsPanel() {
 function bindProductSettings() {
   const form = document.querySelector("#product-settings-form");
   if (!form) return;
+  const rows = [...form.querySelectorAll("[data-module-setting]")];
+  const status = form.querySelector("#product-settings-status");
+  const button = form.querySelector("button[type=submit]");
+  const enabledCount = form.querySelector("[data-workspace-enabled-count]");
+  const updateState = ({ saved = false } = {}) => {
+    const activeCount = rows.filter((row) => row.querySelector("[data-module-enabled]").checked).length;
+    const dirty = rows.some((row) => (
+      row.querySelector("[data-module-enabled]").checked !== moduleEnabled(row.dataset.moduleSetting)
+    ));
+    enabledCount.textContent = String(activeCount);
+    form.classList.toggle("is-dirty", dirty);
+    status.className = dirty ? "pending" : "";
+    status.textContent = dirty
+      ? `Unsaved changes · ${activeCount} modules will be enabled`
+      : saved
+        ? `Saved and applied · ${activeCount} modules active`
+        : "Saved for the current Windows user";
+    button.disabled = !dirty;
+  };
+  rows.forEach((row) => {
+    row.querySelector("[data-module-enabled]").onchange = () => updateState();
+  });
   form.onsubmit = async (event) => {
     event.preventDefault();
-    const status = form.querySelector("#product-settings-status");
-    const button = form.querySelector("button[type=submit]");
     button.disabled = true;
-    status.textContent = "正在保存...";
-    const rows = [...form.querySelectorAll("[data-module-setting]")];
+    status.textContent = "Saving…";
     const enabled = Object.fromEntries(rows.map((row) => [
       row.dataset.moduleSetting,
       row.querySelector("[data-module-enabled]").checked
@@ -557,16 +704,15 @@ function bindProductSettings() {
       mailAutoRefreshSeconds = normalizeMailAutoRefreshSeconds(appSettings.modules.refreshSeconds.mail);
       applyMainTheme();
       configureRefreshTasks();
-      status.textContent = "已保存并应用";
-      status.className = "";
       currentSection = moduleEnabled("github") || moduleEnabled("codex") ? currentSection : "Dashboard";
+      updateState({ saved: true });
     } catch (error) {
       status.textContent = error.message || "保存失败";
       status.className = "error";
-    } finally {
       button.disabled = false;
     }
   };
+  updateState();
 }
 
 function bindGithubSettings() {
@@ -1319,6 +1465,54 @@ function contributionGrid(values = []) {
   }).join("");
 }
 
+function formattedGithubMonthLabel(key, fallback = "") {
+  const date = new Date(`${key}-01T00:00:00`);
+  if (Number.isNaN(date.getTime())) return fallback || key;
+  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long" }).format(date);
+}
+
+function githubYearHeatmap(months = []) {
+  const items = months.map((month) => {
+    const cells = (Array.isArray(month.levels) ? month.levels : []).map((value) => {
+      const level = Math.max(0, Math.min(4, Number(value) || 0));
+      return `<i class="github-year-cell level-${level}"></i>`;
+    }).join("");
+    const date = new Date(`${month.key}-01T00:00:00`);
+    const shortLabel = Number.isNaN(date.getTime())
+      ? month.label
+      : new Intl.DateTimeFormat("en-US", { month: "short" }).format(date);
+    const label = `${formattedGithubMonthLabel(month.key, month.label)}: ${Math.max(0, Number(month.commits) || 0)} contributions`;
+    return `
+      <button
+        class="github-year-month"
+        type="button"
+        data-contribution-month="${escapeHtml(month.key)}"
+        aria-pressed="${selectedContributionMonth === month.key}"
+        aria-label="${escapeHtml(label)}"
+        title="${escapeHtml(label)}"
+      >
+        <span class="github-year-month-grid" aria-hidden="true">${cells}</span>
+        <b>${escapeHtml(shortLabel)}</b>
+      </button>`;
+  }).join("");
+  return `
+    <section class="github-year-heatmap" aria-labelledby="github-year-heatmap-title">
+      <strong id="github-year-heatmap-title">Last 12 months</strong>
+      <div class="github-year-heatmap-scroll">${items}</div>
+    </section>`;
+}
+
+function revealSelectedGithubMonth() {
+  const strip = document.querySelector(".github-year-heatmap-scroll");
+  const selected = strip?.querySelector('[data-contribution-month][aria-pressed="true"]');
+  if (!strip || !selected) return;
+  requestAnimationFrame(() => {
+    const selectedEnd = selected.offsetLeft + selected.offsetWidth;
+    const maximumScroll = Math.max(0, strip.scrollWidth - strip.clientWidth);
+    strip.scrollLeft = Math.min(maximumScroll, Math.max(0, selectedEnd - strip.clientWidth + 2));
+  });
+}
+
 function githubContributionCalendar(month) {
   const values = month.levels || [];
   const counts = month.counts || [];
@@ -1380,28 +1574,140 @@ function githubContributionFallback(month, dateText = null) {
   const label = dateText
     ? new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${dateText}T00:00:00`))
     : month.label;
-  return { rangeType: dateText ? "date" : "month", rangeKey: dateText || month.key, label, totalCount, repositories: [], detailsAvailable: false, message: "" };
+  return {
+    rangeType: dateText ? "date" : "month",
+    rangeKey: dateText || month.key,
+    label,
+    totalCount,
+    repositories: [],
+    commitRecordsAvailable: false,
+    commitRecordsTruncated: false,
+    detailsAvailable: false,
+    message: ""
+  };
+}
+
+function githubCommitTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
 }
 
 function renderGithubContributionActivity(detail, { loading = false, error = "" } = {}) {
   const total = Math.max(0, Number(detail?.totalCount) || 0);
   const repositories = Array.isArray(detail?.repositories) ? detail.repositories : [];
-  const heading = detail?.rangeType === "date" ? detail.label : detail?.label || "Contribution activity";
+  const heading = detail?.rangeType === "date" ? detail.label : detail?.label || "Commit details";
   const summary = loading
     ? `Created ${total} commits`
     : `Created ${total} commits in ${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`;
-  const rows = repositories.map((repository) => `
-    <div class="github-contribution-repository">
-      <a href="${escapeHtml(repository.url)}" data-external-link>${escapeHtml(repository.nameWithOwner)}</a>
-      <span>${Math.max(0, Number(repository.count) || 0)} commits</span>
-    </div>`).join("");
-  const message = error || detail?.message || (loading ? "Loading repository details…" : total === 0 ? "No contributions in this range." : "");
+  const selectedRepository = repositories.find((repository) => repository.nameWithOwner === selectedContributionRepository)
+    || repositories[0]
+    || null;
+  selectedContributionRepository = selectedRepository?.nameWithOwner || null;
+  const commits = Array.isArray(selectedRepository?.commits) ? selectedRepository.commits : [];
+  const repositoryOptions = repositories.map((repository) => `
+    <option value="${escapeHtml(repository.nameWithOwner)}" ${repository.nameWithOwner === selectedContributionRepository ? "selected" : ""}>
+      ${escapeHtml(String(repository.nameWithOwner || "Repository").split("/").at(-1))}
+    </option>`).join("");
+  const commitRows = commits.map((commit) => {
+    const sha = String(commit?.sha || "");
+    return `
+      <li class="github-commit-row">
+        <span class="github-commit-icon" aria-hidden="true">${previewIcons.commits}</span>
+        <div>
+          <button type="button" data-open-github-url="${escapeHtml(commit?.url || "")}">${escapeHtml(commit?.message || "Untitled commit")}</button>
+          <p><code>${escapeHtml(sha.slice(0, 7))}</code><span>${escapeHtml(commit?.author || "Unknown")}</span><time>${escapeHtml(githubCommitTimestamp(commit?.committedAt))}</time></p>
+        </div>
+      </li>`;
+  }).join("");
+  const message = error || detail?.message || (loading
+    ? "Loading Git commit records…"
+    : total === 0
+      ? "No commits in this range."
+      : !detail?.commitRecordsAvailable
+        ? "Git commit records are unavailable. Check the configured GitHub token and try again."
+        : commits.length === 0
+          ? "No commit records were returned for this repository."
+          : "");
+  const recordsNote = detail?.commitRecordsTruncated && commits.length
+    ? `<small>Showing the latest ${commits.length} records</small>`
+    : "";
   return `
-    <div class="github-contribution-activity-head"><span>Contribution activity</span><small>${escapeHtml(heading)}</small></div>
-    <div class="github-contribution-timeline">
+    <div class="github-contribution-activity-head"><span>Commit details</span><small>${escapeHtml(heading)}</small></div>
+    <div class="github-contribution-summary">
       <span class="github-contribution-marker">${previewIcons.commits}</span>
-      <div><strong>${summary}</strong>${rows || `<p>${escapeHtml(message)}</p>`}</div>
-    </div>`;
+      <div><strong>${summary}</strong><p>${loading ? "Loading repository Git history…" : repositories.length ? "Browse the Git commit history for each repository." : escapeHtml(message)}</p></div>
+    </div>
+    <section class="github-commit-records" aria-labelledby="github-commit-records-title">
+      <header>
+        <div><strong id="github-commit-records-title">Git commit history</strong>${recordsNote}</div>
+        ${repositoryOptions ? `<select data-github-contribution-repository aria-label="Repository commit history">${repositoryOptions}</select>` : ""}
+      </header>
+      ${commitRows ? `<ol>${commitRows}</ol>` : `<p class="github-commit-empty">${escapeHtml(message)}</p>`}
+    </section>`;
+}
+
+function relativeGithubPush(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "";
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "Pushed just now";
+  if (minutes < 60) return `Pushed ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Pushed ${hours}h ago`;
+  return `Pushed ${Math.floor(hours / 24)}d ago`;
+}
+
+function githubRepositoryCards(github) {
+  const repositories = github.repositories.length
+    ? github.repositories
+    : github.project && github.project !== "No public repositories"
+      ? [{
+          name: github.project,
+          fullName: github.project,
+          description: "",
+          language: github.language,
+          stars: github.stars,
+          forks: 0,
+          url: github.profileUrl,
+          pushedAt: "",
+          isPrivate: false,
+          isFork: false
+        }]
+      : [];
+  const cards = repositories.map((repository) => `
+    <article class="github-maintained-repo">
+      <div class="github-maintained-repo-heading">
+        <button type="button" data-open-github-url="${escapeHtml(repository.url)}">
+          ${previewIcons.repository}<strong>${escapeHtml(repository.name)}</strong>
+        </button>
+        <span class="github-repo-badges">
+          ${repository.isPrivate ? "<b>Private</b>" : ""}
+          ${repository.isFork ? "<b>Fork</b>" : ""}
+        </span>
+      </div>
+      <p>${escapeHtml(repository.description || "No description")}</p>
+      <footer>
+        <span><i></i>${escapeHtml(repository.language)}</span>
+        <span>${previewIcons.star}${repository.stars}</span>
+        <span>${previewIcons.commits}${repository.forks}</span>
+        <small>${escapeHtml(relativeGithubPush(repository.pushedAt))}</small>
+      </footer>
+    </article>`).join("");
+  return `
+    <section class="github-maintained-section" aria-labelledby="github-maintained-title">
+      <div class="github-maintained-heading">
+        <div><strong id="github-maintained-title">Maintained repositories</strong><small>${repositories.length ? "Recently pushed, with non-forks first" : "Recently pushed public repositories"}</small></div>
+        <b>${repositories.length}</b>
+      </div>
+      ${cards ? `<div class="github-maintained-grid">${cards}</div>` : `<p class="github-maintained-empty">Sync GitHub to list maintained public repositories.</p>`}
+    </section>`;
 }
 
 async function loadGithubContributionActivity(range, fallback) {
@@ -1432,7 +1738,6 @@ function githubContent() {
   const monthIndex = selectedIndex >= 0 ? selectedIndex : months.length - 1;
   const selectedMonth = months[monthIndex];
   selectedContributionMonth = selectedMonth.key;
-  const activityCount = selectedMonth.commits || 0;
   const monthSummary = githubMonthSummary(selectedMonth);
   const contributionFallback = githubContributionFallback(selectedMonth, selectedContributionDate);
   const calendarDate = new Date(`${selectedMonth.key}-01T00:00:00`);
@@ -1445,8 +1750,8 @@ function githubContent() {
     <section class="github-dashboard" data-module-id="github" ${moduleHealthAttributes("github")}>
       <div class="github-main-column">
         ${modulePageHeader({
-          title: "GitHub activity",
-          description: `Monthly contribution rhythm and project activity for ${github.username}.`,
+          title: "GitHub",
+          description: "Contribution heatmap and recently maintained repositories.",
           className: "github-page-heading",
           actions: `<div class="github-heading-actions">
             <button
@@ -1472,23 +1777,27 @@ function githubContent() {
             <div><dt>${github.repos}</dt><dd>Repositories</dd></div>
             <div><dt>${github.followers}</dt><dd>Followers</dd></div>
             <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
+            <div><dt>${github.commitsThisMonth}</dt><dd>This month</dd></div>
           </dl>
           <div class="github-profile-actions">
             <div class="github-profile-status"><div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div></div>
             <div class="github-profile-open"><button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button></div>
           </div>
         </div>
-        <article class="github-contribution-card"><div class="github-activity-split"><div class="github-calendar-pane">
-            <div class="github-card-heading">
-              <div><span>Activity calendar</span><small>${monthSummary.contributions} contributions in ${selectedMonth.label}</small></div>
-              <div class="github-calendar-title">
-                <div class="github-calendar-period"><strong>${calendarMonth}</strong><b>${calendarYear}</b></div>
-                <div class="github-month-navigation">
-                <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
-                <button type="button" data-month-today>TODAY</button>
-                <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
-                </div>
-              </div>
+        <article class="github-contribution-card">
+          <div class="github-card-heading github-contribution-heading">
+            <div><span>Contribution heatmap</span><small>${monthSummary.contributions} contributions in ${formattedGithubMonthLabel(selectedMonth.key, selectedMonth.label)}</small></div>
+            <div class="github-month-navigation">
+              <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
+              <button type="button" data-month-today>THIS MONTH</button>
+              <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
+            </div>
+          </div>
+          ${githubYearHeatmap(months)}
+          <div class="github-activity-split"><div class="github-calendar-pane">
+            <div class="github-card-heading github-month-calendar-heading">
+              <div><span>${calendarMonth} ${calendarYear}</span><small>${selectedContributionDate ? "Select the highlighted date again to return to the full month" : "Select a date to inspect commit details"}</small></div>
+              <div class="github-calendar-title"><div class="github-calendar-period"><strong>${calendarMonth}</strong><b>${calendarYear}</b></div></div>
             </div>
             ${githubContributionCalendar(selectedMonth)}
             <div class="github-calendar-stats">
@@ -1497,14 +1806,9 @@ function githubContent() {
               <div><strong>${monthSummary.peakDaily}</strong><span>best day</span></div>
               <div><strong>${github.streakDays}</strong><span>day streak</span></div>
             </div>
-          </div><aside class="github-contribution-activity" id="github-contribution-activity">${renderGithubContributionActivity(contributionFallback, { loading: true })}</aside></div></article>
-        <div class="github-detail-grid">
-          <article class="github-pinned-card">
-            <div class="github-card-heading"><span>Pinned repository</span><small>Public</small></div>
-            <button type="button" data-open-github class="github-repo-link">${previewIcons.repository}<strong>${github.project}</strong></button>
-            <div class="github-repo-meta"><span><i></i>${github.language}</span><span>${previewIcons.star}${github.stars}</span></div>
-          </article>
-        </div>
+          </div><aside class="github-contribution-activity" id="github-contribution-activity">${renderGithubContributionActivity(contributionFallback, { loading: true })}</aside></div>
+        </article>
+        ${githubRepositoryCards(github)}
       </div>
     </section>`;
 }
@@ -2991,29 +3295,42 @@ function dashboardContent(section) {
     Notifications: notificationContent(),
     Heart: `<section class="health-page">${modulePageHeader({ title: "Health snapshot", description: `Recent reading from ${statusData.heart.source}.` })}${heartCard()}</section>`,
     QWeather: `${modulePageHeader({ title: "天气与服务状态", description: "实时天气、未来预报与 API 配额使用情况。" })}${qweatherCards}`,
-    Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1></div>
+    Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1><span>管理外观、工作区模块与本地服务连接。</span></div>
       <section class="settings-section" id="settings-appearance" data-settings-section data-settings-label="外观">
         <div class="settings-section-heading"><div><p>外观</p><h2>主题</h2></div></div>
         <div class="settings-panel appearance-panel">${themeSelector()}${accentSelector()}</div>
       </section>
       <section class="settings-section" id="settings-general" data-settings-section data-settings-label="工作区">
-        <div class="settings-section-heading"><div><p>工作区</p><h2>模块与通知</h2></div></div>
+        <div class="settings-section-heading"><div><p>工作区</p><h2>模块与显示</h2><small>按使用场景决定主界面与浮动窗口保留哪些信息。</small></div></div>
         ${productSettingsPanel()}
       </section>
       <section class="settings-section settings-services-section" id="settings-services" data-settings-section data-settings-label="连接服务">
-        <div class="settings-section-heading"><div><p>连接</p><h2>连接服务</h2></div></div>
-        <div class="settings-service-nav" role="tablist" aria-label="连接服务">
-          <button class="${activeSettingsService === "settings-github" ? "active" : ""}" data-settings-service-target="settings-github" type="button" role="tab" aria-selected="${activeSettingsService === "settings-github"}"><strong>GitHub</strong><small data-settings-service-status="github">${appSettings.integrations.github?.hasToken ? "已配置" : "公开数据"}</small></button>
-          <button class="${activeSettingsService === "settings-weather" ? "active" : ""}" data-settings-service-target="settings-weather" type="button" role="tab" aria-selected="${activeSettingsService === "settings-weather"}"><strong>天气</strong><small data-settings-service-status="weather">${weatherSettings.hasApiKey ? "已配置" : "未配置"}</small></button>
-          <button class="${activeSettingsService === "settings-deepseek" ? "active" : ""}" data-settings-service-target="settings-deepseek" type="button" role="tab" aria-selected="${activeSettingsService === "settings-deepseek"}"><strong>DeepSeek</strong><small data-settings-service-status="deepseek">${deepseekSettings.hasApiKey ? "已配置" : "未配置"}</small></button>
-          <button class="${activeSettingsService === "settings-mail" ? "active" : ""}" data-settings-service-target="settings-mail" type="button" role="tab" aria-selected="${activeSettingsService === "settings-mail"}"><strong>QQ 邮箱</strong><small data-settings-service-status="mail">${mailSettings.connected ? "已连接" : mailSettings.configured ? "已配置" : "未配置"}</small></button>
+        <div class="settings-section-heading"><div><p>连接</p><h2>连接服务</h2><small>集中管理模块使用的本地凭据与连接状态。</small></div></div>
+        <section class="settings-services-summary" aria-labelledby="settings-services-summary-title">
+          <div class="settings-services-summary-copy">
+            <span class="settings-services-summary-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("plug")}</span>
+            <span>
+              <strong id="settings-services-summary-title">Local service connections</strong>
+              <small>Sensitive values stay blank and are stored encrypted for the current Windows user</small>
+            </span>
+          </div>
+          <dl class="settings-services-summary-metrics">
+            <div><dt data-settings-services-ready-count>0</dt><dd>Available</dd></div>
+            <div><dt>4</dt><dd>All services</dd></div>
+            <div><dt>Local</dt><dd>Storage</dd></div>
+            <div><dt>Encrypted</dt><dd>Credentials</dd></div>
+          </dl>
+        </section>
+        <div class="settings-service-nav" role="tablist" aria-label="Connected services">
+          ${settingsServiceNavButton("github", appSettings.integrations.github?.hasToken ? "Configured" : "Public data")}
+          ${settingsServiceNavButton("weather", weatherSettings.hasApiKey ? "Configured" : "Not configured")}
+          ${settingsServiceNavButton("deepseek", deepseekSettings.hasApiKey ? "Configured" : "Not configured")}
+          ${settingsServiceNavButton("mail", mailSettings.connected ? "Connected" : mailSettings.configured ? "Configured" : "Not configured")}
         </div>
       <div class="settings-service-panel" id="settings-github" data-settings-service data-settings-service-label="GitHub">
-        <h2>GitHub</h2>
         ${githubSettingsPanel()}
       </div>
-      <div class="settings-service-panel" id="settings-weather" data-settings-service data-settings-service-label="天气">
-        <h2>天气</h2>
+      <div class="settings-service-panel" id="settings-weather" data-settings-service data-settings-service-label="QWeather">
         <form class="settings-panel weather-settings-panel" id="weather-settings-form">
           <fieldset>
             <legend><strong>天气服务</strong><small>必填，用于实时天气与天气预报</small></legend>
@@ -3036,7 +3353,6 @@ function dashboardContent(section) {
         </form>
       </div>
       <div class="settings-service-panel" id="settings-deepseek" data-settings-service data-settings-service-label="DeepSeek">
-        <h2>DeepSeek</h2>
         <form class="settings-panel weather-settings-panel" id="deepseek-settings-form">
           <fieldset>
             <legend><strong>DeepSeek API</strong><small>用于在 Agent 模块中读取账户余额</small></legend>
@@ -3054,7 +3370,6 @@ function dashboardContent(section) {
         </form>
       </div>
       <div class="settings-service-panel" id="settings-mail" data-settings-service data-settings-service-label="QQ 邮箱">
-        <h2>QQ 邮箱</h2>
         <form class="settings-panel weather-settings-panel mail-settings-panel" id="mail-settings-form">
           <fieldset>
             <legend><strong>QQ 邮箱 IMAP</strong><small>邮箱地址保存在本地配置中，授权码使用系统加密存储</small></legend>
@@ -3302,10 +3617,26 @@ function renderMain() {
   });
   const pageContent = document.querySelector("#page-content");
   pageContent.onclick = (event) => {
+    const githubUrlButton = event.target.closest("[data-open-github-url]");
+    if (githubUrlButton && pageContent.contains(githubUrlButton)) {
+      const url = githubUrlButton.dataset.openGithubUrl;
+      if (url) window.winplate.openGithubProfile(url);
+      return;
+    }
+    const contributionMonthButton = event.target.closest("[data-contribution-month]");
+    if (contributionMonthButton && pageContent.contains(contributionMonthButton)) {
+      selectedContributionMonth = contributionMonthButton.dataset.contributionMonth;
+      selectedContributionDate = null;
+      selectedContributionRepository = null;
+      githubContributionRequestId += 1;
+      updateMainStatusDom("github");
+      return;
+    }
     const contributionButton = event.target.closest("[data-contribution-date]");
     if (contributionButton && pageContent.contains(contributionButton)) {
       const contributionDate = contributionButton.dataset.contributionDate;
       selectedContributionDate = selectedContributionDate === contributionDate ? null : contributionDate;
+      selectedContributionRepository = null;
       updateMainStatusDom("github");
       return;
     }
@@ -3314,6 +3645,7 @@ function renderMain() {
       const months = githubContributionMonths(normalizeGithub(statusData.github));
       selectedContributionMonth = months.at(-1)?.key || null;
       selectedContributionDate = null;
+      selectedContributionRepository = null;
       pageContent.innerHTML = dashboardContent(currentSection);
       bindGithubControls();
       return;
@@ -3321,6 +3653,19 @@ function renderMain() {
     const monthButton = event.target.closest("[data-month-direction]");
     if (!monthButton || !pageContent.contains(monthButton) || monthButton.disabled) return;
     changeGithubContributionMonth(Number(monthButton.dataset.monthDirection));
+  };
+  pageContent.onchange = (event) => {
+    const repositorySelect = event.target.closest("[data-github-contribution-repository]");
+    if (!repositorySelect || !pageContent.contains(repositorySelect)) return;
+    selectedContributionRepository = repositorySelect.value;
+    const key = selectedContributionDate
+      ? `date:${selectedContributionDate}`
+      : selectedContributionMonth
+        ? `month:${selectedContributionMonth}`
+        : "";
+    const detail = githubContributionDetailCache.get(key);
+    const panel = document.querySelector("#github-contribution-activity");
+    if (detail && panel) panel.innerHTML = renderGithubContributionActivity(detail);
   };
   bindThemeControls();
   bindSettingsNavigation();
@@ -4367,11 +4712,13 @@ function changeGithubContributionMonth(direction) {
   if (nextIndex === safeIndex) return;
   selectedContributionMonth = months[nextIndex].key;
   selectedContributionDate = null;
+  selectedContributionRepository = null;
   githubContributionRequestId += 1;
   updateMainStatusDom();
 }
 
 function bindGithubControls() {
+  revealSelectedGithubMonth();
   document.querySelectorAll("[data-open-github]").forEach((button) => {
     button.onclick = () => window.winplate.openGithubProfile(statusData.github.profileUrl);
   });
@@ -4387,6 +4734,7 @@ function bindGithubControls() {
   refreshButton.onclick = async () => {
     if (githubRefreshInFlight) return;
     selectedContributionDate = null;
+    selectedContributionRepository = null;
     githubContributionRequestId += 1;
     githubContributionDetailCache.clear();
     githubRefreshInFlight = true;
@@ -4480,6 +4828,7 @@ async function refreshGithubData({ force = false } = {}) {
   if (force) {
     githubContributionDetailCache.clear();
     selectedContributionDate = null;
+    selectedContributionRepository = null;
   }
   const github = force
     ? (window.winplate.refreshGithub

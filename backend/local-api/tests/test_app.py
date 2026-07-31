@@ -791,6 +791,15 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "github_token", return_value="token"),
             patch.object(main, "cached_github_status", return_value=None),
             patch.object(main, "github_graphql_request", return_value=payload) as request,
+            patch.object(main, "github_request", side_effect=lambda path: [{
+                    "sha": "1111111111111111111111111111111111111111",
+                    "html_url": "https://github.com/octocat/one/commit/1111111111111111111111111111111111111111",
+                    "author": {"login": "octocat"},
+                    "commit": {
+                        "message": "Improve contribution detail\n\nLong body",
+                        "author": {"name": "Octo Cat", "date": "2026-07-11T18:31:00Z"},
+                    },
+                }] if "/octocat/one/" in path else []),
         ):
             result = main.github_contribution_detail("octocat", date_text="2026-07-11")
 
@@ -798,6 +807,11 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["totalCount"], 5)
         self.assertEqual(result["repositoryCount"], 2)
         self.assertEqual(result["repositories"][0]["nameWithOwner"], "octocat/one")
+        self.assertEqual(result["repositories"][0]["commits"][0]["message"], "Improve contribution detail")
+        self.assertEqual(result["repositories"][0]["commits"][0]["author"], "octocat")
+        self.assertTrue(result["repositories"][0]["recordsAvailable"])
+        self.assertTrue(result["commitRecordsAvailable"])
+        self.assertTrue(result["commitRecordsTruncated"])
         self.assertTrue(result["detailsAvailable"])
         variables = request.call_args.args[1]
         self.assertEqual(variables["from"], "2026-07-11T00:00:00Z")
@@ -819,8 +833,29 @@ class DatabaseTests(unittest.TestCase):
 
         self.assertEqual(result["totalCount"], 5)
         self.assertEqual(result["repositories"], [])
+        self.assertFalse(result["commitRecordsAvailable"])
         self.assertFalse(result["detailsAvailable"])
         self.assertIn("Token", result["message"])
+
+    def test_map_github_commit_record_uses_commit_author_without_github_profile(self):
+        record = main.map_github_commit_record({
+            "sha": "abc123",
+            "html_url": "https://github.com/octocat/one/commit/abc123",
+            "author": None,
+            "commit": {
+                "message": "First line\nSecond line",
+                "author": {"name": "Local Author", "date": "2026-07-10T03:04:05Z"},
+            },
+        }, "octocat/one")
+
+        self.assertEqual(record, {
+            "sha": "abc123",
+            "message": "First line",
+            "author": "Local Author",
+            "committedAt": "2026-07-10T03:04:05Z",
+            "url": "https://github.com/octocat/one/commit/abc123",
+            "repository": "octocat/one",
+        })
 
     def test_named_metric_sum_supports_api_keyed_objects(self):
         payload = {

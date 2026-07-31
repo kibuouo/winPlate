@@ -162,6 +162,17 @@ test("settings save derives GitHub token state without an AI summary toggle", ()
   assert.doesNotMatch(settingsSaveHandler, /notificationDigest|refreshNow/);
 });
 
+test("GitHub external navigation stays main-window-owned and GitHub-only", () => {
+  const main = readMain();
+
+  assert.match(main, /ipcMain\.on\("github:open-profile", \(event, url\) => \{\s*requireMainWindowSender\(event\);/);
+  assert.match(main, /target\.protocol === "https:"/);
+  assert.match(main, /target\.hostname === "github\.com"/);
+  assert.match(main, /const isCommit = segments\.length === 4/);
+  assert.match(main, /\^\[a-f0-9\]\{7,64\}\$\/i\.test\(segments\[3\]\)/);
+  assert.match(main, /\(isProfile \|\| isRepository \|\| isCommit\)/);
+});
+
 test("selects the Windows startup policy once and creates Windows-only surfaces", () => {
   const main = readMain();
 
