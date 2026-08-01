@@ -22,7 +22,7 @@ winPlate/
   apps/
     Windows/
     macOS/
-    ios/
+    iOS/
     watchOS/
 
   packages/
@@ -57,7 +57,7 @@ winPlate/
 
 承载 macOS 客户端。现有 Electron macOS 菜单栏实现先作为可运行的过渡实现和行为基准迁入；未来的 SwiftUI/AppKit 原生实现稳定并达到同等能力后，再单独设计过渡实现的退役方案。
 
-### `apps/ios` 与 `apps/watchOS`
+### `apps/iOS` 与 `apps/watchOS`
 
 为 Apple 健康数据授权、采集、同步和移动端展示预留平台边界。健康权限、数据所有权、设备同步协议及隐私策略须在实现前另行设计，本次不加入占位业务逻辑。
 
@@ -100,7 +100,7 @@ packages/shared-types 数据契约
 packages/core 归一化、摘要、分级
         |
         v
-apps/Windows | apps/macOS | apps/ios | apps/watchOS
+apps/Windows | apps/macOS | apps/iOS | apps/watchOS
 ```
 
 本地 API 负责 I/O 和持久化，core 负责确定性业务规则，apps 负责平台生命周期、权限、系统集成和渲染。平台客户端不得复制摘要、分级或模块注册规则。

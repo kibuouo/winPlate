@@ -9,7 +9,7 @@ const requiredBoundaries = [
   'apps/Windows',
   'apps/macOS',
   'apps/macOS/WinPlate',
-  'apps/ios',
+  'apps/iOS',
   'apps/watchOS',
   'packages/core',
   'packages/shared-types',
