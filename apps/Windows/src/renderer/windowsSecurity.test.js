@@ -113,7 +113,7 @@ test("workspace settings use registry labels and card controls without changing 
   assert.match(panelSource, /workspace-settings-summary/);
   assert.match(panelSource, /workspace-module-card/);
   assert.match(panelSource, /const title = module\.title/);
-  assert.match(panelSource, /Dashboard/);
+  assert.match(panelSource, /概览/);
   assert.match(panelSource, /Floating/);
   assert.match(panelSource, /Notification digest/);
   assert.doesNotMatch(panelSource, /WORKSPACE_MODULE_TITLES|WORKSPACE_VIEW_LABELS/);
@@ -153,7 +153,9 @@ test("GitHub workspace exposes annual navigation, Git commit history, and mainta
   assert.match(githubSource, /function githubYearHeatmap/);
   assert.match(githubSource, /data-contribution-month/);
   assert.match(githubSource, /function renderGithubContributionActivity/);
-  assert.match(githubSource, /Git commit history/);
+  assert.match(githubSource, /Git 提交历史/);
+  assert.match(githubSource, /贡献热力图/);
+  assert.match(githubSource, /维护中的仓库/);
   assert.match(githubSource, /data-github-contribution-repository/);
   assert.match(githubSource, /commit\?\.message/);
   assert.match(githubSource, /commit\?\.author/);

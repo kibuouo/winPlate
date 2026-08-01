@@ -612,7 +612,7 @@ function productSettingsPanel() {
         <dl class="workspace-summary-metrics">
           <div><dt data-workspace-enabled-count>${enabledCount}</dt><dd>Enabled</dd></div>
           <div><dt>${ordered.length}</dt><dd>All modules</dd></div>
-          <div><dt>${dashboardCount}</dt><dd>Dashboard</dd></div>
+          <div><dt>${dashboardCount}</dt><dd>概览</dd></div>
           <div><dt>${floatingCount}</dt><dd>Floating</dd></div>
         </dl>
       </section>
@@ -1468,7 +1468,16 @@ function contributionGrid(values = []) {
 function formattedGithubMonthLabel(key, fallback = "") {
   const date = new Date(`${key}-01T00:00:00`);
   if (Number.isNaN(date.getTime())) return fallback || key;
-  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long" }).format(date);
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(date);
+}
+
+function githubShortMonthLabel(date, fallback = "") {
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat("zh-CN", { month: "short" }).format(date);
+}
+
+function githubContributionCountLabel(count) {
+  return `${Math.max(0, Number(count) || 0)} 次贡献`;
 }
 
 function githubYearHeatmap(months = []) {
@@ -1478,10 +1487,8 @@ function githubYearHeatmap(months = []) {
       return `<i class="github-year-cell level-${level}"></i>`;
     }).join("");
     const date = new Date(`${month.key}-01T00:00:00`);
-    const shortLabel = Number.isNaN(date.getTime())
-      ? month.label
-      : new Intl.DateTimeFormat("en-US", { month: "short" }).format(date);
-    const label = `${formattedGithubMonthLabel(month.key, month.label)}: ${Math.max(0, Number(month.commits) || 0)} contributions`;
+    const shortLabel = githubShortMonthLabel(date, month.label);
+    const label = `${formattedGithubMonthLabel(month.key, month.label)}：${githubContributionCountLabel(month.commits)}`;
     return `
       <button
         class="github-year-month"
@@ -1497,7 +1504,7 @@ function githubYearHeatmap(months = []) {
   }).join("");
   return `
     <section class="github-year-heatmap" aria-labelledby="github-year-heatmap-title">
-      <strong id="github-year-heatmap-title">Last 12 months</strong>
+      <strong id="github-year-heatmap-title">最近 12 个月</strong>
       <div class="github-year-heatmap-scroll">${items}</div>
     </section>`;
 }
@@ -1530,18 +1537,18 @@ function githubContributionCalendar(month) {
     const level = Math.max(0, Math.min(4, Number(values[sourceIndex]) || 0));
     const count = Math.max(0, Number(counts[sourceIndex]) || 0);
     const date = new Date(`${month.key}-${String(sourceIndex + 1).padStart(2, "0")}T00:00:00`);
-    const dateLabel = new Intl.DateTimeFormat("en-US", {
+    const dateLabel = new Intl.DateTimeFormat("zh-CN", {
       month: "long",
       day: "numeric"
     }).format(date);
-    const contributionLabel = `${count} contribution${count === 1 ? "" : "s"} on ${dateLabel}.`;
+    const contributionLabel = `${dateLabel}：${githubContributionCountLabel(count)}。`;
     const dateKey = `${month.key}-${String(sourceIndex + 1).padStart(2, "0")}`;
     return `<button class="github-calendar-cell github-calendar-day level-${level}" type="button" data-contribution-date="${dateKey}" aria-pressed="${selectedContributionDate === dateKey}" aria-label="${contributionLabel}" data-tooltip="${contributionLabel}"><b>${sourceIndex + 1}</b></button>`;
   }).join("");
   return `
     <div class="github-calendar-shell">
-      <div class="github-calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
-      <div class="github-calendar-grid" aria-label="GitHub contributions for ${month.label}">${cells}</div>
+      <div class="github-calendar-weekdays" aria-hidden="true"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div>
+      <div class="github-calendar-grid" aria-label="GitHub ${escapeHtml(formattedGithubMonthLabel(month.key, month.label))}贡献记录">${cells}</div>
     </div>`;
 }
 
@@ -1550,7 +1557,7 @@ function githubContributionMonths(github) {
     ? github.contributionMonths
     : [{
         key: new Date().toISOString().slice(0, 7),
-        label: github.contributionMonth || "Current month",
+        label: github.contributionMonth || "本月",
         commits: github.commitsThisMonth || 0,
         levels: github.contributions30d
       }];
@@ -1572,8 +1579,8 @@ function githubContributionFallback(month, dateText = null) {
     ? Math.max(0, Number(month.counts?.[dayIndex]) || 0)
     : Math.max(0, Number(month.commits) || 0);
   const label = dateText
-    ? new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${dateText}T00:00:00`))
-    : month.label;
+    ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", year: "numeric" }).format(new Date(`${dateText}T00:00:00`))
+    : formattedGithubMonthLabel(month.key, month.label);
   return {
     rangeType: dateText ? "date" : "month",
     rangeKey: dateText || month.key,
@@ -1590,7 +1597,7 @@ function githubContributionFallback(month, dateText = null) {
 function githubCommitTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -1602,10 +1609,10 @@ function githubCommitTimestamp(value) {
 function renderGithubContributionActivity(detail, { loading = false, error = "" } = {}) {
   const total = Math.max(0, Number(detail?.totalCount) || 0);
   const repositories = Array.isArray(detail?.repositories) ? detail.repositories : [];
-  const heading = detail?.rangeType === "date" ? detail.label : detail?.label || "Commit details";
+  const heading = detail?.rangeType === "date" ? detail.label : detail?.label || "提交详情";
   const summary = loading
-    ? `Created ${total} commits`
-    : `Created ${total} commits in ${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`;
+    ? `已创建 ${total} 次提交`
+    : `已在 ${repositories.length} 个仓库中创建 ${total} 次提交`;
   const selectedRepository = repositories.find((repository) => repository.nameWithOwner === selectedContributionRepository)
     || repositories[0]
     || null;
@@ -1627,7 +1634,7 @@ function renderGithubContributionActivity(detail, { loading = false, error = "" 
       </li>`;
   }).join("");
   const message = error || detail?.message || (loading
-    ? "Loading Git commit records…"
+    ? "正在加载 Git 提交记录…"
     : total === 0
       ? "No commits in this range."
       : !detail?.commitRecordsAvailable
@@ -1636,18 +1643,18 @@ function renderGithubContributionActivity(detail, { loading = false, error = "" 
           ? "No commit records were returned for this repository."
           : "");
   const recordsNote = detail?.commitRecordsTruncated && commits.length
-    ? `<small>Showing the latest ${commits.length} records</small>`
+    ? `<small>显示最近 ${commits.length} 条记录</small>`
     : "";
   return `
-    <div class="github-contribution-activity-head"><span>Commit details</span><small>${escapeHtml(heading)}</small></div>
+    <div class="github-contribution-activity-head"><span>提交详情</span><small>${escapeHtml(heading)}</small></div>
     <div class="github-contribution-summary">
       <span class="github-contribution-marker">${previewIcons.commits}</span>
-      <div><strong>${summary}</strong><p>${loading ? "Loading repository Git history…" : repositories.length ? "Browse the Git commit history for each repository." : escapeHtml(message)}</p></div>
+      <div><strong>${summary}</strong><p>${loading ? "正在加载仓库 Git 历史…" : repositories.length ? "浏览每个仓库的 Git 提交历史。" : escapeHtml(message)}</p></div>
     </div>
     <section class="github-commit-records" aria-labelledby="github-commit-records-title">
       <header>
-        <div><strong id="github-commit-records-title">Git commit history</strong>${recordsNote}</div>
-        ${repositoryOptions ? `<select data-github-contribution-repository aria-label="Repository commit history">${repositoryOptions}</select>` : ""}
+        <div><strong id="github-commit-records-title">Git 提交历史</strong>${recordsNote}</div>
+        ${repositoryOptions ? `<select data-github-contribution-repository aria-label="仓库提交历史">${repositoryOptions}</select>` : ""}
       </header>
       ${commitRows ? `<ol>${commitRows}</ol>` : `<p class="github-commit-empty">${escapeHtml(message)}</p>`}
     </section>`;
@@ -1657,11 +1664,11 @@ function relativeGithubPush(value) {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return "";
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-  if (minutes < 1) return "Pushed just now";
-  if (minutes < 60) return `Pushed ${minutes}m ago`;
+  if (minutes < 1) return "刚刚推送";
+  if (minutes < 60) return `${minutes} 分钟前推送`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Pushed ${hours}h ago`;
-  return `Pushed ${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return `${hours} 小时前推送`;
+  return `${Math.floor(hours / 24)} 天前推送`;
 }
 
 function githubRepositoryCards(github) {
@@ -1692,7 +1699,7 @@ function githubRepositoryCards(github) {
           ${repository.isFork ? "<b>Fork</b>" : ""}
         </span>
       </div>
-      <p>${escapeHtml(repository.description || "No description")}</p>
+      <p>${escapeHtml(repository.description || "暂无描述")}</p>
       <footer>
         <span><i></i>${escapeHtml(repository.language)}</span>
         <span>${previewIcons.star}${repository.stars}</span>
@@ -1703,10 +1710,10 @@ function githubRepositoryCards(github) {
   return `
     <section class="github-maintained-section" aria-labelledby="github-maintained-title">
       <div class="github-maintained-heading">
-        <div><strong id="github-maintained-title">Maintained repositories</strong><small>${repositories.length ? "Recently pushed, with non-forks first" : "Recently pushed public repositories"}</small></div>
+        <div><strong id="github-maintained-title">维护中的仓库</strong><small>${repositories.length ? "最近推送，非复刻仓库优先" : "最近推送的公开仓库"}</small></div>
         <b>${repositories.length}</b>
       </div>
-      ${cards ? `<div class="github-maintained-grid">${cards}</div>` : `<p class="github-maintained-empty">Sync GitHub to list maintained public repositories.</p>`}
+      ${cards ? `<div class="github-maintained-grid">${cards}</div>` : `<p class="github-maintained-empty">同步 GitHub 以列出维护中的公开仓库。</p>`}
     </section>`;
 }
 
@@ -1741,7 +1748,7 @@ function githubContent() {
   const monthSummary = githubMonthSummary(selectedMonth);
   const contributionFallback = githubContributionFallback(selectedMonth, selectedContributionDate);
   const calendarDate = new Date(`${selectedMonth.key}-01T00:00:00`);
-  const calendarMonth = new Intl.DateTimeFormat("en-US", { month: "short" }).format(calendarDate);
+  const calendarMonth = githubShortMonthLabel(calendarDate);
   const calendarYear = calendarDate.getFullYear();
   const stateNotice = github.stateMessage
     ? `<div class="github-state-notice state-${github.availability}" role="status">${github.stateMessage}</div>`
@@ -1751,7 +1758,7 @@ function githubContent() {
       <div class="github-main-column">
         ${modulePageHeader({
           title: "GitHub",
-          description: "Contribution heatmap and recently maintained repositories.",
+          description: "贡献热力图与近期维护的仓库。",
           className: "github-page-heading",
           actions: `<div class="github-heading-actions">
             <button
@@ -1774,37 +1781,37 @@ function githubContent() {
             <p>${github.username}</p>
           </div>
           <dl class="github-profile-metrics">
-            <div><dt>${github.repos}</dt><dd>Repositories</dd></div>
-            <div><dt>${github.followers}</dt><dd>Followers</dd></div>
-            <div><dt>${github.streakDays}</dt><dd>Day streak</dd></div>
-            <div><dt>${github.commitsThisMonth}</dt><dd>This month</dd></div>
+            <div><dt>${github.repos}</dt><dd>仓库</dd></div>
+            <div><dt>${github.followers}</dt><dd>关注者</dd></div>
+            <div><dt>${github.streakDays}</dt><dd>连续天数</dd></div>
+            <div><dt>${github.commitsThisMonth}</dt><dd>本月</dd></div>
           </dl>
           <div class="github-profile-actions">
             <div class="github-profile-status"><div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div></div>
-            <div class="github-profile-open"><button class="github-profile-button" type="button" data-open-github>Open GitHub profile</button></div>
+            <div class="github-profile-open"><button class="github-profile-button" type="button" data-open-github>打开 GitHub 主页</button></div>
           </div>
         </div>
         <article class="github-contribution-card">
           <div class="github-card-heading github-contribution-heading">
-            <div><span>Contribution heatmap</span><small>${monthSummary.contributions} contributions in ${formattedGithubMonthLabel(selectedMonth.key, selectedMonth.label)}</small></div>
+            <div><span>贡献热力图</span><small>${formattedGithubMonthLabel(selectedMonth.key, selectedMonth.label)}有 ${githubContributionCountLabel(monthSummary.contributions)}</small></div>
             <div class="github-month-navigation">
-              <button type="button" data-month-direction="-1" aria-label="Previous month" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
-              <button type="button" data-month-today>THIS MONTH</button>
-              <button type="button" data-month-direction="1" aria-label="Next month" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
+              <button type="button" data-month-direction="-1" aria-label="上个月" ${monthIndex === 0 ? "disabled" : ""}>‹</button>
+              <button type="button" data-month-today>本月</button>
+              <button type="button" data-month-direction="1" aria-label="下个月" ${monthIndex === months.length - 1 ? "disabled" : ""}>›</button>
             </div>
           </div>
           ${githubYearHeatmap(months)}
           <div class="github-activity-split"><div class="github-calendar-pane">
             <div class="github-card-heading github-month-calendar-heading">
-              <div><span>${calendarMonth} ${calendarYear}</span><small>${selectedContributionDate ? "Select the highlighted date again to return to the full month" : "Select a date to inspect commit details"}</small></div>
-              <div class="github-calendar-title"><div class="github-calendar-period"><strong>${calendarMonth}</strong><b>${calendarYear}</b></div></div>
+              <div><span>${calendarYear}年${calendarMonth}</span><small>${selectedContributionDate ? "再次选择高亮日期以返回整月" : "选择日期查看提交详情"}</small></div>
+              <div class="github-calendar-title"><div class="github-calendar-period"><strong>${calendarMonth}</strong><b>${calendarYear}年</b></div></div>
             </div>
             ${githubContributionCalendar(selectedMonth)}
             <div class="github-calendar-stats">
-              <div><strong>${monthSummary.contributions}</strong><span>contributions</span></div>
-              <div><strong>${monthSummary.activeDays}</strong><span>active days</span></div>
-              <div><strong>${monthSummary.peakDaily}</strong><span>best day</span></div>
-              <div><strong>${github.streakDays}</strong><span>day streak</span></div>
+              <div><strong>${monthSummary.contributions}</strong><span>贡献</span></div>
+              <div><strong>${monthSummary.activeDays}</strong><span>活跃天数</span></div>
+              <div><strong>${monthSummary.peakDaily}</strong><span>单日最佳</span></div>
+              <div><strong>${github.streakDays}</strong><span>连续天数</span></div>
             </div>
           </div><aside class="github-contribution-activity" id="github-contribution-activity">${renderGithubContributionActivity(contributionFallback, { loading: true })}</aside></div>
         </article>
@@ -3514,7 +3521,7 @@ function renderMain() {
   document.body.className = "main-body platform-win32";
   applyMainTheme();
   const detailModules = window.WinPlateModuleRegistry.modulesForView("detail", appSettings.modules);
-  const sectionLabels = new Map(detailModules.map((module) => [module.section, module.title]));
+  const sectionLabels = new Map([["Dashboard", "概览"], ...detailModules.map((module) => [module.section, module.title])]);
   const sections = [
     "Dashboard",
     ...detailModules

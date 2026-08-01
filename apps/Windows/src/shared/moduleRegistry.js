@@ -8,10 +8,10 @@
   const MODULES = Object.freeze([
     { schemaVersion: 1, id: "github", title: "GitHub", section: "GitHub", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 10, defaultRefreshSeconds: 300, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
     { schemaVersion: 1, id: "codex", title: "Agent", section: "Agent", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 20, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 600, configurable: true },
-    { schemaVersion: 1, id: "notifications", title: "Notifications", section: "Notifications", views: ["detail", "floating"], defaultEnabled: true, defaultOrder: 40, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 1800, configurable: true },
-    { schemaVersion: 1, id: "mail", title: "Mail", section: "Mail", views: ["detail"], defaultEnabled: true, defaultOrder: 30, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 1800, configurable: true },
-    { schemaVersion: 1, id: "weather", title: "QWeather", section: "QWeather", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 60, defaultRefreshSeconds: 600, minRefreshSeconds: 60, maxRefreshSeconds: 3600, configurable: true },
-    { schemaVersion: 1, id: "heart", title: "Health", section: "Heart", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 50, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
+    { schemaVersion: 1, id: "notifications", title: "通知", section: "Notifications", views: ["detail", "floating"], defaultEnabled: true, defaultOrder: 40, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 1800, configurable: true },
+    { schemaVersion: 1, id: "mail", title: "邮件", section: "Mail", views: ["detail"], defaultEnabled: true, defaultOrder: 30, defaultRefreshSeconds: 30, minRefreshSeconds: 15, maxRefreshSeconds: 1800, configurable: true },
+    { schemaVersion: 1, id: "weather", title: "天气", section: "QWeather", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 60, defaultRefreshSeconds: 600, minRefreshSeconds: 60, maxRefreshSeconds: 3600, configurable: true },
+    { schemaVersion: 1, id: "heart", title: "健康", section: "Heart", views: ["dashboard", "detail", "floating"], defaultEnabled: true, defaultOrder: 50, defaultRefreshSeconds: 60, minRefreshSeconds: 30, maxRefreshSeconds: 3600, configurable: true },
     { schemaVersion: 1, id: "network", title: "Network", section: null, views: ["floating"], defaultEnabled: true, defaultOrder: 70, defaultRefreshSeconds: 2, minRefreshSeconds: 1, maxRefreshSeconds: 60, configurable: true }
   ]);
 
