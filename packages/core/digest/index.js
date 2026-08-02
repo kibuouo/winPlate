@@ -71,15 +71,21 @@ function groupSummary(group, items) {
 
 function buildGroups(items, now = Date.now()) {
   const grouped = new Map();
-  for (const item of items) {
+  const scoredItems = items.map((item) => ({
+    item,
+    score: scoreNotification(item, now)
+  }));
+  for (const scored of scoredItems) {
+    const { item } = scored;
     const group = groupForSource(item.source);
     if (!grouped.has(group.key)) grouped.set(group.key, { definition: group, items: [] });
-    grouped.get(group.key).items.push(item);
+    grouped.get(group.key).items.push(scored);
   }
   return GROUPS.filter((definition) => grouped.has(definition.key)).map((definition) => {
-    const groupItems = grouped.get(definition.key).items
-      .sort((a, b) => scoreNotification(b, now) - scoreNotification(a, now) || b.createdAt - a.createdAt);
-    const topScore = scoreNotification(groupItems[0], now);
+    const scoredGroupItems = grouped.get(definition.key).items
+      .sort((a, b) => b.score - a.score || b.item.createdAt - a.item.createdAt);
+    const groupItems = scoredGroupItems.map(({ item }) => item);
+    const topScore = scoredGroupItems[0].score;
     return {
       key: definition.key,
       label: definition.label,
@@ -88,13 +94,12 @@ function buildGroups(items, now = Date.now()) {
       priority: PRIORITY_BY_SCORE.find(([threshold]) => topScore >= threshold)?.[1] || "low",
       severity: highestSeverity(groupItems),
       summary: groupSummary(definition, groupItems),
-      sourceIds: groupItems.map((item) => item.id)
+      sourceIds: groupItems.map((item) => item.id),
+      topScore
     };
   }).sort((a, b) => {
-    const aTop = Math.max(...a.sourceIds.map((id) => scoreNotification(items.find((item) => item.id === id), now)));
-    const bTop = Math.max(...b.sourceIds.map((id) => scoreNotification(items.find((item) => item.id === id), now)));
-    return bTop - aTop;
-  });
+    return b.topScore - a.topScore;
+  }).map(({ topScore, ...group }) => group);
 }
 
 function localHeadline(items) {

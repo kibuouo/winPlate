@@ -1,4 +1,4 @@
-const { createLocalDigest, digestHash } = require("../notifications/digestEngine");
+const { createLocalDigest, digestHash } = require("./digestEngine");
 
 function createNotificationSummaryService({
   store,

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createNotificationSummaryService } = require("./notificationSummaryService");
+const { createNotificationSummaryService } = require("./summaryService");
 
 const raw = [{
   id: "codex:1",

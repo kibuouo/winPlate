@@ -66,7 +66,7 @@ const { registerSettingsIpc } = require("./settingsIpc");
 const { readWindowsServiceEnvironment } = require("./windowsEnvironment");
 const { createNotificationManager } = require("./notifications/notificationStore");
 const { createNotificationDetailService } = require("./notifications/detailService");
-const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
+const { createNotificationSummaryService } = require("./notifications/summaryService");
 const { mainModules, validateMainModules } = require("./modules");
 const { readSettings, writeSettings } = require("./settingsStore");
 const MODULES = validateMainModules().map((module) => module.meta);

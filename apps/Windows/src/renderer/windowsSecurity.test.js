@@ -108,7 +108,7 @@ test("DeepSeek exposes only balance configuration and balance display", () => {
 test("notification summaries are generated automatically by local rules", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const summarySource = fs.readFileSync(
-    path.join(__dirname, "..", "main", "ai", "notificationSummaryService.js"),
+    path.join(__dirname, "..", "main", "notifications", "summaryService.js"),
     "utf8"
   );
 
