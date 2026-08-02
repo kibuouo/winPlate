@@ -3279,8 +3279,8 @@ function dashboardContent(section) {
 
   const content = {
     Dashboard: `${modulePageHeader({
-      title: `Good afternoon, ${statusData.github.name}`,
-      description: "Your live workspace status at a glance.",
+      title: `下午好，${statusData.github.name}`,
+      description: "实时查看工作区状态。",
       className: "dashboard-page-heading",
       actions: `<div class="dashboard-heading-actions">
         <button
