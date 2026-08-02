@@ -11,6 +11,7 @@ $windowsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsRoot "..\.."))
 $python = Join-Path $repositoryRoot ".venv\Scripts\python.exe"
 $backendRoot = Join-Path $repositoryRoot "backend\local-api"
+$notificationTaxonomy = Join-Path $repositoryRoot "packages\shared-types\notification-taxonomy.v1.json"
 $entrypoint = Join-Path $backendRoot "winplate_local_api\launcher.py"
 $buildRoot = Join-Path $windowsRoot ".build"
 $backendOutput = Join-Path $buildRoot "backend"
@@ -40,6 +41,9 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) {
     throw "WinPlate backend launcher was not found at $entrypoint"
 }
+if (-not (Test-Path -LiteralPath $notificationTaxonomy -PathType Leaf)) {
+    throw "Shared notification taxonomy was not found at $notificationTaxonomy"
+}
 
 New-Item -ItemType Directory -Force -Path $backendOutput, $pyInstallerWork, $pyInstallerSpec | Out-Null
 Stop-BuiltBackendProcesses
@@ -63,6 +67,7 @@ if (-not $SkipBuildDependencyInstall) {
     --paths $backendRoot `
     --collect-submodules "uvicorn" `
     --collect-submodules "winplate_local_api" `
+    --add-data "$notificationTaxonomy;winplate_shared" `
     $entrypoint
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to build the standalone WinPlate backend."

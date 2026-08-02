@@ -14,6 +14,7 @@
     "test": "node --test architecture.test.js digest/digestEngine.test.js module-registry/moduleRegistry.test.js notification/conversations.test.js notification/manager.test.js"
   },
   "dependencies": {
-    "@winplate/icons": "0.2.0"
+    "@winplate/icons": "0.2.0",
+    "@winplate/shared-types": "0.2.0"
   }
 }

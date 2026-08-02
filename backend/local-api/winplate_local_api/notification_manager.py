@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from contextlib import closing
 from typing import Callable, Iterable
+
+from .notification_taxonomy import normalize_level as normalize_taxonomy_level
+from .notification_taxonomy import normalize_source as normalize_taxonomy_source
 
 
 class NotificationManager:
@@ -16,13 +18,11 @@ class NotificationManager:
 
     @staticmethod
     def normalize_source(source: str) -> str:
-        value = re.sub(r"[^a-z0-9_-]+", "-", str(source or "").strip().lower()).strip("-")
-        return value[:32] or "external"
+        return normalize_taxonomy_source(source)
 
     @staticmethod
     def normalize_level(level: str) -> str:
-        value = str(level or "info").strip().lower()
-        return value if value in {"info", "success", "warning", "critical"} else "info"
+        return normalize_taxonomy_level(level)
 
     @staticmethod
     def row_to_item(row: sqlite3.Row) -> dict:
@@ -148,6 +148,39 @@ class NotificationManager:
             "unreadCount": int(unread_count),
             "updatedAt": self._now_ms(),
         }
+
+    def normalize_persisted_sources(self) -> int:
+        """Migrate legacy aliases so SQL filters use the same values as new writes."""
+        with closing(self._connect()) as connection:
+            notification_rows = connection.execute(
+                "SELECT id, source FROM notifications"
+            ).fetchall()
+            notification_updates = [
+                (self.normalize_source(row["source"]), row["id"])
+                for row in notification_rows
+                if self.normalize_source(row["source"]) != row["source"]
+            ]
+            if notification_updates:
+                connection.executemany(
+                    "UPDATE notifications SET source = ?, updated_at = ? WHERE id = ?",
+                    [(source, self._now_ms(), notification_id) for source, notification_id in notification_updates],
+                )
+
+            import_rows = connection.execute(
+                "SELECT id, source FROM notification_imports"
+            ).fetchall()
+            import_updates = [
+                (self.normalize_source(row["source"]), row["id"])
+                for row in import_rows
+                if self.normalize_source(row["source"]) != row["source"]
+            ]
+            if import_updates:
+                connection.executemany(
+                    "UPDATE notification_imports SET source = ? WHERE id = ?",
+                    import_updates,
+                )
+            connection.commit()
+        return len(notification_updates) + len(import_updates)
 
     def set_unread(self, notification_id: str, unread: bool) -> None:
         with closing(self._connect()) as connection:

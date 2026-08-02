@@ -5,6 +5,7 @@
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
+    "./notification-taxonomy.v1.json": "./notification-taxonomy.v1.json",
     "./schemas/notification.v1.schema.json": "./schemas/notification.v1.schema.json",
     "./schemas/status-module.v1.schema.json": "./schemas/status-module.v1.schema.json",
     "./schemas/usage.v1.schema.json": "./schemas/usage.v1.schema.json"

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  notificationTaxonomy,
   notificationSchema,
   statusModuleSchema,
   usageSchema,
@@ -33,6 +34,18 @@ test("exports versioned shared contract schemas", () => {
   assert.equal(notificationSchema.$id, "https://winplate.local/schemas/notification.v1.schema.json");
   assert.equal(statusModuleSchema.$id, "https://winplate.local/schemas/status-module.v1.schema.json");
   assert.equal(usageSchema.$id, "https://winplate.local/schemas/usage.v1.schema.json");
+});
+
+test("exports the versioned notification taxonomy shared by JS and Python", () => {
+  assert.equal(schemas.notificationTaxonomy, notificationTaxonomy);
+  assert.equal(notificationTaxonomy.schemaVersion, 1);
+  assert.equal(notificationTaxonomy.unknownSource, "external");
+  assert.deepEqual(
+    ["email", "openai", "weather", "external"].map((source) => notificationTaxonomy.sourceAliases[source]),
+    ["mail", "chatgpt", "qweather", "external"]
+  );
+  assert.deepEqual(notificationTaxonomy.levels, ["info", "success", "warning", "critical"]);
+  assert.deepEqual(notificationTaxonomy.weather.alertColors.red, ["red", "extreme", "severe"]);
 });
 
 test("notification schema accepts current normalized notification shape and rejects missing version", () => {

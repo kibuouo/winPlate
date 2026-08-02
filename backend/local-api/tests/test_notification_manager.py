@@ -61,6 +61,72 @@ class NotificationManagerTest(unittest.TestCase):
             "mail", "qweather", "codex", "chatgpt", "github", "system"
         })
 
+    def test_source_aliases_match_the_shared_taxonomy(self):
+        cases = {
+            "email": "mail",
+            "openai": "chatgpt",
+            "weather": "qweather",
+            "external": "external",
+            "vendor-alerts": "external",
+            "": "external",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                self.assertEqual(self.manager.normalize_source(source), expected)
+
+    def test_publish_persists_canonical_source_values(self):
+        self.manager.publish(
+            notification_id="email:one",
+            source="email",
+            title="Mail",
+        )
+        self.manager.publish(
+            notification_id="vendor:one",
+            source="vendor-alerts",
+            title="Vendor alert",
+        )
+
+        summary = self.manager.summary()
+        self.assertEqual(
+            {item["source"] for item in summary["items"]},
+            {"mail", "external"},
+        )
+
+    def test_legacy_source_aliases_are_migrated_before_sql_filters(self):
+        with closing(self.connect()) as connection:
+            connection.execute(
+                "INSERT INTO notifications VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "legacy-email",
+                    "email",
+                    "info",
+                    "Legacy mail",
+                    "",
+                    1,
+                    self.now,
+                    self.now,
+                    None,
+                    "{}",
+                ),
+            )
+            connection.execute(
+                "INSERT INTO notification_imports VALUES (?, ?, ?)",
+                ("legacy-import", "openai", self.now),
+            )
+            connection.commit()
+
+        self.assertEqual(self.manager.normalize_persisted_sources(), 2)
+        self.assertEqual(self.manager.summary()["items"][0]["source"], "mail")
+        self.assertEqual(self.manager.unread_ids(source="mail"), ["legacy-email"])
+        with closing(self.connect()) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT source FROM notification_imports WHERE id = ?",
+                    ("legacy-import",),
+                ).fetchone()["source"],
+                "chatgpt",
+            )
+
     def test_state_changes_and_import_tracking_stay_inside_manager(self):
         self.manager.publish(
             notification_id="codex:one",

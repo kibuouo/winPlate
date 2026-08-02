@@ -1,3 +1,5 @@
+const { foldNotificationConversations } = require("./conversations");
+
 function createNotificationManager({
   loadNotifications,
   mutateNotifications,
@@ -15,6 +17,7 @@ function createNotificationManager({
     const items = rawItems
       .map((item) => normalizeNotification(item, now()))
       .filter((item) => item.id && (item.title || item.body));
+    const conversations = foldNotificationConversations(items);
     const byId = new Map(items.map((item) => [String(item.id), item]));
     const requestedLatestId = payload?.latest?.id;
     const latest = requestedLatestId !== undefined && requestedLatestId !== null
@@ -22,6 +25,7 @@ function createNotificationManager({
       : items.find((item) => item.unread) || items[0] || null;
     const suppliedUnreadCount = Number(payload?.unreadCount);
     return {
+      conversations,
       items,
       latest,
       unreadCount: Number.isFinite(suppliedUnreadCount) && suppliedUnreadCount >= 0

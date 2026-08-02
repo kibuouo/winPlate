@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createNotificationManager } = require("./index");
+const { createLocalDigest } = require("../digest");
 
 test("NotificationManager is the single normalization boundary for reads and mutations", async () => {
   const changes = [];
@@ -34,8 +35,38 @@ test("NotificationManager is the single normalization boundary for reads and mut
     assert.equal(summary.items[0].body, "注意防范");
     assert.equal(summary.items[0].message, undefined);
     assert.equal(summary.latest, summary.items[0]);
+    assert.deepEqual(summary.conversations, [
+      {
+        ...summary.items[0],
+        conversationKey: null,
+        memberIds: [summary.items[0].id],
+        updateCount: 1,
+        updates: [summary.items[0]]
+      }
+    ]);
   }
   assert.deepEqual(changes, ["markRead"]);
+});
+
+test("normalizes aliases and keeps unknown sources external while grouping them as system", async () => {
+  const manager = createNotificationManager({
+    loadNotifications: async () => ({
+      items: [
+        { id: "email:1", source: "email", title: "Mail", unread: true },
+        { id: "vendor:1", source: "vendor-alerts", title: "Vendor alert", unread: true }
+      ]
+    }),
+    mutateNotifications: async () => ({ items: [] })
+  });
+
+  const summary = await manager.list();
+  assert.deepEqual(summary.items.map((item) => item.source), ["mail", "external"]);
+  assert.equal(summary.items[1].type, "external");
+  assert.equal(summary.conversations.length, 2);
+  assert.deepEqual(
+    createLocalDigest(summary.items, 2_000).groups.map((group) => group.key),
+    ["mail", "system"]
+  );
 });
 
 test("NotificationManager exposes one mutation entry for every supported notification action", async () => {

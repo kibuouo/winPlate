@@ -50,7 +50,8 @@ function conversationForNotificationId(conversations, notificationId) {
   const id = String(notificationId || "").trim();
   if (!id) return null;
   return (Array.isArray(conversations) ? conversations : []).find((conversation) => (
-    Array.isArray(conversation?.memberIds) && conversation.memberIds.some((memberId) => String(memberId) === id)
+    String(conversation?.id || "") === id
+    || (Array.isArray(conversation?.memberIds) && conversation.memberIds.some((memberId) => String(memberId) === id))
   )) || null;
 }
 

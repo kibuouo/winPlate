@@ -1070,6 +1070,7 @@ function quotaStatusLamp(percent) {
 function normalizedNotifications(summary = notificationSummary) {
   const items = Array.isArray(summary?.items) ? summary.items : [];
   return {
+    conversations: Array.isArray(summary?.conversations) ? summary.conversations : null,
     items,
     latest: summary?.latest || items[0] || null,
     unreadCount: Math.max(0, Number(summary?.unreadCount) || 0),
@@ -1191,10 +1192,10 @@ function notificationItemsForDigest() {
 }
 
 function notificationConversations() {
-  const items = notificationItemsForDigest();
-  return typeof window.WinPlateNotificationConversations?.foldNotificationConversations === "function"
-    ? window.WinPlateNotificationConversations.foldNotificationConversations(items)
-    : items;
+  const normalized = normalizedNotifications();
+  return typeof window.WinPlateNotificationConversations?.fromSummary === "function"
+    ? window.WinPlateNotificationConversations.fromSummary(normalized, normalized.items)
+    : normalized.items;
 }
 
 function notificationConversationForId(id) {

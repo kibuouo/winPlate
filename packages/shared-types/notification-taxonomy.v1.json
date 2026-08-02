@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winplate.local/taxonomies/notification.v1.json",
+  "title": "WinPlate notification taxonomy",
+  "schemaVersion": 1,
+  "unknownSource": "external",
+  "canonicalSources": [
+    "qweather",
+    "codex",
+    "chatgpt",
+    "github",
+    "mail",
+    "system",
+    "external"
+  ],
+  "sourceAliases": {
+    "weather": "qweather",
+    "qweather": "qweather",
+    "codex": "codex",
+    "chatgpt": "chatgpt",
+    "openai": "chatgpt",
+    "github": "github",
+    "mail": "mail",
+    "email": "mail",
+    "system": "system",
+    "local": "system",
+    "external": "external"
+  },
+  "levels": [
+    "info",
+    "success",
+    "warning",
+    "critical"
+  ],
+  "weather": {
+    "lifecycle": {
+      "resolvedValues": [
+        "resolved",
+        "cancelled",
+        "canceled",
+        "expired",
+        "cleared"
+      ],
+      "upgradedValues": [
+        "upgraded",
+        "upgrade"
+      ]
+    },
+    "alertColors": {
+      "red": [
+        "red",
+        "extreme",
+        "severe"
+      ],
+      "yellow": [
+        "orange",
+        "yellow"
+      ],
+      "blue": [
+        "blue"
+      ],
+      "green": [
+        "green"
+      ]
+    }
+  }
+}

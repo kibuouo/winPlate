@@ -1283,6 +1283,7 @@ def initialize_database() -> None:
                 (module, json.dumps(initial_payload)),
             )
         connection.commit()
+    notification_manager.normalize_persisted_sources()
 
 
 def github_request(path: str) -> object:

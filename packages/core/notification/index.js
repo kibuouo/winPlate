@@ -1,28 +1,22 @@
+const { notificationTaxonomy } = require("@winplate/shared-types");
 const SOURCE_ALIASES = {
-  weather: "qweather",
-  qweather: "qweather",
-  codex: "codex",
-  chatgpt: "chatgpt",
-  openai: "chatgpt",
-  github: "github",
-  mail: "mail",
-  email: "mail",
-  system: "system",
-  local: "system",
-  external: "system"
+  ...notificationTaxonomy.sourceAliases
 };
 
-const VALID_LEVELS = new Set(["info", "success", "warning", "critical"]);
+const VALID_LEVELS = new Set(notificationTaxonomy.levels);
+const UNKNOWN_SOURCE = notificationTaxonomy.unknownSource;
+const WEATHER_LIFECYCLE = notificationTaxonomy.weather.lifecycle;
 const WEATHER_RESOLVED_RE = /解除|取消|撤销|终止|结束|失效|expired|cancel(?:led|ed)?|resolved|cleared/i;
 const WEATHER_UPGRADED_RE = /升级|提升为|升为|upgrade/i;
 const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
 const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;
 const SEVERE_SYSTEM_RE = /严重错误|致命错误|系统崩溃|critical error|fatal error|system crash/i;
-const WEATHER_ALERT_COLOR_MAP = new Map([
-  ["red", "red"], ["extreme", "red"], ["severe", "red"],
-  ["orange", "yellow"], ["yellow", "yellow"],
-  ["blue", "blue"], ["green", "green"]
-]);
+const WEATHER_ALERT_COLOR_MAP = new Map(
+  Object.entries(notificationTaxonomy.weather.alertColors)
+    .flatMap(([color, aliases]) => aliases.map((alias) => [alias, color]))
+);
+const WEATHER_RESOLVED_VALUES = new Set(WEATHER_LIFECYCLE.resolvedValues);
+const WEATHER_UPGRADED_VALUES = new Set(WEATHER_LIFECYCLE.upgradedValues);
 const {
   FOUR_HOURS_MS,
   conversationForNotificationId,
@@ -40,7 +34,7 @@ function text(value, limit = 500) {
 }
 
 function normalizeSource(value) {
-  return SOURCE_ALIASES[String(value || "").trim().toLowerCase()] || "system";
+  return SOURCE_ALIASES[String(value || "").trim().toLowerCase()] || UNKNOWN_SOURCE;
 }
 
 function normalizeLevel(value) {
@@ -55,10 +49,10 @@ function weatherLifecycle(item, combinedText) {
       ? item.metadata
       : {};
   const explicit = text(metadata.lifecycle || metadata.status || item?.status, 40).toLowerCase();
-  if (["resolved", "cancelled", "canceled", "expired", "cleared"].includes(explicit) || WEATHER_RESOLVED_RE.test(combinedText)) {
+  if (WEATHER_RESOLVED_VALUES.has(explicit) || WEATHER_RESOLVED_RE.test(combinedText)) {
     return "resolved";
   }
-  if (["upgraded", "upgrade"].includes(explicit) || WEATHER_UPGRADED_RE.test(combinedText)) {
+  if (WEATHER_UPGRADED_VALUES.has(explicit) || WEATHER_UPGRADED_RE.test(combinedText)) {
     return "upgraded";
   }
   return "issued";
@@ -175,7 +169,8 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
     chatgpt: "task-status",
     github: "github-activity",
     mail: "mail",
-    system: "system-status"
+    system: "system-status",
+    external: "external"
   }[source];
   const type = lifecycle === "resolved" ? "weather-alert-resolved" : text(item.type || fallbackType, 80);
   const id = text(item.id || item.uid || `${source}:${createdAt}:${title}`, 180);
