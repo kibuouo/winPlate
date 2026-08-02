@@ -472,9 +472,10 @@ struct DashboardView: View {
         } detail: {
             Group {
                 switch selection ?? .overview {
-                case .overview: OverviewWorkspace()
+                case .overview: OverviewWorkspace { selection = $0 }
                 case .weather: WeatherWorkspace()
                 case .github: GitHubWorkspace()
+                case .agent: AgentWorkspace()
                 case .mail: MailWorkspace()
                 case .notifications: NotificationsWorkspace()
                 case .settings: SettingsView()
@@ -488,13 +489,13 @@ struct DashboardView: View {
     }
 }
 
-private enum WorkspaceDestination: CaseIterable, Hashable {
-    case overview, weather, github, mail, notifications, settings
+enum WorkspaceDestination: CaseIterable, Hashable {
+    case overview, weather, github, agent, mail, notifications, settings
     var title: String {
-        switch self { case .overview: "概览"; case .weather: "天气"; case .github: "GitHub"; case .mail: "邮件"; case .notifications: "通知"; case .settings: "设置" }
+        switch self { case .overview: "概览"; case .weather: "天气"; case .github: "GitHub"; case .agent: "Agent"; case .mail: "邮件"; case .notifications: "通知"; case .settings: "设置" }
     }
     var symbol: String {
-        switch self { case .overview: "rectangle.3.group"; case .weather: "cloud.sun"; case .github: "chevron.left.forwardslash.chevron.right"; case .mail: "envelope"; case .notifications: "bell"; case .settings: "gearshape" }
+        switch self { case .overview: "rectangle.3.group"; case .weather: "cloud.sun"; case .github: "chevron.left.forwardslash.chevron.right"; case .agent: "terminal"; case .mail: "envelope"; case .notifications: "bell"; case .settings: "gearshape" }
     }
 }
 

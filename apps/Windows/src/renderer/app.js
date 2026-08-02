@@ -2038,7 +2038,46 @@ function notificationPreviewMarkup(source) {
   </div>`;
 }
 
-function weatherDashboardCard() {
+function dashboardCardNavigationAttributes(moduleId) {
+  const module = window.WinPlateModuleRegistry.getModuleMeta(moduleId);
+  if (!module?.section) return "";
+  return `data-dashboard-target="${escapeHtml(module.section)}" role="link" tabindex="0" aria-label="打开${escapeHtml(module.title)}模块"`;
+}
+
+function dashboardCardContainsInteractiveControl(card, target) {
+  const element = target?.nodeType === 1 ? target : target?.parentElement;
+  const control = element?.closest("button, a, input, select, textarea, summary, option, details, [contenteditable='true']");
+  return Boolean(control && card.contains(control));
+}
+
+function openDashboardCard(card) {
+  const targetSection = card?.dataset.dashboardTarget;
+  if (!targetSection) return;
+  const navigationButton = [...document.querySelectorAll("[data-section]")]
+    .find((button) => button.dataset.section === targetSection);
+  navigationButton?.click();
+}
+
+function bindDashboardCardNavigation(pageContent) {
+  if (!pageContent || pageContent.dataset.dashboardNavigationBound) return;
+  pageContent.dataset.dashboardNavigationBound = "true";
+  pageContent.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-dashboard-target]");
+    if (!card || !pageContent.contains(card) || card.hasAttribute("data-notification-preview-id")) return;
+    if (dashboardCardContainsInteractiveControl(card, event.target)) return;
+    openDashboardCard(card);
+  });
+  pageContent.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const card = event.target.closest("[data-dashboard-target]");
+    if (!card || !pageContent.contains(card) || card.hasAttribute("data-notification-preview-id")) return;
+    if (dashboardCardContainsInteractiveControl(card, event.target)) return;
+    event.preventDefault();
+    openDashboardCard(card);
+  });
+}
+
+function weatherDashboardCard({ interactive = false } = {}) {
   const weather = statusData.weather || mockStatus.weather;
   const weatherScene = window.WinPlateWeatherScenes?.sceneForWeather(weather) || "unknown";
   const forecast = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 5) : [];
@@ -2054,7 +2093,7 @@ function weatherDashboardCard() {
     ["风力", [weather.windDirection, weather.windScale && `${weather.windScale}级`].filter(Boolean).join(" ") || "--"]
   ];
   return `
-    <article class="dashboard-card weather-dashboard-card" data-weather-scene="${weatherScene}" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
+    <article class="dashboard-card weather-dashboard-card" data-weather-scene="${weatherScene}" data-module-id="weather" ${interactive ? dashboardCardNavigationAttributes("weather") : ""} ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
       ${notificationPreviewMarkup("qweather")}
       ${weatherSceneMarkup(weather)}
       <div class="weather-card-main">
@@ -2619,9 +2658,9 @@ function renderTooltip(data = {}) {
     </div>`;
 }
 
-function qweatherServiceCard(official, failures) {
+function qweatherServiceCard(official, failures, { interactive = false } = {}) {
   return `
-    <article class="dashboard-card qweather-card" data-module-id="weather" ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
+    <article class="dashboard-card qweather-card" data-module-id="weather" ${interactive ? dashboardCardNavigationAttributes("weather") : ""} ${notificationPreviewCardAttributes("qweather")} ${moduleHealthAttributes("weather")}>
       ${notificationPreviewMarkup("qweather")}
       <div class="qweather-card-heading">
         <div class="card-icon">${qweatherIconMarkup("qweather-service-icon")}</div>
@@ -2646,9 +2685,9 @@ function qweatherServiceCard(official, failures) {
     </article>`;
 }
 
-function heartCard() {
+function heartCard({ interactive = false } = {}) {
   return `
-    <article class="dashboard-card heart-card" data-module-id="heart" ${moduleHealthAttributes("heart")}>
+    <article class="dashboard-card heart-card" data-module-id="heart" ${interactive ? dashboardCardNavigationAttributes("heart") : ""} ${moduleHealthAttributes("heart")}>
       <div class="card-icon">♥</div><span>Heart Rate</span>
       <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
     </article>`;
@@ -2669,7 +2708,7 @@ function dashboardGithubCard() {
     { icon: previewIcons.streak, label: "Streak", value: github.streakDays, meta: "days" }
   ];
   return `
-    <article class="dashboard-card github-card github-dashboard-card" data-module-id="github" ${notificationPreviewCardAttributes("github")} ${moduleHealthAttributes("github")}>
+    <article class="dashboard-card github-card github-dashboard-card" data-module-id="github" ${dashboardCardNavigationAttributes("github")} ${notificationPreviewCardAttributes("github")} ${moduleHealthAttributes("github")}>
       ${notificationPreviewMarkup("github")}
       <div class="github-dashboard-top">
         <div class="github-dashboard-profile">
@@ -2747,7 +2786,7 @@ function dashboardCodexCard() {
   const sevenDay = windows.sevenDay || {};
   const supergrok = statusData.supergrok || mockStatus.supergrok;
   return `
-    <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${moduleHealthAttributes("codex")}>
+    <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${dashboardCardNavigationAttributes("codex")} ${moduleHealthAttributes("codex")}>
       <div class="dashboard-codex-header">
         <div class="card-icon codex-card-icon">${openaiBrandIcon}</div>
         <div class="dashboard-codex-copy">
@@ -3259,8 +3298,8 @@ function dashboardContent(section) {
   const dashboardRenderers = {
     github: () => dashboardGithubCard(),
     codex: () => dashboardCodexCard(),
-    heart: () => heartCard(),
-    weather: () => qweatherServiceCard(official, failures)
+    heart: () => heartCard({ interactive: true }),
+    weather: () => qweatherServiceCard(official, failures, { interactive: true })
   };
   const dashboardModuleContext = {
     render: (id) => dashboardRenderers[id]?.() || "",
@@ -3624,6 +3663,7 @@ function renderMain() {
     });
   });
   const pageContent = document.querySelector("#page-content");
+  bindDashboardCardNavigation(pageContent);
   pageContent.onclick = (event) => {
     const githubUrlButton = event.target.closest("[data-open-github-url]");
     if (githubUrlButton && pageContent.contains(githubUrlButton)) {
@@ -4769,6 +4809,7 @@ function bindGithubControls() {
 
 function bindNotificationPreviewCards() {
   document.querySelectorAll("[data-notification-preview-id]").forEach((card) => {
+    card.setAttribute("aria-label", "打开相关通知");
     card.onclick = async (event) => {
       if (event.target.closest("button, select, input, a")) return;
       const previewId = card.dataset.notificationPreviewId;

@@ -60,6 +60,24 @@ test("renderer always renders the Windows titlebar and Windows platform class", 
   assert.doesNotMatch(source, /bindApplicationSettingsControls/);
 });
 
+test("overview cards navigate to their module while preserving nested controls and notification previews", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(appSource, /function dashboardCardNavigationAttributes\(moduleId\)/);
+  assert.match(appSource, /data-dashboard-target/);
+  assert.match(appSource, /dashboardCardContainsInteractiveControl/);
+  assert.match(appSource, /button, a, input, select, textarea, summary/);
+  assert.match(appSource, /card\.hasAttribute\("data-notification-preview-id"\)/);
+  assert.match(appSource, /dashboardCardNavigationAttributes\("github"\)/);
+  assert.match(appSource, /dashboardCardNavigationAttributes\("codex"\)/);
+  assert.match(appSource, /dashboardCardNavigationAttributes\("weather"\)/);
+  assert.match(appSource, /dashboardCardNavigationAttributes\("heart"\)/);
+  assert.match(appSource, /card\.setAttribute\("aria-label", "打开相关通知"\)/);
+  assert.match(styles, /\.dashboard-card\[data-dashboard-target\]\s*\{[^}]*cursor:\s*pointer/);
+  assert.match(styles, /\.dashboard-card\[data-dashboard-target\]:focus-visible/);
+});
+
 test("SuperGrok renders the remaining quota derived from Grok usage", () => {
   const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 
