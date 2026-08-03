@@ -516,12 +516,96 @@ def normalize_notification_level(level: str) -> str:
     return value if value in {"info", "success", "warning", "critical"} else "info"
 
 
+def normalize_display_severity(severity: str) -> str:
+    value = str(severity or "info").strip().lower()
+    return value if value in {"info", "warning", "danger"} else "info"
+
+
+# Semantic display severity (info | warning | danger). Mirrors packages/core/digest
+# severityForNotification so both platform clients consume one authoritative rule set.
+# Match Windows weather storage: only red-class alerts are danger.
+# Orange sits with yellow/blue as warning (amber UI), not red danger.
+DANGER_WEATHER_RE = re.compile(r"红色预警|red alert", re.I)
+WARNING_WEATHER_RE = re.compile(
+    r"橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert",
+    re.I,
+)
+DANGER_WEATHER_COLORS = frozenset({"red", "extreme", "severe"})
+WARNING_WEATHER_COLORS = frozenset({
+    "orange", "yellow", "blue", "moderate", "minor", "unknown", "white", "green",
+})
+TASK_FAILURE_RE = re.compile(r"失败|错误|异常|崩溃|failed|failure|error|crash", re.I)
+CORE_FAILURE_RE = re.compile(
+    r"(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)"
+    r"|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)"
+    r"|核心模块.*(?:不可用|故障|失败)"
+    r"|core module.*(?:unavailable|failure|failed)"
+    r"|service unavailable",
+    re.I,
+)
+SEVERE_SYSTEM_RE = re.compile(
+    r"严重错误|致命错误|系统崩溃|critical error|fatal error|system crash",
+    re.I,
+)
+
+
+def severity_for_notification(item: dict | None = None) -> str:
+    """Map a notification to display severity: info | warning | danger."""
+    payload = item if isinstance(item, dict) else {}
+    source = str(payload.get("source") or "system").strip().lower() or "system"
+    title = str(payload.get("title") or "")
+    body = str(payload.get("body") or payload.get("message") or "")
+    content = f"{title} {body}"
+    level = normalize_notification_level(str(payload.get("level") or "info"))
+    meta = payload.get("metadata")
+    if not isinstance(meta, dict):
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    lifecycle = str(meta.get("lifecycle") or meta.get("status") or "").strip().lower()
+
+    if source == "qweather":
+        if lifecycle == "resolved":
+            return "info"
+        weather_color = str(meta.get("severity") or "").strip().lower()
+        if weather_color in DANGER_WEATHER_COLORS:
+            return "danger"
+        if weather_color in WARNING_WEATHER_COLORS:
+            return "warning"
+        if DANGER_WEATHER_RE.search(content):
+            return "danger"
+        if WARNING_WEATHER_RE.search(content):
+            return "warning"
+        if level == "critical":
+            return "danger"
+        if level == "warning":
+            return "warning"
+        return "info"
+    if CORE_FAILURE_RE.search(content):
+        return "danger"
+    if source == "mail":
+        return "info"
+    if source in {"codex", "chatgpt"}:
+        return "warning" if TASK_FAILURE_RE.search(content) else "info"
+    if source == "system":
+        if level == "critical" or SEVERE_SYSTEM_RE.search(content):
+            return "danger"
+        if level == "warning" or TASK_FAILURE_RE.search(content):
+            return "warning"
+        return "info"
+    if level == "critical":
+        return "danger"
+    if level == "warning":
+        return "warning"
+    return "info"
+
+
 def notification_row_to_item(row: sqlite3.Row) -> dict:
     try:
         metadata = json.loads(row["metadata"] or "{}")
     except (KeyError, TypeError, json.JSONDecodeError):
         metadata = {}
-    return {
+    if not isinstance(metadata, dict):
+        metadata = {}
+    item = {
         "id": row["id"],
         "source": row["source"],
         "level": row["level"],
@@ -531,8 +615,10 @@ def notification_row_to_item(row: sqlite3.Row) -> dict:
         "createdAt": int(row["created_at"]),
         "updatedAt": int(row["updated_at"]),
         "externalUrl": row["external_url"] or None,
-        "metadata": metadata if isinstance(metadata, dict) else {},
+        "metadata": metadata,
     }
+    item["severity"] = severity_for_notification(item)
+    return item
 
 
 def normalize_digest_severity(severity: str) -> str:

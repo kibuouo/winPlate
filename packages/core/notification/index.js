@@ -13,6 +13,7 @@ const SOURCE_ALIASES = {
 };
 
 const VALID_LEVELS = new Set(["info", "success", "warning", "critical"]);
+const VALID_SEVERITIES = new Set(["info", "warning", "danger"]);
 const WEATHER_RESOLVED_RE = /解除|取消|撤销|终止|结束|失效|expired|cancel(?:led|ed)?|resolved|cleared/i;
 const WEATHER_UPGRADED_RE = /升级|提升为|升为|upgrade/i;
 const {
@@ -37,6 +38,11 @@ function normalizeSource(value) {
 function normalizeLevel(value) {
   const level = String(value || "info").toLowerCase();
   return VALID_LEVELS.has(level) ? level : "info";
+}
+
+function normalizeSeverity(value) {
+  const severity = String(value || "").trim().toLowerCase();
+  return VALID_SEVERITIES.has(severity) ? severity : null;
 }
 
 function weatherLifecycle(item, combinedText) {
@@ -129,8 +135,13 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   const body = text(item.body || item.message || item.summary || item.snippet, 500);
   const createdAt = Number(item.createdAt || item.sentAt || item.updatedAt || now);
   const combinedText = `${title} ${body}`;
-  const lifecycle = source === "qweather" ? weatherLifecycle(item, combinedText) : null;
-  const meta = item.meta && typeof item.meta === "object" ? { ...item.meta } : {};
+  const rawMeta = item.meta && typeof item.meta === "object"
+    ? item.meta
+    : item.metadata && typeof item.metadata === "object"
+      ? item.metadata
+      : {};
+  const meta = { ...rawMeta };
+  const lifecycle = source === "qweather" ? weatherLifecycle({ ...item, meta }, combinedText) : null;
   const externalUrl = text(item.externalUrl || item.externalURL || meta.externalUrl, 500);
   if (externalUrl) meta.externalUrl = externalUrl;
   if (lifecycle) {
@@ -151,6 +162,9 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   const dedupeKey = text(item.dedupeKey || meta.alertId || meta.threadId || sourceId || id, 180);
   let level = normalizeLevel(item.level);
   if (lifecycle === "resolved") level = "success";
+  // Prefer local-api severity when present; otherwise leave unset for digest fallback.
+  let severity = normalizeSeverity(item.severity ?? meta.severity);
+  if (lifecycle === "resolved") severity = "info";
   const notification = {
     schemaVersion: 1,
     id,
@@ -165,6 +179,7 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
     dedupeKey,
     meta
   };
+  if (severity) notification.severity = severity;
   notification.actions = getActionsForNotification(notification);
   return notification;
 }
@@ -196,6 +211,7 @@ module.exports = {
   getActionsForNotification,
   normalizedConversationTitle,
   normalizeLevel,
+  normalizeSeverity,
   normalizeRawNotification,
   normalizeSource,
   notificationRoute,

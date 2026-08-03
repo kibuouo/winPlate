@@ -431,20 +431,20 @@ private struct NotificationTimelineRow: View {
     }
 
     private var levelLabel: String {
-        switch notification.level {
-        case "success": return "完成"
-        case "warning": return "提醒"
-        case "critical": return "紧急"
+        // Unified 3-way labels: 信息 | 预警 | 危险 (matches Windows).
+        switch notification.displaySeverity {
+        case "danger": return "危险"
+        case "warning": return "预警"
         default: return "信息"
         }
     }
 
     private var levelColor: Color {
-        switch notification.level {
-        case "success": return .green
+        switch notification.displaySeverity {
+        case "danger": return .red
         case "warning": return .orange
-        case "critical": return .red
-        default: return .accentColor
+        // Emerald-style info treatment matching Windows digest strip.
+        default: return Color(red: 0.06, green: 0.73, blue: 0.51)
         }
     }
 

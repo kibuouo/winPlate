@@ -857,6 +857,8 @@ struct AppNotification: Decodable, Identifiable {
     let id: String
     let source: String
     let level: String
+    /// Semantic display severity from local-api: info | warning | danger.
+    let severity: String
     let title: String
     let message: String
     let unread: Bool
@@ -894,6 +896,22 @@ struct AppNotification: Decodable, Identifiable {
         return !["resolved", "cancelled", "canceled", "expired", "cleared"].contains(lifecycle)
     }
 
+    /// Display severity aligned with Windows digest: info | warning | danger.
+    var displaySeverity: String {
+        switch severity.lowercased() {
+        case "danger", "warning", "info":
+            return severity.lowercased()
+        default:
+            break
+        }
+        // Fallback when an older API omits severity.
+        switch level.lowercased() {
+        case "critical": return "danger"
+        case "warning": return "warning"
+        default: return "info"
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -905,10 +923,22 @@ struct AppNotification: Decodable, Identifiable {
         createdAt = try container.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         externalURL = try container.decodeIfPresent(String.self, forKey: .externalURL)
         metadata = try container.decodeIfPresent(NotificationMetadata.self, forKey: .metadata)
+        let decodedSeverity = try container.decodeIfPresent(String.self, forKey: .severity)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let decodedSeverity, ["info", "warning", "danger"].contains(decodedSeverity) {
+            severity = decodedSeverity
+        } else {
+            switch level.lowercased() {
+            case "critical": severity = "danger"
+            case "warning": severity = "warning"
+            default: severity = "info"
+            }
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, source, level, title, message, unread, createdAt, metadata
+        case id, source, level, severity, title, message, unread, createdAt, metadata
         case externalURL = "externalUrl"
     }
 }

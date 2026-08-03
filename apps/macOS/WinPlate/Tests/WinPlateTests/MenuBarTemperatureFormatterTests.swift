@@ -493,6 +493,7 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
             "id": "qweather:red-active",
             "source": "qweather",
             "level": "critical",
+            "severity": "danger",
             "title": "红色预警",
             "message": "",
             "unread": true,
@@ -503,6 +504,7 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
             "id": "qweather:red-resolved",
             "source": "qweather",
             "level": "success",
+            "severity": "info",
             "title": "红色预警解除",
             "message": "",
             "unread": true,
@@ -512,12 +514,13 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
           {
             "id": "qweather:orange",
             "source": "qweather",
-            "level": "critical",
+            "level": "warning",
+            "severity": "warning",
             "title": "橙色预警",
             "message": "",
             "unread": true,
             "createdAt": 1780000000000,
-            "metadata": {"severity": "severe", "lifecycle": "issued"}
+            "metadata": {"severity": "orange", "lifecycle": "issued"}
           }
         ]
         """.data(using: .utf8)!
@@ -527,5 +530,43 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertTrue(items[0].requiresAcknowledgement)
         XCTAssertFalse(items[1].requiresAcknowledgement)
         XCTAssertFalse(items[2].requiresAcknowledgement)
+        XCTAssertEqual(items[0].displaySeverity, "danger")
+        XCTAssertEqual(items[1].displaySeverity, "info")
+        // Orange weather is warning band (same as yellow), not red danger.
+        XCTAssertEqual(items[2].displaySeverity, "warning")
+    }
+
+    func testNotificationDisplaySeverityPrefersAPIAndFallsBackFromLevel() throws {
+        let withAPI = """
+        {
+          "id": "qweather:1",
+          "source": "qweather",
+          "level": "critical",
+          "severity": "info",
+          "title": "暴雨红色预警解除",
+          "message": "风险降低",
+          "unread": true,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+        let withoutAPI = """
+        {
+          "id": "system:1",
+          "source": "system",
+          "level": "critical",
+          "title": "系统故障",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+
+        let resolved = try JSONDecoder().decode(AppNotification.self, from: withAPI)
+        let fallback = try JSONDecoder().decode(AppNotification.self, from: withoutAPI)
+
+        XCTAssertEqual(resolved.severity, "info")
+        XCTAssertEqual(resolved.displaySeverity, "info")
+        XCTAssertEqual(fallback.severity, "danger")
+        XCTAssertEqual(fallback.displaySeverity, "danger")
     }
 }

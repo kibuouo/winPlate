@@ -1101,13 +1101,41 @@ function notificationSourceIconKey(source) {
   return { codex: "codex", chatgpt: "chatgpt", github: "github", mail: "mail", qweather: "cloud-rain-alert" }[source] || "bell";
 }
 
+/**
+ * Unified display labels for notification grading (3-way):
+ * 信息 (info) | 预警 (warning) | 危险 (danger)
+ * Storage level (success/critical) maps into this same vocabulary.
+ */
 function notificationLevelLabel(level) {
-  return {
-    info: "信息",
-    success: "完成",
-    warning: "提醒",
-    critical: "紧急"
-  }[level] || "信息";
+  const value = String(level || "info").toLowerCase();
+  if (value === "critical" || value === "danger") return "危险";
+  if (value === "warning") return "预警";
+  return "信息";
+}
+
+/** Prefer API/core display severity (info | warning | danger) for emphasis labels. */
+function notificationDisplaySeverity(item = {}) {
+  const severity = String(item?.severity || item?.meta?.severity || "").toLowerCase();
+  if (severity === "info" || severity === "warning" || severity === "danger") return severity;
+  const level = String(item?.level || "info").toLowerCase();
+  if (level === "critical" || level === "danger") return "danger";
+  if (level === "warning") return "warning";
+  return "info";
+}
+
+function notificationSeverityLabel(severityOrItem) {
+  const severity = typeof severityOrItem === "string"
+    ? severityOrItem
+    : notificationDisplaySeverity(severityOrItem);
+  return notificationLevelLabel(severity);
+}
+
+/** Map display severity onto existing timeline level-* CSS classes. */
+function notificationSeverityClass(item = {}) {
+  const severity = notificationDisplaySeverity(item);
+  if (severity === "danger") return "critical";
+  if (severity === "warning") return "warning";
+  return "info";
 }
 
 function notificationStrip() {
@@ -1117,7 +1145,7 @@ function notificationStrip() {
   const syncTime = formatNotificationSyncTime(digest.generatedAt);
   const stripTitle = `${digest.headline} · 已同步${syncTime}`;
   return `
-    <button class="notification-strip ${unread ? "has-unread" : ""} severity-${escapeHtml(digest.severity)} no-drag" id="notification-strip" type="button" aria-label="打开${digest.severity === "danger" ? "危险" : digest.severity === "warning" ? "预警" : "信息"}通知摘要">
+    <button class="notification-strip ${unread ? "has-unread" : ""} severity-${escapeHtml(digest.severity)} no-drag" id="notification-strip" type="button" aria-label="打开${notificationSeverityLabel(digest.severity)}通知摘要">
       ${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}
       <span class="notification-title">${escapeHtml(stripTitle)}</span>
       ${unread ? `<span class="notification-badge" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>` : ""}
@@ -1728,7 +1756,7 @@ function notificationPreviewMarkup(source) {
   const item = findPreviewableNotification(source);
   if (!item) return "";
   return `<div class="module-notification-preview" role="tooltip">
-    <span>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationLevelLabel(item.level))}</span>
+    <span>${escapeHtml(notificationSourceLabel(item.source))} · ${escapeHtml(notificationSeverityLabel(item))}</span>
     <strong>${escapeHtml(item.title)}</strong>
     <p>${escapeHtml(item.message || "暂无详细内容。")}</p>
     <small>${escapeHtml(relativeUpdatedAt(item.createdAt))}</small>
@@ -2599,7 +2627,11 @@ function notificationDrawer() {
     const list = window.WinPlateNotificationDigest.renderDigestDrawerList(
       digest,
       notificationItemsForDigest(),
-      { sourceLabel: notificationSourceLabel, relativeTime: relativeUpdatedAt }
+      {
+        sourceLabel: notificationSourceLabel,
+        relativeTime: relativeUpdatedAt,
+        severityClass: notificationSeverityClass
+      }
     );
     return `
       <aside id="notification-digest-drawer" class="notification-detail-drawer" role="dialog" aria-modal="true" aria-label="通知摘要">
@@ -2746,7 +2778,12 @@ function notificationContent() {
     selectedId: notificationSelection.id,
     sourceLabel: notificationSourceLabel,
     sourceIcon: renderNotificationSourceIcon,
-    levelLabel: notificationLevelLabel,
+    levelLabel: (levelOrItem) => (
+      typeof levelOrItem === "object" && levelOrItem
+        ? notificationSeverityLabel(levelOrItem)
+        : notificationSeverityLabel({ level: levelOrItem })
+    ),
+    severityClass: notificationSeverityClass,
     absoluteTime: notificationClockLabel,
     relativeTime: relativeUpdatedAt,
     inlineDetail: (conversation) => notificationInlineDetail(conversation)
@@ -2806,7 +2843,7 @@ function notificationInlineDetail(conversation = notificationConversationForId(n
   const detailMetadata = `<dl class="notification-inline-summary-meta">
     <div><dt>来源</dt><dd>${escapeHtml(notificationSourceLabel(resolvedNotification.source))}</dd></div>
     <div><dt>状态</dt><dd>${resolvedNotification.unread ? "未读" : "已读"}</dd></div>
-    <div><dt>级别</dt><dd>${escapeHtml(notificationLevelLabel(resolvedNotification.level))}</dd></div>
+    <div><dt>级别</dt><dd>${escapeHtml(notificationSeverityLabel(resolvedNotification))}</dd></div>
     <div><dt>标识</dt><dd title="${escapeHtml(resolvedNotification.id || "")}">${escapeHtml(resolvedNotification.id || "-")}</dd></div>
   </dl>`;
   return `<section class="notification-inline-summary" aria-label="通知摘要">

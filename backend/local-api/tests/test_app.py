@@ -874,6 +874,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["alerts"][0]["title"], "大风蓝色预警")
         self.assertEqual(summary["latest"]["id"], "qweather:a1")
         self.assertEqual(summary["latest"]["level"], "warning")
+        self.assertEqual(summary["latest"]["severity"], "warning")
         self.assertEqual(summary["latest"]["metadata"], {
             "severity": "moderate",
             "lifecycle": "issued",
@@ -898,6 +899,7 @@ class DatabaseTests(unittest.TestCase):
             summary = main.notification_summary()
         main.DATABASE_PATH = original_path
         self.assertEqual(result["alerts"][0]["level"], "critical")
+        self.assertEqual(summary["latest"]["severity"], "danger")
         self.assertEqual(summary["latest"]["metadata"], {
             "severity": "red",
             "lifecycle": "issued",
@@ -945,6 +947,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["alerts"][0]["lifecycle"], "resolved")
         self.assertEqual(result["alerts"][0]["riskDelta"], "decreased")
         self.assertEqual(summary["latest"]["level"], "success")
+        self.assertEqual(summary["latest"]["severity"], "info")
         self.assertIn("风险降低", summary["latest"]["message"])
         self.assertEqual(summary["latest"]["metadata"], {
             "severity": "extreme",
@@ -1170,11 +1173,71 @@ class DatabaseTests(unittest.TestCase):
             ))
             summary = main.notification_summary()
             self.assertEqual(created["id"], "codex:test")
+            self.assertEqual(created["severity"], "info")
             self.assertEqual(summary["unreadCount"], 1)
             self.assertEqual(summary["latest"]["title"], "Done")
+            self.assertEqual(summary["latest"]["severity"], "info")
             summary = main.mark_notification_read("codex:test")
             self.assertEqual(summary["unreadCount"], 0)
         main.DATABASE_PATH = original_path
+
+    def test_notification_severity_matches_core_semantic_rules(self):
+        cases = [
+            ({"source": "qweather", "title": "暴雨红色预警", "message": "", "level": "critical", "metadata": {"lifecycle": "issued", "severity": "red"}}, "danger"),
+            # Orange is the same display band as yellow (warning), not red danger.
+            ({"source": "qweather", "title": "暴雨橙色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued", "severity": "orange"}}, "warning"),
+            ({"source": "qweather", "title": "暴雨橙色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
+            ({"source": "qweather", "title": "高温黄色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
+            ({"source": "qweather", "title": "大风蓝色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
+            ({"source": "qweather", "title": "暴雨红色预警解除", "message": "风险降低", "level": "success", "metadata": {"lifecycle": "resolved"}}, "info"),
+            ({"source": "qweather", "title": "天气转多云", "message": "", "level": "info", "metadata": {}}, "info"),
+            ({"source": "mail", "title": "新邮件：Launch", "message": "", "level": "info", "metadata": {}}, "info"),
+            ({"source": "codex", "title": "Codex 任务完成", "message": "", "level": "success", "metadata": {}}, "info"),
+            ({"source": "chatgpt", "title": "ChatGPT 任务完成", "message": "", "level": "success", "metadata": {}}, "info"),
+            ({"source": "codex", "title": "Codex 任务失败", "message": "", "level": "warning", "metadata": {}}, "warning"),
+            ({"source": "chatgpt", "title": "ChatGPT 任务失败", "message": "", "level": "warning", "metadata": {}}, "warning"),
+            ({"source": "system", "title": "系统发生严重错误", "message": "", "level": "critical", "metadata": {}}, "danger"),
+            ({"source": "system", "title": "API 连续失败", "message": "", "level": "warning", "metadata": {}}, "danger"),
+            ({"source": "system", "title": "核心模块不可用", "message": "", "level": "critical", "metadata": {}}, "danger"),
+        ]
+        for payload, expected in cases:
+            with self.subTest(title=payload["title"]):
+                self.assertEqual(main.severity_for_notification(payload), expected)
+
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            main.upsert_notification(
+                notification_id="qweather:resolved-1",
+                source="qweather",
+                level="success",
+                title="暴雨红色预警解除",
+                message="预警已解除，风险降低。",
+                metadata={"severity": "red", "lifecycle": "resolved", "riskDelta": "decreased", "alertId": "resolved-1"},
+            )
+            main.upsert_notification(
+                notification_id="qweather:orange-1",
+                source="qweather",
+                level="warning",
+                title="暴雨橙色预警",
+                message="注意防范。",
+                metadata={"severity": "orange", "lifecycle": "issued", "riskDelta": "active", "alertId": "orange-1"},
+            )
+            main.upsert_notification(
+                notification_id="qweather:severe-1",
+                source="qweather",
+                level="critical",
+                title="暴雨预警",
+                message="注意防范。",
+                metadata={"severity": "severe", "lifecycle": "issued", "riskDelta": "active", "alertId": "severe-1"},
+            )
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        by_id = {item["id"]: item for item in summary["items"]}
+        self.assertEqual(by_id["qweather:resolved-1"]["severity"], "info")
+        self.assertEqual(by_id["qweather:orange-1"]["severity"], "warning")
+        self.assertEqual(by_id["qweather:severe-1"]["severity"], "danger")
 
     def test_notification_summary_returns_latest_fifty_items_by_default(self):
         original_path = main.DATABASE_PATH
