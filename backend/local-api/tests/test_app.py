@@ -1186,6 +1186,8 @@ class DatabaseTests(unittest.TestCase):
             ({"source": "qweather", "title": "暴雨红色预警", "message": "", "level": "critical", "metadata": {"lifecycle": "issued", "severity": "red"}}, "danger"),
             # Orange is the same display band as yellow (warning), not red danger.
             ({"source": "qweather", "title": "暴雨橙色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued", "severity": "orange"}}, "warning"),
+            # QWeather often encodes orange as severity "severe".
+            ({"source": "qweather", "title": "高温橙色预警", "message": "", "level": "critical", "metadata": {"lifecycle": "issued", "severity": "severe"}}, "warning"),
             ({"source": "qweather", "title": "暴雨橙色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
             ({"source": "qweather", "title": "高温黄色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
             ({"source": "qweather", "title": "大风蓝色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
@@ -1225,19 +1227,28 @@ class DatabaseTests(unittest.TestCase):
                 metadata={"severity": "orange", "lifecycle": "issued", "riskDelta": "active", "alertId": "orange-1"},
             )
             main.upsert_notification(
-                notification_id="qweather:severe-1",
+                notification_id="qweather:severe-orange-1",
                 source="qweather",
                 level="critical",
-                title="暴雨预警",
+                title="高温橙色预警",
                 message="注意防范。",
-                metadata={"severity": "severe", "lifecycle": "issued", "riskDelta": "active", "alertId": "severe-1"},
+                metadata={"severity": "severe", "lifecycle": "issued", "riskDelta": "active", "alertId": "severe-orange-1"},
+            )
+            main.upsert_notification(
+                notification_id="qweather:extreme-1",
+                source="qweather",
+                level="critical",
+                title="暴雨红色预警",
+                message="注意防范。",
+                metadata={"severity": "extreme", "lifecycle": "issued", "riskDelta": "active", "alertId": "extreme-1"},
             )
             summary = main.notification_summary()
         main.DATABASE_PATH = original_path
         by_id = {item["id"]: item for item in summary["items"]}
         self.assertEqual(by_id["qweather:resolved-1"]["severity"], "info")
         self.assertEqual(by_id["qweather:orange-1"]["severity"], "warning")
-        self.assertEqual(by_id["qweather:severe-1"]["severity"], "danger")
+        self.assertEqual(by_id["qweather:severe-orange-1"]["severity"], "warning")
+        self.assertEqual(by_id["qweather:extreme-1"]["severity"], "danger")
 
     def test_notification_summary_returns_latest_fifty_items_by_default(self):
         original_path = main.DATABASE_PATH

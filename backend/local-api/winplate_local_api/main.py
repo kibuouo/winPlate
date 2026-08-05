@@ -530,9 +530,11 @@ WARNING_WEATHER_RE = re.compile(
     r"橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert",
     re.I,
 )
-DANGER_WEATHER_COLORS = frozenset({"red", "extreme", "severe"})
+# QWeather color ladder: blue/minor → yellow/moderate → orange/severe → red/extreme.
+# Only true red-class maps to display danger; severe is orange band → warning.
+DANGER_WEATHER_COLORS = frozenset({"red", "extreme"})
 WARNING_WEATHER_COLORS = frozenset({
-    "orange", "yellow", "blue", "moderate", "minor", "unknown", "white", "green",
+    "orange", "yellow", "blue", "severe", "moderate", "minor", "unknown", "white", "green",
 })
 TASK_FAILURE_RE = re.compile(r"失败|错误|异常|崩溃|failed|failure|error|crash", re.I)
 CORE_FAILURE_RE = re.compile(
@@ -2464,7 +2466,12 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         severity = str(alert.get("severity") or alert.get("color") or "warning").lower()
         lifecycle = weather_alert_lifecycle(alert, title, message)
         family_key = weather_alert_family_key(alert)
-        level = "success" if lifecycle == "resolved" else "critical" if severity in {"red", "extreme", "severe"} else "warning"
+        # Storage level: red/extreme → critical; orange(severe)/yellow/blue → warning.
+        level = (
+            "success" if lifecycle == "resolved"
+            else "critical" if severity in {"red", "extreme"}
+            else "warning"
+        )
         if lifecycle == "resolved" and "风险降低" not in f"{title} {message}":
             message = clean_mail_text(f"预警已解除，风险降低。{message}", limit=360)
         created_at = None

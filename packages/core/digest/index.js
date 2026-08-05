@@ -22,9 +22,10 @@ const SEVERITY_RANK = { info: 0, warning: 1, danger: 2 };
 // Orange sits with yellow/blue as warning (amber UI), not red danger.
 const DANGER_WEATHER_RE = /红色预警|red alert/i;
 const WARNING_WEATHER_RE = /橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert/i;
-const DANGER_WEATHER_COLORS = new Set(["red", "extreme", "severe"]);
+// QWeather: severe ≈ orange band; only red/extreme are display danger.
+const DANGER_WEATHER_COLORS = new Set(["red", "extreme"]);
 const WARNING_WEATHER_COLORS = new Set([
-  "orange", "yellow", "blue", "moderate", "minor", "unknown", "white", "green"
+  "orange", "yellow", "blue", "severe", "moderate", "minor", "unknown", "white", "green"
 ]);
 const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
 const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;

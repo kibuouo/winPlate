@@ -566,7 +566,134 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
 
         XCTAssertEqual(resolved.severity, "info")
         XCTAssertEqual(resolved.displaySeverity, "info")
-        XCTAssertEqual(fallback.severity, "danger")
+        // Missing API severity is left empty; displaySeverity falls back from level.
+        XCTAssertEqual(fallback.severity, "")
         XCTAssertEqual(fallback.displaySeverity, "danger")
+    }
+
+    func testGrokBillingInvertsUsedPercentToRemaining() {
+        let payload = """
+        {
+          "config": {
+            "creditUsagePercent": 30,
+            "billingPeriodEnd": "2099-01-01T00:00:00Z"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let usage = ProcessGrokUsageReader.parseBilling(payload)
+
+        XCTAssertEqual(usage.source, "grok-cli")
+        XCTAssertEqual(usage.status, "Normal")
+        // Upstream 30 is used → display remaining 70 (same polarity as Codex).
+        XCTAssertEqual(usage.remainingPct, 70)
+        XCTAssertNotEqual(usage.remainingPct, 30)
+    }
+
+    func testGrokBillingClampsUsedPercent() {
+        let over = ProcessGrokUsageReader.parseBilling("""
+        {"config":{"creditUsagePercent":150}}
+        """.data(using: .utf8)!)
+        let under = ProcessGrokUsageReader.parseBilling("""
+        {"config":{"creditUsagePercent":-5}}
+        """.data(using: .utf8)!)
+
+        XCTAssertEqual(over.remainingPct, 0)
+        XCTAssertEqual(under.remainingPct, 100)
+    }
+
+    func testAgentUsageItemsMapChatGPTFromCodexAndSuperGrokRemaining() {
+        let codex = UsageSnapshot(
+            source: "codex-app-server",
+            status: "Normal",
+            remainingPct: 70,
+            resetText: "2h",
+            windows: UsageWindows(
+                fiveHour: UsageWindow(remainingPct: 70, resetText: "2h"),
+                sevenDay: UsageWindow(remainingPct: 55, resetText: "3d")
+            ),
+            balances: []
+        )
+        let deepSeek = UsageSnapshot(
+            source: "deepseek-api",
+            status: "Normal",
+            remainingPct: nil,
+            resetText: nil,
+            windows: nil,
+            balances: [Balance(currency: "CNY", totalBalance: "12.34")]
+        )
+        let superGrok = UsageSnapshot(
+            source: "grok-cli",
+            status: "Normal",
+            remainingPct: 41,
+            resetText: "1d 2h",
+            windows: nil,
+            balances: []
+        )
+
+        let items = AgentUsageItem.build(
+            codex: codex,
+            codexError: nil,
+            deepSeek: deepSeek,
+            deepSeekError: nil,
+            deepSeekUpdatedAt: nil,
+            superGrok: superGrok,
+            superGrokError: nil,
+            relativeTime: { _ in "刚刚" }
+        )
+
+        XCTAssertEqual(items.map(\.id), ["chatgpt", "deepseek", "supergrok"])
+        XCTAssertEqual(items[0].name, "ChatGPT")
+        XCTAssertEqual(items[0].primary, "70%")
+        XCTAssertEqual(items[0].polarity, .remaining)
+        XCTAssertTrue(items[0].secondary.contains("剩余"))
+        XCTAssertEqual(items[1].primary, "¥12.34")
+        XCTAssertEqual(items[2].name, "SuperGrok")
+        XCTAssertEqual(items[2].primary, "41%")
+        XCTAssertEqual(items[2].polarity, .remaining)
+        XCTAssertTrue(items[2].secondary.contains("剩余"))
+    }
+
+    func testWorkspaceDestinationIncludesAgent() {
+        XCTAssertTrue(WorkspaceDestination.allCases.contains(.agent))
+        XCTAssertEqual(WorkspaceDestination.agent.title, "Agent")
+        XCTAssertEqual(WorkspaceDestination.agent.symbol, "cpu")
+    }
+
+    func testOrangeWeatherWithQWeatherSevereIsWarningNotDanger() throws {
+        // QWeather encodes orange band as metadata.severity "severe".
+        let payload = """
+        {
+          "id": "qweather:heat-orange",
+          "source": "qweather",
+          "level": "critical",
+          "severity": "warning",
+          "title": "高温橙色预警",
+          "message": "白天最高气温将升至37℃以上。",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "severe", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+        let withoutAPISeverity = """
+        {
+          "id": "qweather:heat-orange-2",
+          "source": "qweather",
+          "level": "critical",
+          "title": "高温橙色预警",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "severe", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+
+        let withAPI = try JSONDecoder().decode(AppNotification.self, from: payload)
+        let fallback = try JSONDecoder().decode(AppNotification.self, from: withoutAPISeverity)
+
+        XCTAssertEqual(withAPI.displaySeverity, "warning")
+        XCTAssertEqual(fallback.displaySeverity, "warning")
+        XCTAssertFalse(withAPI.requiresAcknowledgement)
+        XCTAssertFalse(fallback.requiresAcknowledgement)
     }
 }

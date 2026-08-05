@@ -58,8 +58,10 @@ test("maps source semantics to danger, warning, and info", () => {
   assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "天气转多云")), "info");
   assert.equal(severityForNotification(item("qweather", "暴雨橙色预警", "warning", { severity: "orange", lifecycle: "issued" })), "warning");
+  // QWeather maps orange → "severe"; must stay warning, not red danger.
+  assert.equal(severityForNotification(item("qweather", "高温橙色预警", "critical", { severity: "severe", lifecycle: "issued" })), "warning");
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警", "critical", { severity: "red", lifecycle: "issued" })), "danger");
-  assert.equal(severityForNotification(item("qweather", "暴雨预警", "critical", { severity: "severe", lifecycle: "issued" })), "danger");
+  assert.equal(severityForNotification(item("qweather", "暴雨红色预警", "critical", { severity: "extreme", lifecycle: "issued" })), "danger");
   assert.equal(severityForNotification(item("mail", "新邮件：Launch")), "info");
   assert.equal(severityForNotification(item("codex", "Codex 任务完成")), "info");
   assert.equal(severityForNotification(item("chatgpt", "ChatGPT 任务完成")), "info");

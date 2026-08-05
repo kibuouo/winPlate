@@ -23,11 +23,11 @@ Windows weather cards and notification grading share the same band:
 
 | QWeather color / title cue | storage `level` | display `severity` | UI |
 | --- | --- | --- | --- |
-| `red` / `extreme` / `severe` / 红色预警 | `critical` | `danger` | 红 · 危险 |
-| `orange` / `yellow` / `blue` / 橙黄蓝预警 | `warning` | `warning` | 橙 · 预警 |
+| `red` / `extreme` / 红色预警 | `critical` | `danger` | 红 · 危险 |
+| `orange` / **`severe`** / `yellow` / `blue` / 橙黄蓝预警 | `warning` | `warning` | 橙 · 预警 |
 | resolved lifecycle | `success` | `info` | 绿 · 信息 |
 
-Orange is **not** red danger. Only exact metadata `severity: red` still requires acknowledgement / time-sensitive interruption.
+QWeather encodes the **orange** band as `severe` (not `orange`). That must stay **warning**, never red danger. Only exact metadata `severity: red` requires acknowledgement / time-sensitive interruption.
 
 Platform clients must consume API `severity` for UI emphasis and must not invent a second grading table. `packages/core` keeps a local fallback for offline/unit paths and prefers the API value when present.
 

@@ -480,6 +480,7 @@ struct DashboardView: View {
             Group {
                 switch state.selectedWorkspace ?? .overview {
                 case .overview: OverviewWorkspace()
+                case .agent: AgentWorkspace()
                 case .weather: WeatherWorkspace()
                 case .github: GitHubWorkspace()
                 case .mail: MailWorkspace()
@@ -551,12 +552,28 @@ enum SidebarPresentation {
 }
 
 enum WorkspaceDestination: CaseIterable, Hashable {
-    case overview, weather, github, mail, notifications, settings
+    case overview, agent, weather, github, mail, notifications, settings
     var title: String {
-        switch self { case .overview: "概览"; case .weather: "天气"; case .github: "GitHub"; case .mail: "邮件"; case .notifications: "通知"; case .settings: "设置" }
+        switch self {
+        case .overview: "概览"
+        case .agent: "Agent"
+        case .weather: "天气"
+        case .github: "GitHub"
+        case .mail: "邮件"
+        case .notifications: "通知"
+        case .settings: "设置"
+        }
     }
     var symbol: String {
-        switch self { case .overview: "rectangle.3.group"; case .weather: "cloud.sun"; case .github: "chevron.left.forwardslash.chevron.right"; case .mail: "envelope"; case .notifications: "bell"; case .settings: "gearshape" }
+        switch self {
+        case .overview: "rectangle.3.group"
+        case .agent: "cpu"
+        case .weather: "cloud.sun"
+        case .github: "chevron.left.forwardslash.chevron.right"
+        case .mail: "envelope"
+        case .notifications: "bell"
+        case .settings: "gearshape"
+        }
     }
 }
 

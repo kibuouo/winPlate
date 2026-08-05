@@ -930,6 +930,7 @@ struct AppNotification: Decodable, Identifiable {
     }
 
     /// Display severity aligned with Windows digest: info | warning | danger.
+    /// Prefers API `severity`; for weather, never promote orange/severe to danger from bare `level`.
     var displaySeverity: String {
         switch severity.lowercased() {
         case "danger", "warning", "info":
@@ -937,7 +938,21 @@ struct AppNotification: Decodable, Identifiable {
         default:
             break
         }
-        // Fallback when an older API omits severity.
+        // Weather fallback: title/metadata color beats storage level (severe≈orange → warning).
+        if source == "qweather" {
+            let color = (metadata?.severity ?? "").lowercased()
+            if color == "red" || color == "extreme" { return "danger" }
+            if ["orange", "severe", "yellow", "blue", "moderate", "minor"].contains(color) {
+                return "warning"
+            }
+            let text = "\(title) \(message)"
+            if text.range(of: "红色预警|red alert", options: [.regularExpression, .caseInsensitive]) != nil {
+                return "danger"
+            }
+            if text.range(of: "橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert", options: [.regularExpression, .caseInsensitive]) != nil {
+                return "warning"
+            }
+        }
         switch level.lowercased() {
         case "critical": return "danger"
         case "warning": return "warning"
@@ -956,17 +971,15 @@ struct AppNotification: Decodable, Identifiable {
         createdAt = try container.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         externalURL = try container.decodeIfPresent(String.self, forKey: .externalURL)
         metadata = try container.decodeIfPresent(NotificationMetadata.self, forKey: .metadata)
+        // Prefer API display severity when present. Otherwise leave empty so
+        // `displaySeverity` can apply weather color/title rules (severe≈orange → warning).
         let decodedSeverity = try container.decodeIfPresent(String.self, forKey: .severity)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if let decodedSeverity, ["info", "warning", "danger"].contains(decodedSeverity) {
             severity = decodedSeverity
         } else {
-            switch level.lowercased() {
-            case "critical": severity = "danger"
-            case "warning": severity = "warning"
-            default: severity = "info"
-            }
+            severity = ""
         }
     }
 
