@@ -6,7 +6,9 @@ import Foundation
 final class AppState: ObservableObject {
     @Published private(set) var snapshot = StatusSnapshot.empty
     @Published private(set) var codex = UsageSnapshot.unavailable(source: "codex-app-server")
+    @Published private(set) var codexTokenUsage = CodexTokenUsage.unavailable
     @Published private(set) var deepSeek = UsageSnapshot.unconfigured
+    @Published private(set) var superGrok = UsageSnapshot.unconfigured(source: "grok-cli")
     @Published private(set) var mail = MailOutline.empty
     @Published private(set) var notifications = NotificationSummary.empty
     @Published private(set) var selectedMail: MailMessage?
@@ -21,6 +23,7 @@ final class AppState: ObservableObject {
     @Published private(set) var isTestingMailConnection = false
     @Published private(set) var codexError: String?
     @Published private(set) var deepSeekError: String?
+    @Published private(set) var superGrokError: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isRefreshingGitHub = false
     @Published private(set) var isRefreshingMail = false
@@ -30,6 +33,7 @@ final class AppState: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var codexUpdatedAt: Date?
     @Published private(set) var deepSeekUpdatedAt: Date?
+    @Published private(set) var superGrokUpdatedAt: Date?
     @Published private(set) var weatherUpdatedAt: Date?
     @Published private(set) var githubContributionDetail = GitHubContributionDetail.empty
     @Published private(set) var isLoadingGitHubContributionDetail = false
@@ -55,7 +59,9 @@ final class AppState: ObservableObject {
     let settings = AppSettingsStore()
     private let api = LocalAPIClient()
     private let codexClient = CodexUsageClient()
+    private let codexTokenClient = CodexTokenUsageClient()
     private let deepSeekClient = DeepSeekUsageClient()
+    private let grokClient = GrokUsageClient()
     private let backend = LocalBackendSupervisor()
     private var refreshTask: Task<Void, Never>?
     private var notificationStartupTask: Task<Void, Never>?
@@ -284,9 +290,13 @@ final class AppState: ObservableObject {
         Task {
             async let statusResult = api.status(force: force)
             async let codexResult = codexClient.read(force: force)
+            async let codexTokenResult = codexTokenClient.read(force: force)
             async let deepSeekResult = deepSeekClient.read(configuration: deepSeekConfiguration, force: force)
+            async let grokResult = grokClient.read(force: force)
 
-            let (status, codexUsage, deepSeekUsage) = await (statusResult, codexResult, deepSeekResult)
+            let (status, codexUsage, codexTokenUsageResult, deepSeekUsage, grokUsage) = await (
+                statusResult, codexResult, codexTokenResult, deepSeekResult, grokResult
+            )
             if let statusValue = status.value {
                 snapshot = statusValue
                 if statusValue.weather.isAvailable { weatherUpdatedAt = Date() }
@@ -328,6 +338,9 @@ final class AppState: ObservableObject {
                 }
             }
             codexError = codexUsage.error
+            if let tokenUsage = codexTokenUsageResult.value {
+                codexTokenUsage = tokenUsage
+            }
             if let deepSeekValue = deepSeekUsage.value {
                 if deepSeekValue.isAvailable {
                     deepSeek = deepSeekValue
@@ -339,7 +352,23 @@ final class AppState: ObservableObject {
                 }
             }
             deepSeekError = deepSeekUsage.error
-            lastError = status.error ?? weatherError ?? codexUsage.error ?? deepSeekUsage.error ?? weatherAlertError
+            if let grokValue = grokUsage.value {
+                if grokValue.isAvailable {
+                    superGrok = grokValue
+                    superGrokUpdatedAt = Date()
+                } else {
+                    superGrok = grokValue.status == "Unconfigured"
+                        ? grokValue
+                        : superGrok.preservingValues(status: "Unavailable")
+                }
+            }
+            superGrokError = grokUsage.error
+            lastError = status.error
+                ?? weatherError
+                ?? codexUsage.error
+                ?? deepSeekUsage.error
+                ?? grokUsage.error
+                ?? weatherAlertError
             isRefreshing = false
         }
     }

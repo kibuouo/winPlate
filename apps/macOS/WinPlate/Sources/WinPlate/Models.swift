@@ -284,6 +284,9 @@ struct UsageSnapshot: Decodable {
     let balances: [Balance]
 
     static let unconfigured = UsageSnapshot(source: "deepseek-api", status: "Unconfigured", remainingPct: nil, resetText: nil, windows: nil, balances: [])
+    static func unconfigured(source: String) -> UsageSnapshot {
+        UsageSnapshot(source: source, status: "Unconfigured", remainingPct: nil, resetText: nil, windows: nil, balances: [])
+    }
     static func unavailable(source: String) -> UsageSnapshot {
         UsageSnapshot(source: source, status: "Unavailable", remainingPct: nil, resetText: nil, windows: nil, balances: [])
     }
@@ -306,6 +309,36 @@ struct UsageSnapshot: Decodable {
 
 struct UsageWindows: Decodable { let fiveHour: UsageWindow?; let sevenDay: UsageWindow? }
 struct Balance: Decodable { let currency: String; let totalBalance: String }
+
+/// Token usage aggregated from Codex's local turn logs.
+struct CodexTokenUsage: Equatable {
+    struct Bucket: Identifiable, Equatable {
+        let start: Date
+        let tokens: Int64
+
+        var id: Date { start }
+    }
+
+    let hourly: [Bucket]
+    let daily: [Bucket]
+    let updatedAt: Date?
+    let isAvailable: Bool
+
+    static let unavailable = CodexTokenUsage(
+        hourly: [],
+        daily: [],
+        updatedAt: nil,
+        isAvailable: false
+    )
+
+    var totalTokens: Int64 {
+        daily.reduce(0) { $0 + $1.tokens }
+    }
+
+    var hourlyTotalTokens: Int64 {
+        hourly.reduce(0) { $0 + $1.tokens }
+    }
+}
 
 struct GitHubSnapshot: Decodable {
     let name: String
