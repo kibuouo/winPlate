@@ -14,8 +14,8 @@ final class MenuBarController: NSObject {
 
     init(state: AppState) {
         self.state = state
-        // Single Codex 7d row + weather; slightly tighter than the old dual 5h/7d layout.
-        statusItem = NSStatusBar.system.statusItem(withLength: 148)
+        // Codex 7d + SuperGrok remaining (dual mini progress rows).
+        statusItem = NSStatusBar.system.statusItem(withLength: 182)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 408, height: 392),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -101,7 +101,8 @@ final class MenuBarController: NSObject {
         statusSummary?.update(
             temperature: temperature,
             weatherIcon: weather.isAvailable ? weather.icon : nil,
-            sevenDay: codex.sevenDay
+            sevenDay: codex.sevenDay,
+            superGrok: superGrok
         )
         button.toolTip =
             "天气 \(temperature) · Codex 7d \(sevenDayQuota) · SuperGrok \(grokQuota)"
@@ -216,6 +217,7 @@ private final class MenuBarStatusSummary: NSView {
     private let temperatureLabel = MenuBarStatusSummary.label(size: 11, weight: .semibold, color: .labelColor)
     private let weatherIconView = NSImageView()
     private let sevenDayRow = MenuBarQuotaRow(label: "7d")
+    private let superGrokRow = MenuBarQuotaRow(label: "Grok")
     private static var weatherIcons = [String: NSImage]()
 
     init(icon: NSImage?) {
@@ -231,11 +233,16 @@ private final class MenuBarStatusSummary: NSView {
         weatherIconView.setContentHuggingPriority(.required, for: .horizontal)
         weatherIconView.setAccessibilityElement(false)
 
+        let usageStack = NSStackView(views: [sevenDayRow, superGrokRow])
+        usageStack.orientation = .vertical
+        usageStack.alignment = .leading
+        usageStack.spacing = 0
+
         let divider = NSBox()
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [iconView, weatherIconView, temperatureLabel, divider, sevenDayRow])
+        let stack = NSStackView(views: [iconView, weatherIconView, temperatureLabel, divider, usageStack])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 5
@@ -260,10 +267,16 @@ private final class MenuBarStatusSummary: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func update(temperature: String, weatherIcon: String?, sevenDay: UsageWindow?) {
+    func update(
+        temperature: String,
+        weatherIcon: String?,
+        sevenDay: UsageWindow?,
+        superGrok: UsageSnapshot
+    ) {
         temperatureLabel.stringValue = temperature
         weatherIconView.image = Self.weatherIcon(for: weatherIcon)
         sevenDayRow.update(percentage: sevenDay?.remainingPct, resetText: sevenDay?.resetText)
+        superGrokRow.update(percentage: superGrok.remainingPct, resetText: superGrok.resetText)
     }
 
     private static func weatherIcon(for code: String?) -> NSImage? {
