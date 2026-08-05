@@ -116,18 +116,54 @@ function normalizeRateLimitWindow(window, now = Date.now()) {
   };
 }
 
+function classifyRateLimitWindows(rateLimits, now = Date.now()) {
+  // Classify by windowDurationMins when present. Current Plus plans expose a
+  // single primary weekly window (10080 mins / 7d) with secondary: null.
+  // Legacy payloads without duration keep primary≈5h / secondary≈7d.
+  const sessionWindowMaxMins = 12 * 60;
+  const weeklyWindowMinMins = 24 * 60;
+  let fiveHour = null;
+  let sevenDay = null;
+
+  for (const [raw, key] of [
+    [rateLimits?.primary, "primary"],
+    [rateLimits?.secondary, "secondary"]
+  ]) {
+    const window = normalizeRateLimitWindow(raw, now);
+    if (!window) continue;
+    const durationMins = Number(raw?.windowDurationMins);
+    if (Number.isFinite(durationMins) && durationMins > 0) {
+      if (durationMins <= sessionWindowMaxMins) {
+        fiveHour = window;
+      } else if (durationMins >= weeklyWindowMinMins) {
+        sevenDay = window;
+      } else if (!sevenDay) {
+        sevenDay = window;
+      } else if (!fiveHour) {
+        fiveHour = window;
+      }
+    } else if (key === "primary") {
+      fiveHour = window;
+    } else {
+      sevenDay = window;
+    }
+  }
+
+  return { fiveHour, sevenDay };
+}
+
 function parseRateLimitsResponse(result, now = Date.now()) {
   const rateLimits = result?.rateLimitsByLimitId?.codex || result?.rateLimits;
-  const fiveHour = normalizeRateLimitWindow(rateLimits?.primary, now);
-  const sevenDay = normalizeRateLimitWindow(rateLimits?.secondary, now);
-  const remainingPct = fiveHour?.remainingPct ?? null;
+  const { fiveHour, sevenDay } = classifyRateLimitWindows(rateLimits, now);
+  const display = sevenDay || fiveHour;
+  const remainingPct = display?.remainingPct ?? null;
 
   return {
     source: "codex-app-server",
     remainingPct,
-    usedPct: fiveHour?.usedPct ?? null,
-    resetText: fiveHour?.resetText,
-    resetClock: fiveHour?.resetClock,
+    usedPct: display?.usedPct ?? null,
+    resetText: display?.resetText,
+    resetClock: display?.resetClock,
     windows: { fiveHour, sevenDay },
     updatedAt: now,
     status: remainingPct == null ? "Unavailable" : "Normal",

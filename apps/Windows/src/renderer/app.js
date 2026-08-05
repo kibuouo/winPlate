@@ -2112,19 +2112,18 @@ function renderTooltip(data = {}) {
   }
   if (data.type === "codex") {
     const windows = data.windows || {};
-    const fiveHour = windows.fiveHour || data;
-    const weekly = windows.sevenDay || {};
+    const fiveHour = windows.fiveHour || null;
+    const weekly = windows.sevenDay || (Number.isFinite(data?.remainingPct) ? data : null);
     const usageRow = (title, usage) => {
-      const percentage = Number.isFinite(usage?.remainingPct)
-        ? Math.max(0, Math.min(100, usage.remainingPct))
-        : null;
+      if (!usage || !Number.isFinite(usage?.remainingPct)) return "";
+      const percentage = Math.max(0, Math.min(100, usage.remainingPct));
       return `
         <div class="usage-compact-row">
           <span class="compact-title">${title}</span>
-          <strong class="compact-percent">${percentage ?? "--"}%</strong>
+          <strong class="compact-percent">${percentage}%</strong>
           ${quotaStatusLamp(percentage)}
           <div class="compact-bar" aria-hidden="true">
-            <span data-progress-value="${percentage ?? 0}"></span>
+            <span data-progress-value="${percentage}"></span>
           </div>
           <span class="compact-reset">${usage?.resetText || "--"}</span>
         </div>`;
@@ -2137,7 +2136,7 @@ function renderTooltip(data = {}) {
           <span>${data.status || "Unavailable"}</span>
         </header>
         <div class="codex-tooltip-rows">
-          ${usageRow(`${data.windowHours ?? 5}h`, fiveHour)}
+          ${usageRow("5h", fiveHour)}
           ${usageRow("7d", weekly)}
         </div>
       </article>`;
@@ -2369,8 +2368,9 @@ function dashboardDeepSeekBalanceColumn() {
 
 function dashboardCodexCard() {
   const windows = statusData.codex.windows || {};
-  const fiveHour = windows.fiveHour || statusData.codex;
-  const sevenDay = windows.sevenDay || {};
+  const fiveHour = windows.fiveHour || null;
+  const sevenDay = windows.sevenDay
+    || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
   return `
     <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${moduleHealthAttributes("codex")}>
       <div class="dashboard-codex-header">
@@ -2381,8 +2381,8 @@ function dashboardCodexCard() {
         </div>
       </div>
       <div class="dashboard-codex-windows">
-        ${dashboardCodexRow("5 hours", fiveHour)}
-        ${dashboardCodexRow("1 week", sevenDay)}
+        ${fiveHour ? dashboardCodexRow("5 hours", fiveHour) : ""}
+        ${sevenDay ? dashboardCodexRow("1 week", sevenDay) : dashboardCodexRow("1 week", {})}
         ${dashboardDeepSeekBalanceColumn()}
       </div>
     </article>`;
@@ -3038,8 +3038,10 @@ function usageWindowCard(title, data) {
 
 function codexContent() {
   const windows = statusData.codex.windows || {};
-  const fiveHour = windows.fiveHour || statusData.codex;
-  const sevenDay = windows.sevenDay;
+  // Prefer explicit windows; fall back headline remaining to weekly when 5h is absent.
+  const fiveHour = windows.fiveHour || null;
+  const sevenDay = windows.sevenDay
+    || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
   const deepseek = statusData.deepseek || {};
   const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
   const tokenUsage = deepseek.tokenUsage || {};
@@ -3148,7 +3150,7 @@ function codexContent() {
         <span class="codex-update">${relativeUpdatedAt(statusData.codex.updatedAt)}</span>
       </div>
       <div class="usage-window-grid">
-        ${usageWindowCard("5-hour window", fiveHour)}
+        ${fiveHour ? usageWindowCard("5-hour window", fiveHour) : ""}
         ${usageWindowCard("7-day window", sevenDay)}
       </div>
       <div class="codex-cli-status"><span></span>Status: Codex CLI ${statusData.codex.status === "Unavailable" ? "unavailable" : "active"}</div>

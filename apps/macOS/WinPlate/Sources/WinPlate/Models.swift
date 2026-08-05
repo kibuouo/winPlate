@@ -292,7 +292,16 @@ struct UsageSnapshot: Decodable {
     }
 
     var isAvailable: Bool { status == "Normal" }
-    var fiveHour: UsageWindow? { windows?.fiveHour ?? UsageWindow(remainingPct: remainingPct, resetText: resetText) }
+    /// Session-style window (~5h). Nil when the plan only exposes a weekly limit.
+    var fiveHour: UsageWindow? { windows?.fiveHour }
+    /// Weekly window (~7d). Falls back to top-level remaining when only one quota exists.
+    var sevenDay: UsageWindow? {
+        windows?.sevenDay ?? (
+            windows?.fiveHour == nil
+                ? UsageWindow(remainingPct: remainingPct, resetText: resetText)
+                : nil
+        )
+    }
     var cnyBalance: String? { balances.first(where: { $0.currency.uppercased() == "CNY" })?.totalBalance }
 
     func preservingValues(status: String) -> UsageSnapshot {

@@ -284,52 +284,138 @@ final class AppState: ObservableObject {
     }
 
     func refresh(force: Bool = false) {
-        guard !isRefreshing else { return }
+        // Force refresh can recover from a previous hung request that left the flag set.
+        if isRefreshing {
+            if force {
+                refreshTask?.cancel()
+            } else {
+                return
+            }
+        }
         isRefreshing = true
         lastError = nil
         let deepSeekConfiguration = settings.deepSeekConfiguration
 
-        Task {
-            async let statusResult = api.status(force: force)
-            async let codexResult = codexClient.read(force: force)
-            async let codexTokenResult = codexTokenClient.read(force: force)
-            async let deepSeekResult = deepSeekClient.read(configuration: deepSeekConfiguration, force: force)
-            async let grokResult = grokClient.read(force: force)
-            async let grokTokenResult = grokTokenClient.read(force: force)
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { Task { @MainActor in self.isRefreshing = false } }
 
-            let (status, codexUsage, codexTokenUsageResult, deepSeekUsage, grokUsage, grokTokenUsageResult) = await (
-                statusResult, codexResult, codexTokenResult, deepSeekResult, grokResult, grokTokenResult
-            )
+            // Bound the whole usage fan-out so one slow source cannot pin the spinner forever.
+            let collected: (
+                ResultValue<StatusSnapshot>,
+                ResultValue<UsageSnapshot>,
+                ResultValue<CodexTokenUsage>,
+                ResultValue<UsageSnapshot>,
+                ResultValue<UsageSnapshot>,
+                ResultValue<CodexTokenUsage>
+            ) = await withTaskGroup(
+                of: (
+                    ResultValue<StatusSnapshot>?,
+                    ResultValue<UsageSnapshot>?,
+                    ResultValue<CodexTokenUsage>?,
+                    ResultValue<UsageSnapshot>?,
+                    ResultValue<UsageSnapshot>?,
+                    ResultValue<CodexTokenUsage>?
+                ).self
+            ) { group in
+                group.addTask {
+                    async let statusResult = self.api.status(force: force)
+                    async let codexResult = self.codexClient.read(force: force)
+                    async let codexTokenResult = self.codexTokenClient.read(force: force)
+                    async let deepSeekResult = self.deepSeekClient.read(
+                        configuration: deepSeekConfiguration,
+                        force: force
+                    )
+                    async let grokResult = self.grokClient.read(force: force)
+                    async let grokTokenResult = self.grokTokenClient.read(force: force)
+                    let (
+                        status,
+                        codexUsage,
+                        codexTokenUsageResult,
+                        deepSeekUsage,
+                        grokUsage,
+                        grokTokenUsageResult
+                    ) = await (
+                        statusResult,
+                        codexResult,
+                        codexTokenResult,
+                        deepSeekResult,
+                        grokResult,
+                        grokTokenResult
+                    )
+                    return (
+                        status,
+                        codexUsage,
+                        codexTokenUsageResult,
+                        deepSeekUsage,
+                        grokUsage,
+                        grokTokenUsageResult
+                    )
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(12))
+                    return (nil, nil, nil, nil, nil, nil)
+                }
+
+                let first = await group.next() ?? (nil, nil, nil, nil, nil, nil)
+                group.cancelAll()
+                return (
+                    first.0 ?? .init(value: nil, error: "刷新超时"),
+                    first.1 ?? .init(value: nil, error: nil),
+                    first.2 ?? .init(value: nil, error: nil),
+                    first.3 ?? .init(value: nil, error: nil),
+                    first.4 ?? .init(value: nil, error: nil),
+                    first.5 ?? .init(value: nil, error: nil)
+                )
+            }
+
+            let (
+                status,
+                codexUsage,
+                codexTokenUsageResult,
+                deepSeekUsage,
+                grokUsage,
+                grokTokenUsageResult
+            ) = collected
+
+            if Task.isCancelled { return }
+
             if let statusValue = status.value {
                 snapshot = statusValue
                 if statusValue.weather.isAvailable { weatherUpdatedAt = Date() }
                 weatherError = statusValue.weather.error
                 if let github = statusValue.github {
                     if selectedGitHubMonthKey == nil
-                        || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey })
+                        || !(github.contributionMonths.contains { $0.key == self.selectedGitHubMonthKey })
                     {
                         selectedGitHubMonthKey = github.contributionMonths.last?.key
                         selectedGitHubDateKey = nil
                     }
-                    if let dateKey = selectedGitHubDateKey {
-                        if githubContributionDetail.rangeKey != dateKey {
-                            await loadGitHubContributionDetail(date: dateKey)
-                        }
-                    } else if let monthKey = selectedGitHubMonthKey,
+                    // Do not block the usage spinner on GraphQL contribution detail.
+                    let dateKey = selectedGitHubDateKey
+                    let monthKey = selectedGitHubMonthKey
+                    if let dateKey, githubContributionDetail.rangeKey != dateKey {
+                        Task { await self.loadGitHubContributionDetail(date: dateKey) }
+                    } else if dateKey == nil,
+                              let monthKey,
                               githubContributionDetail.rangeKey != monthKey
                     {
-                        await loadGitHubContributionDetail(month: monthKey)
+                        Task { await self.loadGitHubContributionDetail(month: monthKey) }
                     }
                 }
             }
-            let shouldRefreshAlerts = force || weatherAlertsUpdatedAt.map { Date().timeIntervalSince($0) > 300 } ?? true
+
+            let shouldRefreshAlerts = force
+                || weatherAlertsUpdatedAt.map { Date().timeIntervalSince($0) > 300 } ?? true
             if snapshot.weather.isAvailable && shouldRefreshAlerts {
-                _ = await refreshWeatherAlerts()
+                Task { _ = await self.refreshWeatherAlerts() }
             } else if !snapshot.weather.isAvailable {
                 weatherAlerts = .empty
                 weatherAlertError = nil
                 weatherAlertsUpdatedAt = nil
             }
+
             if let codexValue = codexUsage.value {
                 if codexValue.isAvailable {
                     codex = codexValue
@@ -375,7 +461,6 @@ final class AppState: ObservableObject {
                 ?? deepSeekUsage.error
                 ?? grokUsage.error
                 ?? weatherAlertError
-            isRefreshing = false
         }
     }
 

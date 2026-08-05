@@ -125,23 +125,18 @@ struct OverviewWorkspace: View {
                     tint: .blue,
                     status: codexStatus
                 ) {
-                    let five = state.codex.fiveHour
-                    Text(five?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%")
+                    let seven = state.codex.sevenDay
+                    Text(seven?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%")
                         .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                    Text("5 小时窗口剩余")
+                    Text("7 天窗口剩余")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    OverviewProgressBar(value: five?.remainingPct, tint: .blue)
+                    OverviewProgressBar(value: seven?.remainingPct, tint: .blue)
                     HStack {
-                        Text("重置 \(five?.resetText ?? "--")")
+                        Text("重置 \(seven?.resetText ?? "--")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        if let seven = state.codex.windows?.sevenDay?.remainingPct {
-                            Text("7 天 \(Int(seven.rounded()))%")
-                                .font(.caption.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
                     }
                     if let error = state.codexError {
                         Text(error).font(.caption2).foregroundStyle(.red).lineLimit(2)

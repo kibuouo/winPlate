@@ -606,11 +606,11 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         let codex = UsageSnapshot(
             source: "codex-app-server",
             status: "Normal",
-            remainingPct: 70,
-            resetText: "2h",
+            remainingPct: 49,
+            resetText: "2d 4h",
             windows: UsageWindows(
-                fiveHour: UsageWindow(remainingPct: 70, resetText: "2h"),
-                sevenDay: UsageWindow(remainingPct: 55, resetText: "3d")
+                fiveHour: nil,
+                sevenDay: UsageWindow(remainingPct: 49, resetText: "2d 4h")
             ),
             balances: []
         )
@@ -651,16 +651,75 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.id), ["chatgpt", "deepseek", "supergrok"])
         XCTAssertEqual(items[0].name, "ChatGPT")
-        XCTAssertEqual(items[0].primary, "70%")
+        XCTAssertEqual(items[0].primary, "49%")
         XCTAssertEqual(items[0].polarity, .remaining)
-        XCTAssertTrue(items[0].secondary.contains("剩余"))
+        XCTAssertTrue(items[0].secondary.contains("7d 剩余"))
+        XCTAssertTrue(items[0].secondary.contains("重置 2d 4h"))
+        XCTAssertFalse(items[0].secondary.contains("5h"))
         XCTAssertEqual(items[1].primary, "¥12.34")
         XCTAssertEqual(items[2].name, "SuperGrok")
         XCTAssertEqual(items[2].primary, "41%")
         XCTAssertEqual(items[2].polarity, .remaining)
-        XCTAssertTrue(items[2].secondary.contains("剩余"))
+        XCTAssertTrue(items[2].secondary.contains("重置 1d 2h"))
+        XCTAssertFalse(items[2].secondary.contains("账期"))
         XCTAssertTrue(items[2].tokenUsage.isAvailable)
         XCTAssertEqual(items[2].tokenUsage.totalTokens, 42)
+    }
+
+    func testCodexRateLimitsParserMapsPrimaryWeeklyWindowToSevenDay() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let response: [String: Any] = [
+            "id": 2,
+            "result": [
+                "rateLimits": [
+                    "limitId": "codex",
+                    "primary": [
+                        "usedPercent": 51,
+                        "windowDurationMins": 10_080,
+                        "resetsAt": 1_000_000 + (2 * 86_400)
+                    ],
+                    "secondary": NSNull()
+                ]
+            ]
+        ]
+
+        let usage = CodexRateLimitsParser.snapshot(from: response, now: now)
+
+        XCTAssertEqual(usage.status, "Normal")
+        XCTAssertEqual(usage.remainingPct, 49)
+        XCTAssertNil(usage.fiveHour)
+        XCTAssertEqual(usage.sevenDay?.remainingPct, 49)
+        XCTAssertEqual(usage.sevenDay?.resetText, "2d")
+        XCTAssertEqual(usage.windows?.fiveHour?.remainingPct, nil)
+        XCTAssertEqual(usage.windows?.sevenDay?.remainingPct, 49)
+    }
+
+    func testCodexRateLimitsParserStillMapsShortPrimaryAsFiveHourWhenPresent() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let response: [String: Any] = [
+            "id": 2,
+            "result": [
+                "rateLimits": [
+                    "primary": [
+                        "usedPercent": 20,
+                        "windowDurationMins": 300,
+                        "resetsAt": 1_000_000 + 7_200
+                    ],
+                    "secondary": [
+                        "usedPercent": 40,
+                        "windowDurationMins": 10_080,
+                        "resetsAt": 1_000_000 + 86_400
+                    ]
+                ]
+            ]
+        ]
+
+        let usage = CodexRateLimitsParser.snapshot(from: response, now: now)
+
+        XCTAssertEqual(usage.fiveHour?.remainingPct, 80)
+        XCTAssertEqual(usage.sevenDay?.remainingPct, 60)
+        // Headline prefers weekly remaining when both exist.
+        XCTAssertEqual(usage.remainingPct, 60)
     }
 
     func testWorkspaceDestinationIncludesAgent() {

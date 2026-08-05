@@ -14,7 +14,8 @@ final class MenuBarController: NSObject {
 
     init(state: AppState) {
         self.state = state
-        statusItem = NSStatusBar.system.statusItem(withLength: 182)
+        // Single Codex 7d row + weather; slightly tighter than the old dual 5h/7d layout.
+        statusItem = NSStatusBar.system.statusItem(withLength: 148)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 408, height: 392),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -69,9 +70,9 @@ final class MenuBarController: NSObject {
 
     private func observeState() {
         state.$snapshot
-            .combineLatest(state.$codex)
-            .sink { [weak self] snapshot, codex in
-                self?.updateStatusItem(weather: snapshot.weather, codex: codex)
+            .combineLatest(state.$codex, state.$superGrok)
+            .sink { [weak self] snapshot, codex, superGrok in
+                self?.updateStatusItem(weather: snapshot.weather, codex: codex, superGrok: superGrok)
             }
             .store(in: &cancellables)
 
@@ -90,22 +91,22 @@ final class MenuBarController: NSObject {
             .store(in: &cancellables)
     }
 
-    private func updateStatusItem(weather: WeatherSnapshot, codex: UsageSnapshot) {
+    private func updateStatusItem(weather: WeatherSnapshot, codex: UsageSnapshot, superGrok: UsageSnapshot) {
         guard let button = statusItem.button else { return }
         let temperature = MenuBarTemperatureFormatter.title(
             for: weather.isAvailable ? weather.temperature : nil
         )
-        let quota = codex.fiveHour?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%"
-        let sevenDayQuota = codex.windows?.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%"
+        let sevenDayQuota = codex.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%"
+        let grokQuota = superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%"
         statusSummary?.update(
             temperature: temperature,
             weatherIcon: weather.isAvailable ? weather.icon : nil,
-            fiveHour: codex.fiveHour,
-            sevenDay: codex.windows?.sevenDay
+            sevenDay: codex.sevenDay
         )
-        button.toolTip = "天气 \(temperature) · Codex 5 小时剩余 \(quota) · 7 天剩余 \(sevenDayQuota)"
+        button.toolTip =
+            "天气 \(temperature) · Codex 7d \(sevenDayQuota) · SuperGrok \(grokQuota)"
         button.setAccessibilityLabel(
-            "WinPlate，天气 \(temperature)，Codex 5 小时剩余 \(quota)，7 天剩余 \(sevenDayQuota)"
+            "WinPlate，天气 \(temperature)，Codex 7 天剩余 \(sevenDayQuota)，SuperGrok 剩余 \(grokQuota)"
         )
     }
 
@@ -214,7 +215,6 @@ final class MenuBarController: NSObject {
 private final class MenuBarStatusSummary: NSView {
     private let temperatureLabel = MenuBarStatusSummary.label(size: 11, weight: .semibold, color: .labelColor)
     private let weatherIconView = NSImageView()
-    private let fiveHourRow = MenuBarQuotaRow(label: "5h")
     private let sevenDayRow = MenuBarQuotaRow(label: "7d")
     private static var weatherIcons = [String: NSImage]()
 
@@ -231,16 +231,11 @@ private final class MenuBarStatusSummary: NSView {
         weatherIconView.setContentHuggingPriority(.required, for: .horizontal)
         weatherIconView.setAccessibilityElement(false)
 
-        let usageStack = NSStackView(views: [fiveHourRow, sevenDayRow])
-        usageStack.orientation = .vertical
-        usageStack.alignment = .leading
-        usageStack.spacing = 0
-
         let divider = NSBox()
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [iconView, weatherIconView, temperatureLabel, divider, usageStack])
+        let stack = NSStackView(views: [iconView, weatherIconView, temperatureLabel, divider, sevenDayRow])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 5
@@ -265,10 +260,9 @@ private final class MenuBarStatusSummary: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func update(temperature: String, weatherIcon: String?, fiveHour: UsageWindow?, sevenDay: UsageWindow?) {
+    func update(temperature: String, weatherIcon: String?, sevenDay: UsageWindow?) {
         temperatureLabel.stringValue = temperature
         weatherIconView.image = Self.weatherIcon(for: weatherIcon)
-        fiveHourRow.update(percentage: fiveHour?.remainingPct, resetText: fiveHour?.resetText)
         sevenDayRow.update(percentage: sevenDay?.remainingPct, resetText: sevenDay?.resetText)
     }
 

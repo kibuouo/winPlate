@@ -471,80 +471,186 @@ enum AgentTokenUsageAggregator {
 }
 
 private enum ProcessCodexReader {
+    /// Hard budget for spawning app-server + reading rate limits (avoids stuck refresh).
+    private static let queryTimeoutSeconds: TimeInterval = 8
+
     static func read() async -> UsageSnapshot {
-        await withTaskGroup(of: UsageSnapshot.self) { group in
-            group.addTask { await query() }
-            group.addTask { try? await Task.sleep(for: .seconds(15)); return .unavailable(source: "codex-app-server") }
-            let first = await group.next() ?? .unavailable(source: "codex-app-server")
-            group.cancelAll()
-            return first
-        }
-    }
-
-    private static func query() async -> UsageSnapshot {
         await withCheckedContinuation { continuation in
-            let process = Process()
-            let bundledCodex = "/Applications/ChatGPT.app/Contents/Resources/codex"
-            let configuredCodex = ProcessInfo.processInfo.environment["CODEX_CLI_PATH"]
-            let executable = [configuredCodex, bundledCodex]
-                .compactMap { $0 }
-                .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
-            if let executable {
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = ["app-server", "--listen", "stdio://"]
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: querySynchronously())
+            }
+        }
+    }
+
+    /// Blocking stdio handshake with a hard deadline. Does not rely on
+    /// `readabilityHandler` (which can stall when no RunLoop is spinning).
+    private static func querySynchronously() -> UsageSnapshot {
+        let process = Process()
+        let bundledCodex = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        let configuredCodex = ProcessInfo.processInfo.environment["CODEX_CLI_PATH"]
+        let executable = [configuredCodex, bundledCodex]
+            .compactMap { $0 }
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+        if let executable {
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = ["app-server", "--listen", "stdio://"]
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["codex", "app-server", "--listen", "stdio://"]
+        }
+
+        let input = Pipe()
+        let output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return .unavailable(source: "codex-app-server")
+        }
+
+        let initialize = "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"winplate\",\"version\":\"1.0\"},\"capabilities\":{\"experimentalApi\":true}}}\n"
+        input.fileHandleForWriting.write(Data(initialize.utf8))
+
+        let state = CodexReadState()
+        let deadline = Date().addingTimeInterval(queryTimeoutSeconds)
+        var sentRateLimitsRequest = false
+        var result: UsageSnapshot?
+
+        while Date() < deadline, result == nil, process.isRunning {
+            let data = output.fileHandleForReading.availableData
+            if data.isEmpty {
+                Thread.sleep(forTimeInterval: 0.03)
+                continue
+            }
+            for line in state.appendAndReadLines(data) {
+                guard
+                    let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                    let id = object["id"] as? Int
+                else { continue }
+                if id == 1, !sentRateLimitsRequest {
+                    sentRateLimitsRequest = true
+                    let followUp = "{\"method\":\"initialized\"}\n{\"id\":2,\"method\":\"account/rateLimits/read\",\"params\":{}}\n"
+                    input.fileHandleForWriting.write(Data(followUp.utf8))
+                } else if id == 2 {
+                    result = CodexRateLimitsParser.snapshot(from: object)
+                }
+            }
+        }
+
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
+        // Drain any final bytes that arrived after terminate.
+        if result == nil {
+            let tail = output.fileHandleForReading.readDataToEndOfFile()
+            for line in state.appendAndReadLines(tail) {
+                guard
+                    let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                    let id = object["id"] as? Int,
+                    id == 2
+                else { continue }
+                result = CodexRateLimitsParser.snapshot(from: object)
+            }
+        }
+        return result ?? .unavailable(source: "codex-app-server")
+    }
+}
+
+/// Classifies Codex `account/rateLimits/read` windows by `windowDurationMins`.
+/// As of 2026-08, Plus plans expose a single primary window of 10080 minutes (7d);
+/// the old ~5h primary + 7d secondary pair is no longer present (`secondary: null`).
+enum CodexRateLimitsParser {
+    private static let source = "codex-app-server"
+    /// Treat windows ≤ 12h as session/5h-style; ≥ 1 day as weekly/7d-style.
+    private static let sessionWindowMaxMins = 12 * 60
+    private static let weeklyWindowMinMins = 24 * 60
+
+    static func snapshot(from response: [String: Any], now: Date = Date()) -> UsageSnapshot {
+        guard
+            let result = response["result"] as? [String: Any],
+            let rates = (result["rateLimitsByLimitId"] as? [String: Any])?["codex"] as? [String: Any]
+                ?? result["rateLimits"] as? [String: Any]
+        else {
+            return .unavailable(source: source)
+        }
+
+        let primary = rawWindow(rates["primary"], now: now)
+        let secondary = rawWindow(rates["secondary"], now: now)
+
+        var fiveHour: UsageWindow?
+        var sevenDay: UsageWindow?
+        for (candidate, key) in [(primary, "primary"), (secondary, "secondary")] {
+            guard let candidate else { continue }
+            if candidate.durationMins > 0 {
+                if candidate.durationMins <= Double(sessionWindowMaxMins) {
+                    fiveHour = candidate.window
+                } else if candidate.durationMins >= Double(weeklyWindowMinMins) {
+                    sevenDay = candidate.window
+                } else if sevenDay == nil {
+                    sevenDay = candidate.window
+                } else if fiveHour == nil {
+                    fiveHour = candidate.window
+                }
+            } else if key == "primary" {
+                // Legacy payloads without duration: primary ≈ session/5h.
+                fiveHour = candidate.window
             } else {
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = ["codex", "app-server", "--listen", "stdio://"]
+                // Legacy payloads without duration: secondary ≈ weekly/7d.
+                sevenDay = candidate.window
             }
-            let input = Pipe(); let output = Pipe()
-            process.standardInput = input; process.standardOutput = output; process.standardError = Pipe()
-            let state = CodexReadState()
-            let finish: (UsageSnapshot) -> Void = { result in
-                guard state.claimCompletion() else { return }
-                output.fileHandleForReading.readabilityHandler = nil
-                if process.isRunning { process.terminate() }
-                continuation.resume(returning: result)
-            }
-            output.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    finish(.unavailable(source: "codex-app-server"))
-                    return
-                }
-                for line in state.appendAndReadLines(data) {
-                    guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let id = object["id"] as? Int else { continue }
-                    if id == 1 {
-                        let initialized = "{\"method\":\"initialized\"}\n{\"id\":2,\"method\":\"account/rateLimits/read\",\"params\":{}}\n"
-                        input.fileHandleForWriting.write(Data(initialized.utf8))
-                    } else if id == 2 {
-                        finish(parse(object))
-                    }
-                }
-            }
-            process.terminationHandler = { _ in finish(.unavailable(source: "codex-app-server")) }
-            do {
-                try process.run()
-                let initialize = "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"winplate\",\"version\":\"1.0\"},\"capabilities\":{\"experimentalApi\":true}}}\n"
-                input.fileHandleForWriting.write(Data(initialize.utf8))
-            } catch { finish(.unavailable(source: "codex-app-server")) }
+        }
+
+        // Prefer weekly remaining as the headline metric when present.
+        let display = sevenDay ?? fiveHour
+        guard let display, display.remainingPct != nil else {
+            return .unavailable(source: source)
+        }
+        return UsageSnapshot(
+            source: source,
+            status: "Normal",
+            remainingPct: display.remainingPct,
+            resetText: display.resetText,
+            windows: UsageWindows(fiveHour: fiveHour, sevenDay: sevenDay),
+            balances: []
+        )
+    }
+
+    private struct RawWindow {
+        let window: UsageWindow
+        let durationMins: Double
+    }
+
+    private static func rawWindow(_ value: Any?, now: Date) -> RawWindow? {
+        guard let object = value as? [String: Any] else { return nil }
+        guard let used = doubleValue(object["usedPercent"]) else { return nil }
+        let remaining = max(0, min(100, 100 - used))
+        let reset = doubleValue(object["resetsAt"]).map { formatRemaining($0, now: now) }
+        let duration = doubleValue(object["windowDurationMins"]) ?? 0
+        return RawWindow(
+            window: UsageWindow(remainingPct: remaining, resetText: reset),
+            durationMins: duration
+        )
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        switch value {
+        case let number as Double: return number
+        case let number as Int: return Double(number)
+        case let number as NSNumber: return number.doubleValue
+        case let text as String: return Double(text)
+        default: return nil
         }
     }
 
-    private static func parse(_ response: [String: Any]) -> UsageSnapshot {
-        guard let result = response["result"] as? [String: Any], let rates = (result["rateLimitsByLimitId"] as? [String: Any])?["codex"] as? [String: Any] ?? result["rateLimits"] as? [String: Any] else { return .unavailable(source: "codex-app-server") }
-        func window(_ key: String) -> UsageWindow? {
-            guard let value = rates[key] as? [String: Any], let used = value["usedPercent"] as? Double else { return nil }
-            let reset = (value["resetsAt"] as? Double).map(formatRemaining)
-            return UsageWindow(remainingPct: max(0, min(100, 100 - used)), resetText: reset)
-        }
-        let fiveHour = window("primary"), sevenDay = window("secondary")
-        guard fiveHour?.remainingPct != nil else { return .unavailable(source: "codex-app-server") }
-        return UsageSnapshot(source: "codex-app-server", status: "Normal", remainingPct: fiveHour?.remainingPct, resetText: fiveHour?.resetText, windows: UsageWindows(fiveHour: fiveHour, sevenDay: sevenDay), balances: [])
-    }
-
-    private static func formatRemaining(_ timestamp: Double) -> String {
-        let minutes = max(0, Int((timestamp - Date().timeIntervalSince1970).rounded(.up) / 60))
-        let days = minutes / 1_440; let hours = (minutes % 1_440) / 60; let remainder = minutes % 60
+    private static func formatRemaining(_ timestamp: Double, now: Date) -> String {
+        let minutes = max(0, Int((timestamp - now.timeIntervalSince1970).rounded(.up) / 60))
+        let days = minutes / 1_440
+        let hours = (minutes % 1_440) / 60
+        let remainder = minutes % 60
         if days > 0 { return hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
         if hours > 0 { return remainder > 0 ? "\(hours)h \(remainder)m" : "\(hours)h" }
         return "\(remainder)m"
@@ -597,6 +703,10 @@ actor GrokUsageClient {
         if usage.status == "Unconfigured" {
             return .init(value: usage, error: "SuperGrok 未登录（运行 grok login）")
         }
+        // Preserve last good snapshot when a forced refresh times out / fails.
+        if let cached, cached.0.isAvailable {
+            return .init(value: cached.0, error: "SuperGrok 用量暂时不可用")
+        }
         return .init(value: usage, error: "SuperGrok 用量不可用")
     }
 }
@@ -621,6 +731,9 @@ actor GrokTokenUsageClient {
 /// (same final-total polarity as Codex turns) then bucket hourly/daily.
 enum GrokTokenUsageReader {
     private static let historyHorizonDays = 30
+    /// Cap total work so Agent refresh cannot stall on huge session trees.
+    private static let readTimeoutSeconds: TimeInterval = 4
+    private static let maxFiles = 24
 
     private struct PromptSample {
         var minTokens: Int64
@@ -637,22 +750,38 @@ enum GrokTokenUsageReader {
     }
 
     private static func readSynchronously(now: Date, calendar: Calendar) -> CodexTokenUsage {
-        let files = sessionUpdateURLs()
-        guard !files.isEmpty else { return .unavailable }
-
         let earliestDay = calendar.date(
             byAdding: .day,
             value: -historyHorizonDays,
             to: calendar.startOfDay(for: now)
         ) ?? now.addingTimeInterval(-TimeInterval(historyHorizonDays) * 86_400)
         let cutoff = Int64(earliestDay.timeIntervalSince1970.rounded(.down))
+        let files = sessionUpdateURLs(modifiedAfter: earliestDay)
+        guard !files.isEmpty else { return .unavailable }
 
+        let deadline = Date().addingTimeInterval(readTimeoutSeconds)
         var lines = [String]()
         var anyReadable = false
-        for file in files {
-            guard let content = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        for file in files.prefix(maxFiles) {
+            if Date() >= deadline { break }
+            guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
+            defer { try? handle.close() }
             anyReadable = true
-            lines.append(contentsOf: content.split(whereSeparator: \.isNewline).map(String.init))
+            // Stream line-by-line instead of loading multi‑MB sessions at once.
+            var buffer = Data()
+            while Date() < deadline, let chunk = try? handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                buffer.append(chunk)
+                while let range = buffer.range(of: Data([0x0A])) {
+                    let lineData = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
+                    buffer.removeSubrange(buffer.startIndex..<range.upperBound)
+                    if let line = String(data: lineData, encoding: .utf8), !line.isEmpty {
+                        lines.append(line)
+                    }
+                }
+            }
+            if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8), !line.isEmpty {
+                lines.append(line)
+            }
         }
         guard anyReadable else { return .unavailable }
         return parse(lines: lines, cutoff: cutoff, now: now, calendar: calendar)
@@ -718,24 +847,29 @@ enum GrokTokenUsageReader {
     }
 
     private static func sessionUpdateURLs(
+        modifiedAfter: Date,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
         let root = home.appendingPathComponent(".grok/sessions", isDirectory: true)
         guard
             let enumerator = FileManager.default.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isRegularFileKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             )
         else { return [] }
 
-        var files = [URL]()
+        var files = [(url: URL, modified: Date)]()
         for case let url as URL in enumerator {
-            if url.lastPathComponent == "updates.jsonl" {
-                files.append(url)
+            guard url.lastPathComponent == "updates.jsonl" else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            let modified = values?.contentModificationDate ?? .distantPast
+            if modified >= modifiedAfter {
+                files.append((url, modified))
             }
         }
-        return files.sorted { $0.path < $1.path }
+        // Newest sessions first so a timeout still captures recent usage.
+        return files.sorted { $0.modified > $1.modified }.map(\.url)
     }
 }
 
@@ -749,7 +883,7 @@ enum ProcessGrokUsageReader {
         await withTaskGroup(of: UsageSnapshot.self) { group in
             group.addTask { await query() }
             group.addTask {
-                try? await Task.sleep(for: .seconds(15))
+                try? await Task.sleep(for: .seconds(8))
                 return .unavailable(source: source)
             }
             let first = await group.next() ?? .unavailable(source: source)
@@ -763,7 +897,7 @@ enum ProcessGrokUsageReader {
             return .unconfigured(source: source)
         }
         var request = URLRequest(url: billingURL)
-        request.timeoutInterval = 12
+        request.timeoutInterval = 6
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("cli", forHTTPHeaderField: "x-grok-client-mode")

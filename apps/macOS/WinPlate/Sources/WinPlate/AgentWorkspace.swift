@@ -128,14 +128,11 @@ struct AgentUsageItem: Identifiable, Equatable {
         superGrokTokenUsage: CodexTokenUsage = .unavailable,
         relativeTime: (Date) -> String
     ) -> [AgentUsageItem] {
-        let five = codex.fiveHour?.remainingPct
-        let seven = codex.windows?.sevenDay?.remainingPct
-        let chatPrimary = five.map { "\(Int($0.rounded()))%" } ?? "--%"
-        var chatSecondaryParts: [String] = ["5h 剩余"]
-        if let seven {
-            chatSecondaryParts.append("7d 剩余 \(Int(seven.rounded()))%")
-        }
-        if let reset = codex.fiveHour?.resetText, !reset.isEmpty {
+        // Codex Plus currently exposes a single weekly (7d) window; 5h is gone.
+        let seven = codex.sevenDay
+        let chatPrimary = seven?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%"
+        var chatSecondaryParts: [String] = ["7d 剩余"]
+        if let reset = seven?.resetText, !reset.isEmpty {
             chatSecondaryParts.append("重置 \(reset)")
         }
         if let codexError, !codex.isAvailable {
@@ -155,7 +152,7 @@ struct AgentUsageItem: Identifiable, Equatable {
         let grokPrimary = grokRemaining.map { "\(Int($0.rounded()))%" } ?? "--%"
         var grokSecondary = "剩余"
         if let reset = superGrok.resetText, !reset.isEmpty {
-            grokSecondary += " · 账期 \(reset)"
+            grokSecondary += " · 重置 \(reset)"
         }
         if let superGrokError, !superGrok.isAvailable {
             grokSecondary = superGrokError
@@ -172,7 +169,7 @@ struct AgentUsageItem: Identifiable, Equatable {
                 statusText: statusText(codex),
                 primary: chatPrimary,
                 secondary: chatSecondaryParts.joined(separator: " · "),
-                progress: five,
+                progress: seven?.remainingPct,
                 polarity: .remaining,
                 tint: .blue,
                 tokenUsage: codexTokenUsage
@@ -392,8 +389,8 @@ private struct AgentQuotaCard: View {
 
 private struct AgentTokenUsageCharts: View {
     private enum Granularity: String {
-        case hour = "按小时"
-        case day = "按天"
+        case hour = "每小时"
+        case day = "每日"
     }
 
     let usage: CodexTokenUsage
@@ -409,8 +406,8 @@ private struct AgentTokenUsageCharts: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 Picker("统计粒度", selection: $selectedGranularity) {
-                    Text("按小时").tag(Granularity.hour)
-                    Text("按天").tag(Granularity.day)
+                    Text("每小时").tag(Granularity.hour)
+                    Text("每日").tag(Granularity.day)
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)

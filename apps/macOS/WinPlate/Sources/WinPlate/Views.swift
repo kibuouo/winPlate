@@ -12,7 +12,11 @@ struct MenuBarPopoverView: View {
         VStack(spacing: 0) {
             MenuBarHeader()
             Divider()
-            MenuBarOverview(codex: state.codex, deepSeek: state.deepSeek, codexUpdatedAt: state.codexUpdatedAt, deepSeekUpdatedAt: state.deepSeekUpdatedAt)
+            MenuBarOverview(
+                codex: state.codex,
+                deepSeek: state.deepSeek,
+                superGrok: state.superGrok
+            )
             Divider()
             MenuBarWeatherOverview(weather: state.snapshot.weather, alerts: state.weatherAlerts, alertError: state.weatherAlertError)
         }
@@ -74,17 +78,39 @@ private struct HeaderIconButton: View {
 private struct MenuBarOverview: View {
     let codex: UsageSnapshot
     let deepSeek: UsageSnapshot
-    let codexUpdatedAt: Date?
-    let deepSeekUpdatedAt: Date?
+    let superGrok: UsageSnapshot
 
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
-            UsageRings(fiveHour: codex.fiveHour?.remainingPct, sevenDay: codex.windows?.sevenDay?.remainingPct)
-                .frame(width: 132, height: 132)
-            VStack(alignment: .leading, spacing: 9) {
-                MenuBarCodexSummary(usage: codex, updatedAt: codexUpdatedAt)
-                Divider()
-                MenuBarAccountRow(name: "DeepSeek", detail: menuBarStatus(deepSeek.status), value: deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--", updatedAt: deepSeekUpdatedAt, available: deepSeek.isAvailable)
+        HStack(alignment: .center, spacing: 14) {
+            UsageRings(
+                codex: codex.sevenDay?.remainingPct,
+                grok: superGrok.remainingPct
+            )
+            .frame(width: 118, height: 118)
+
+            VStack(alignment: .leading, spacing: 7) {
+                // Codex / SuperGrok share the same compact row format (no sync timestamps).
+                MenuBarAccountRow(
+                    name: "Codex",
+                    detail: providerDetail(status: codex.status, resetText: codex.sevenDay?.resetText),
+                    value: codex.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
+                    available: codex.isAvailable,
+                    accent: .blue
+                )
+                MenuBarAccountRow(
+                    name: "SuperGrok",
+                    detail: providerDetail(status: superGrok.status, resetText: superGrok.resetText),
+                    value: superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
+                    available: superGrok.isAvailable,
+                    accent: .orange
+                )
+                MenuBarAccountRow(
+                    name: "DeepSeek",
+                    detail: menuBarStatus(deepSeek.status),
+                    value: deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--",
+                    available: deepSeek.isAvailable,
+                    accent: .purple
+                )
                 if deepSeek.status == "Unconfigured" {
                     Button("配置 DeepSeek") {
                         NotificationCenter.default.post(name: .showWinPlateSettingsWindow, object: nil)
@@ -92,88 +118,66 @@ private struct MenuBarOverview: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
                     .font(.system(size: 11, weight: .semibold))
+                    .padding(.top, 1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 11)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(overviewAccessibilityLabel)
+    }
+
+    private func providerDetail(status: String, resetText: String?) -> String {
+        var parts = [menuBarStatus(status)]
+        if let resetText, !resetText.isEmpty {
+            parts.append("重置 \(resetText)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var overviewAccessibilityLabel: String {
+        let codexSeven = codex.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用"
+        let deepSeekValue = deepSeek.cnyBalance.map { "¥\($0)" } ?? "不可用"
+        let grokValue = superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用"
+        return "Codex 7 天 \(codexSeven)；SuperGrok 剩余 \(grokValue)；DeepSeek \(deepSeekValue)"
     }
 }
 
 private struct UsageRings: View {
-    let fiveHour: Double?
-    let sevenDay: Double?
+    let codex: Double?
+    let grok: Double?
 
     var body: some View {
         ZStack {
-            UsageRing(progress: fiveHour, color: .green, lineWidth: 11)
-            UsageRing(progress: sevenDay, color: .orange, lineWidth: 8)
+            // Outer ring: Codex 7d remaining.
+            UsageRing(progress: codex, color: .blue, lineWidth: 10)
+            // Inner ring: SuperGrok remaining.
+            UsageRing(progress: grok, color: .orange, lineWidth: 7)
                 .padding(12)
-            VStack(spacing: 1) {
-                Text("5H")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-                Text(fiveHour.map { "\(Int($0.rounded()))%" } ?? "--%")
-                    .font(.system(size: 22, weight: .bold).monospacedDigit())
-                Text("7D  \(sevenDay.map { "\(Int($0.rounded()))%" } ?? "--%")")
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 3) {
+                ringLegend(color: .blue, label: "7D", value: codex)
+                ringLegend(color: .orange, label: "Grok", value: grok)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Codex 5 小时剩余 \(fiveHour.map { "\(Int($0.rounded()))%" } ?? "不可用")，7 天剩余 \(sevenDay.map { "\(Int($0.rounded()))%" } ?? "不可用")")
+        .accessibilityLabel(
+            "Codex 7 天剩余 \(codex.map { "\(Int($0.rounded()))%" } ?? "不可用")，SuperGrok 剩余 \(grok.map { "\(Int($0.rounded()))%" } ?? "不可用")"
+        )
     }
-}
 
-private struct MenuBarCodexSummary: View {
-    let usage: UsageSnapshot
-    let updatedAt: Date?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(usage.isAvailable ? .green : .secondary)
-                    .frame(width: 7, height: 7)
-                Text("Codex")
-                    .font(.system(size: 14, weight: .semibold))
-                Text(menuBarStatus(usage.status))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(updatedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "--")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                UsageSummaryMetric(label: "5h", resetText: usage.fiveHour?.resetText)
-                UsageSummaryMetric(label: "7d", resetText: usage.windows?.sevenDay?.resetText)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Codex，\(menuBarStatus(usage.status))，5 小时剩余 \(usage.fiveHour?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用")，7 天剩余 \(usage.windows?.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "暂无数据")")
-    }
-}
-
-private struct UsageSummaryMetric: View {
-    let label: String
-    let resetText: String?
-
-    var body: some View {
+    private func ringLegend(color: Color, label: String, value: Double?) -> some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(.tint.opacity(0.72))
+                .fill(color)
                 .frame(width: 5, height: 5)
-            Text("\(label) 重置")
-                .font(.system(size: 10, weight: .medium))
+            Text(label)
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 2)
-            Text(resetText ?? "--")
+            Text(value.map { "\(Int($0.rounded()))%" } ?? "--%")
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -198,29 +202,27 @@ private struct MenuBarAccountRow: View {
     let name: String
     let detail: String
     let value: String
-    let updatedAt: Date?
     let available: Bool
+    var accent: Color = .secondary
 
     var body: some View {
         Button {
             NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Circle()
-                    .fill(available ? .green : .secondary)
-                    .frame(width: 7, height: 7)
+                    .fill(available ? accent : Color.secondary)
+                    .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.system(size: 14, weight: .semibold))
-                    Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(value)
-                        .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                    Text(updatedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "--")
-                        .font(.system(size: 9))
+                    Text(name).font(.system(size: 13, weight: .semibold))
+                    Text(detail)
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 6)
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
             }
         }
         .buttonStyle(.plain)
