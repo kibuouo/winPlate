@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ServiceManagement
 import SwiftUI
+import UserNotifications
 import WebKit
 
 struct MenuBarPopoverView: View {
@@ -11,7 +12,11 @@ struct MenuBarPopoverView: View {
         VStack(spacing: 0) {
             MenuBarHeader()
             Divider()
-            MenuBarOverview(codex: state.codex, deepSeek: state.deepSeek, codexUpdatedAt: state.codexUpdatedAt, deepSeekUpdatedAt: state.deepSeekUpdatedAt)
+            MenuBarOverview(
+                codex: state.codex,
+                deepSeek: state.deepSeek,
+                superGrok: state.superGrok
+            )
             Divider()
             MenuBarWeatherOverview(weather: state.snapshot.weather, alerts: state.weatherAlerts, alertError: state.weatherAlertError)
         }
@@ -73,17 +78,39 @@ private struct HeaderIconButton: View {
 private struct MenuBarOverview: View {
     let codex: UsageSnapshot
     let deepSeek: UsageSnapshot
-    let codexUpdatedAt: Date?
-    let deepSeekUpdatedAt: Date?
+    let superGrok: UsageSnapshot
 
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
-            UsageRings(fiveHour: codex.fiveHour?.remainingPct, sevenDay: codex.windows?.sevenDay?.remainingPct)
-                .frame(width: 132, height: 132)
-            VStack(alignment: .leading, spacing: 9) {
-                MenuBarCodexSummary(usage: codex, updatedAt: codexUpdatedAt)
-                Divider()
-                MenuBarAccountRow(name: "DeepSeek", detail: menuBarStatus(deepSeek.status), value: deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--", updatedAt: deepSeekUpdatedAt, available: deepSeek.isAvailable)
+        HStack(alignment: .center, spacing: 14) {
+            UsageRings(
+                codex: codex.sevenDay?.remainingPct,
+                grok: superGrok.remainingPct
+            )
+            .frame(width: 118, height: 118)
+
+            VStack(alignment: .leading, spacing: 7) {
+                // Codex / SuperGrok share the same compact row format (no sync timestamps).
+                MenuBarAccountRow(
+                    name: "Codex",
+                    detail: providerDetail(status: codex.status, resetText: codex.sevenDay?.resetText),
+                    value: codex.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
+                    available: codex.isAvailable,
+                    accent: .blue
+                )
+                MenuBarAccountRow(
+                    name: "SuperGrok",
+                    detail: providerDetail(status: superGrok.status, resetText: superGrok.resetText),
+                    value: superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
+                    available: superGrok.isAvailable,
+                    accent: .orange
+                )
+                MenuBarAccountRow(
+                    name: "DeepSeek",
+                    detail: menuBarStatus(deepSeek.status),
+                    value: deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--",
+                    available: deepSeek.isAvailable,
+                    accent: .purple
+                )
                 if deepSeek.status == "Unconfigured" {
                     Button("配置 DeepSeek") {
                         NotificationCenter.default.post(name: .showWinPlateSettingsWindow, object: nil)
@@ -91,88 +118,66 @@ private struct MenuBarOverview: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
                     .font(.system(size: 11, weight: .semibold))
+                    .padding(.top, 1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 11)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(overviewAccessibilityLabel)
+    }
+
+    private func providerDetail(status: String, resetText: String?) -> String {
+        var parts = [menuBarStatus(status)]
+        if let resetText, !resetText.isEmpty {
+            parts.append("重置 \(resetText)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var overviewAccessibilityLabel: String {
+        let codexSeven = codex.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用"
+        let deepSeekValue = deepSeek.cnyBalance.map { "¥\($0)" } ?? "不可用"
+        let grokValue = superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用"
+        return "Codex 7 天 \(codexSeven)；SuperGrok 剩余 \(grokValue)；DeepSeek \(deepSeekValue)"
     }
 }
 
 private struct UsageRings: View {
-    let fiveHour: Double?
-    let sevenDay: Double?
+    let codex: Double?
+    let grok: Double?
 
     var body: some View {
         ZStack {
-            UsageRing(progress: fiveHour, color: .green, lineWidth: 11)
-            UsageRing(progress: sevenDay, color: .orange, lineWidth: 8)
+            // Outer ring: Codex 7d remaining.
+            UsageRing(progress: codex, color: .blue, lineWidth: 10)
+            // Inner ring: SuperGrok remaining.
+            UsageRing(progress: grok, color: .orange, lineWidth: 7)
                 .padding(12)
-            VStack(spacing: 1) {
-                Text("5H")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
-                Text(fiveHour.map { "\(Int($0.rounded()))%" } ?? "--%")
-                    .font(.system(size: 22, weight: .bold).monospacedDigit())
-                Text("7D  \(sevenDay.map { "\(Int($0.rounded()))%" } ?? "--%")")
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 3) {
+                ringLegend(color: .blue, label: "7D", value: codex)
+                ringLegend(color: .orange, label: "Grok", value: grok)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Codex 5 小时剩余 \(fiveHour.map { "\(Int($0.rounded()))%" } ?? "不可用")，7 天剩余 \(sevenDay.map { "\(Int($0.rounded()))%" } ?? "不可用")")
+        .accessibilityLabel(
+            "Codex 7 天剩余 \(codex.map { "\(Int($0.rounded()))%" } ?? "不可用")，SuperGrok 剩余 \(grok.map { "\(Int($0.rounded()))%" } ?? "不可用")"
+        )
     }
-}
 
-private struct MenuBarCodexSummary: View {
-    let usage: UsageSnapshot
-    let updatedAt: Date?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(usage.isAvailable ? .green : .secondary)
-                    .frame(width: 7, height: 7)
-                Text("Codex")
-                    .font(.system(size: 14, weight: .semibold))
-                Text(menuBarStatus(usage.status))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(updatedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "--")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                UsageSummaryMetric(label: "5h", resetText: usage.fiveHour?.resetText)
-                UsageSummaryMetric(label: "7d", resetText: usage.windows?.sevenDay?.resetText)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Codex，\(menuBarStatus(usage.status))，5 小时剩余 \(usage.fiveHour?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "不可用")，7 天剩余 \(usage.windows?.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "暂无数据")")
-    }
-}
-
-private struct UsageSummaryMetric: View {
-    let label: String
-    let resetText: String?
-
-    var body: some View {
+    private func ringLegend(color: Color, label: String, value: Double?) -> some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(.tint.opacity(0.72))
+                .fill(color)
                 .frame(width: 5, height: 5)
-            Text("\(label) 重置")
-                .font(.system(size: 10, weight: .medium))
+            Text(label)
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 2)
-            Text(resetText ?? "--")
+            Text(value.map { "\(Int($0.rounded()))%" } ?? "--%")
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -197,29 +202,27 @@ private struct MenuBarAccountRow: View {
     let name: String
     let detail: String
     let value: String
-    let updatedAt: Date?
     let available: Bool
+    var accent: Color = .secondary
 
     var body: some View {
         Button {
             NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Circle()
-                    .fill(available ? .green : .secondary)
-                    .frame(width: 7, height: 7)
+                    .fill(available ? accent : Color.secondary)
+                    .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.system(size: 14, weight: .semibold))
-                    Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(value)
-                        .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                    Text(updatedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "--")
-                        .font(.system(size: 9))
+                    Text(name).font(.system(size: 13, weight: .semibold))
+                    Text(detail)
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 6)
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
             }
         }
         .buttonStyle(.plain)
@@ -457,25 +460,31 @@ private struct WeatherSection: View {
 
 struct DashboardView: View {
     @EnvironmentObject private var state: AppState
-    @State private var selection: WorkspaceDestination? = .overview
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var columnVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { SidebarPresentation.visibility(isVisible: state.isMainSidebarVisible) },
+            set: { state.isMainSidebarVisible = SidebarPresentation.isVisible($0) }
+        )
+    }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
+        NavigationSplitView(columnVisibility: columnVisibility) {
+            List(selection: $state.selectedWorkspace) {
                 ForEach(WorkspaceDestination.allCases, id: \.self) { destination in
                     Label(destination.title, systemImage: destination.symbol)
                         .tag(destination)
                 }
             }
-            .navigationTitle("WinPlate")
             .frame(minWidth: 190)
         } detail: {
             Group {
-                switch selection ?? .overview {
-                case .overview: OverviewWorkspace { selection = $0 }
+                switch state.selectedWorkspace ?? .overview {
+                case .overview: OverviewWorkspace()
+                case .agent: AgentWorkspace()
                 case .weather: WeatherWorkspace()
                 case .github: GitHubWorkspace()
-                case .agent: AgentWorkspace()
                 case .mail: MailWorkspace()
                 case .notifications: NotificationsWorkspace()
                 case .settings: SettingsView()
@@ -486,16 +495,87 @@ struct DashboardView: View {
         .sheet(isPresented: Binding(get: { state.selectedMail != nil }, set: { if !$0 { state.closeMail() } })) {
             if let message = state.selectedMail { MailDetail(message: message) }
         }
+        .alert(item: Binding(
+            get: { state.pendingAcknowledgement },
+            set: { value in
+                if value == nil, let current = state.pendingAcknowledgement {
+                    state.dismissAcknowledgement(current)
+                }
+            }
+        )) { notification in
+            Alert(
+                title: Text("红色天气预警"),
+                message: Text("\(notification.title)\n\n\(notification.message)"),
+                primaryButton: .default(Text("我已知悉")) {
+                    state.acknowledgeNotification(notification)
+                },
+                secondaryButton: .cancel(Text("稍后")) {
+                    state.dismissAcknowledgement(notification)
+                }
+            )
+        }
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    if reduceMotion {
+                        state.toggleMainSidebar()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            state.toggleMainSidebar()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                }
+                .help(SidebarPresentation.actionLabel(isVisible: state.isMainSidebarVisible))
+                .accessibilityLabel(
+                    SidebarPresentation.actionLabel(isVisible: state.isMainSidebarVisible)
+                )
+            }
+        }
+    }
+}
+
+enum SidebarPresentation {
+    static let visibilityDefaultsKey = "main-sidebar-visible-v1"
+
+    static func visibility(isVisible: Bool) -> NavigationSplitViewVisibility {
+        isVisible ? .all : .detailOnly
+    }
+
+    static func isVisible(_ visibility: NavigationSplitViewVisibility) -> Bool {
+        visibility != .detailOnly
+    }
+
+    static func actionLabel(isVisible: Bool) -> String {
+        isVisible ? "隐藏侧栏" : "显示侧栏"
     }
 }
 
 enum WorkspaceDestination: CaseIterable, Hashable {
-    case overview, weather, github, agent, mail, notifications, settings
+    case overview, agent, weather, github, mail, notifications, settings
     var title: String {
-        switch self { case .overview: "概览"; case .weather: "天气"; case .github: "GitHub"; case .agent: "Agent"; case .mail: "邮件"; case .notifications: "通知"; case .settings: "设置" }
+        switch self {
+        case .overview: "概览"
+        case .agent: "Agent"
+        case .weather: "天气"
+        case .github: "GitHub"
+        case .mail: "邮件"
+        case .notifications: "通知"
+        case .settings: "设置"
+        }
     }
     var symbol: String {
-        switch self { case .overview: "rectangle.3.group"; case .weather: "cloud.sun"; case .github: "chevron.left.forwardslash.chevron.right"; case .agent: "terminal"; case .mail: "envelope"; case .notifications: "bell"; case .settings: "gearshape" }
+        switch self {
+        case .overview: "rectangle.3.group"
+        case .agent: "cpu"
+        case .weather: "cloud.sun"
+        case .github: "chevron.left.forwardslash.chevron.right"
+        case .mail: "envelope"
+        case .notifications: "bell"
+        case .settings: "gearshape"
+        }
     }
 }
 
@@ -939,6 +1019,7 @@ private struct SettingsForm: View {
     let state: AppState
     @ObservedObject private var settings: AppSettingsStore
     @State private var loginItemError: String?
+    @State private var notificationAuthorization = "正在检查权限"
     @State private var deepSeekAPIKey = ""
     @State private var deepSeekBaseURL = ""
     @State private var githubUsername = ""
@@ -991,6 +1072,31 @@ private struct SettingsForm: View {
 
                 SettingsCard(title: "外观", symbol: "paintpalette.fill") {
                     AppearanceThemePicker(selection: $settings.appearanceTheme)
+                }
+                SettingsCard(title: "系统通知", symbol: "bell.badge.fill") {
+                    Text("新通知会进入 macOS 通知中心；普通通知保持安静，只有生效中的红色天气预警会主动提醒。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SettingsCardActions {
+                        ConfigurationStatus(
+                            notificationAuthorization,
+                            symbol: notificationAuthorization == "已允许"
+                                ? "checkmark.circle.fill"
+                                : "exclamationmark.circle",
+                            color: notificationAuthorization == "已允许" ? .green : .secondary
+                        )
+                    } actions: {
+                        Button("发送测试通知") {
+                            SystemNotificationCoordinator.sendTestNotification()
+                        }
+                        .buttonStyle(.bordered)
+                        Button("系统设置") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
 
                 Text("服务连接")
@@ -1223,6 +1329,23 @@ private struct SettingsForm: View {
             weatherPrivateKey = ""
             qqMailAddress = settings.qqMailAddress
             qqMailAuthCode = ""
+            refreshNotificationAuthorization()
+        }
+    }
+
+    private func refreshNotificationAuthorization() {
+        Task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                notificationAuthorization = "已允许"
+            case .denied:
+                notificationAuthorization = "已关闭，请在系统设置中开启"
+            case .notDetermined:
+                notificationAuthorization = "尚未选择"
+            @unknown default:
+                notificationAuthorization = "状态未知"
+            }
         }
     }
 

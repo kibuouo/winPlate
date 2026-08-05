@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -5,7 +6,10 @@ import Foundation
 final class AppState: ObservableObject {
     @Published private(set) var snapshot = StatusSnapshot.empty
     @Published private(set) var codex = UsageSnapshot.unavailable(source: "codex-app-server")
+    @Published private(set) var codexTokenUsage = CodexTokenUsage.unavailable
     @Published private(set) var deepSeek = UsageSnapshot.unconfigured
+    @Published private(set) var superGrok = UsageSnapshot.unconfigured(source: "grok-cli")
+    @Published private(set) var superGrokTokenUsage = CodexTokenUsage.unavailable
     @Published private(set) var mail = MailOutline.empty
     @Published private(set) var notifications = NotificationSummary.empty
     @Published private(set) var selectedMail: MailMessage?
@@ -20,34 +24,66 @@ final class AppState: ObservableObject {
     @Published private(set) var isTestingMailConnection = false
     @Published private(set) var codexError: String?
     @Published private(set) var deepSeekError: String?
+    @Published private(set) var superGrokError: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isRefreshingGitHub = false
     @Published private(set) var isRefreshingMail = false
     @Published private(set) var isRefreshingNotifications = false
+    @Published private(set) var isClearingReadNotifications = false
+    @Published private(set) var notificationError: String?
     @Published private(set) var lastError: String?
     @Published private(set) var codexUpdatedAt: Date?
     @Published private(set) var deepSeekUpdatedAt: Date?
+    @Published private(set) var superGrokUpdatedAt: Date?
     @Published private(set) var weatherUpdatedAt: Date?
     @Published private(set) var githubContributionDetail = GitHubContributionDetail.empty
     @Published private(set) var isLoadingGitHubContributionDetail = false
     @Published private(set) var githubContributionError: String?
     @Published private(set) var selectedGitHubDateKey: String?
+    @Published private(set) var selectedGitHubContributionRepository: GitHubContributionRepository?
+    @Published private(set) var githubRepositoryCommits = GitHubRepositoryCommits.empty
+    @Published private(set) var isLoadingGitHubRepositoryCommits = false
+    @Published private(set) var githubRepositoryCommitsError: String?
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
+    @Published var selectedWorkspace: WorkspaceDestination? = .overview
+    @Published var selectedNotificationID: String?
+    @Published var isMainSidebarVisible: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                isMainSidebarVisible,
+                forKey: SidebarPresentation.visibilityDefaultsKey
+            )
+        }
+    }
 
     let settings = AppSettingsStore()
     private let api = LocalAPIClient()
     private let codexClient = CodexUsageClient()
+    private let codexTokenClient = CodexTokenUsageClient()
     private let deepSeekClient = DeepSeekUsageClient()
+    private let grokClient = GrokUsageClient()
+    private let grokTokenClient = GrokTokenUsageClient()
     private let backend = LocalBackendSupervisor()
     private var refreshTask: Task<Void, Never>?
+    private var notificationStartupTask: Task<Void, Never>?
     private var weatherAlertsUpdatedAt: Date?
     private var hasStarted = false
     private var githubContributionRequestID = 0
     private var githubContributionDetailCache: [String: GitHubContributionDetail] = [:]
+    private var githubRepositoryCommitsRequestID = 0
+    private var githubRepositoryCommitsCache: [String: GitHubRepositoryCommits] = [:]
+    private var dismissedAcknowledgementIDs: Set<String> = []
 
     init() {
         menuBarEnabled = settings.menuBarEnabled
+        isMainSidebarVisible = UserDefaults.standard.object(
+            forKey: SidebarPresentation.visibilityDefaultsKey
+        ) as? Bool ?? true
+    }
+
+    func toggleMainSidebar() {
+        isMainSidebarVisible.toggle()
     }
 
     func start() {
@@ -69,11 +105,14 @@ final class AppState: ObservableObject {
             githubUsername: settings.githubUsername
         )
         refresh()
+        refreshWhenLocalAPIReady()
         refreshMailWhenLocalAPIReady()
+        refreshNotificationsWhenLocalAPIReady()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 self?.refresh()
+                self?.loadNotifications()
             }
         }
     }
@@ -96,17 +135,28 @@ final class AppState: ObservableObject {
     }
 
     func loadSensitiveSettings() {
-        settings.loadSensitiveValues()
+        Task { [weak self] in
+            guard let self else { return }
+            let loaded = await self.settings.loadSensitiveValues()
+            guard loaded else { return }
+            self.restartLocalBackend()
+            self.refreshWhenLocalAPIReady()
+            self.refreshNotificationsWhenLocalAPIReady()
+            self.refreshMailWhenLocalAPIReady()
+        }
     }
 
     func stop() {
         refreshTask?.cancel()
         refreshTask = nil
+        notificationStartupTask?.cancel()
+        notificationStartupTask = nil
         backend.stop()
     }
 
     deinit {
         refreshTask?.cancel()
+        notificationStartupTask?.cancel()
         backend.stop()
     }
 
@@ -114,6 +164,22 @@ final class AppState: ObservableObject {
         MenuBarTemperatureFormatter.title(
             for: snapshot.weather.isAvailable ? snapshot.weather.temperature : nil
         )
+    }
+
+    var pendingAcknowledgement: AppNotification? {
+        notifications.items
+            .filter { $0.unread && $0.requiresAcknowledgement && !dismissedAcknowledgementIDs.contains($0.id) }
+            .max { $0.createdAt < $1.createdAt }
+    }
+
+    func acknowledgeNotification(_ notification: AppNotification) {
+        dismissedAcknowledgementIDs.insert(notification.id)
+        markNotificationRead(notification)
+    }
+
+    func dismissAcknowledgement(_ notification: AppNotification) {
+        dismissedAcknowledgementIDs.insert(notification.id)
+        objectWillChange.send()
     }
 
     func setMenuBarEnabled(_ enabled: Bool) {
@@ -218,47 +284,138 @@ final class AppState: ObservableObject {
     }
 
     func refresh(force: Bool = false) {
-        guard !isRefreshing else { return }
+        // Force refresh can recover from a previous hung request that left the flag set.
+        if isRefreshing {
+            if force {
+                refreshTask?.cancel()
+            } else {
+                return
+            }
+        }
         isRefreshing = true
         lastError = nil
         let deepSeekConfiguration = settings.deepSeekConfiguration
 
-        Task {
-            async let statusResult = api.status(force: force)
-            async let codexResult = codexClient.read(force: force)
-            async let deepSeekResult = deepSeekClient.read(configuration: deepSeekConfiguration, force: force)
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { Task { @MainActor in self.isRefreshing = false } }
 
-            let (status, codexUsage, deepSeekUsage) = await (statusResult, codexResult, deepSeekResult)
+            // Bound the whole usage fan-out so one slow source cannot pin the spinner forever.
+            let collected: (
+                ResultValue<StatusSnapshot>,
+                ResultValue<UsageSnapshot>,
+                ResultValue<CodexTokenUsage>,
+                ResultValue<UsageSnapshot>,
+                ResultValue<UsageSnapshot>,
+                ResultValue<CodexTokenUsage>
+            ) = await withTaskGroup(
+                of: (
+                    ResultValue<StatusSnapshot>?,
+                    ResultValue<UsageSnapshot>?,
+                    ResultValue<CodexTokenUsage>?,
+                    ResultValue<UsageSnapshot>?,
+                    ResultValue<UsageSnapshot>?,
+                    ResultValue<CodexTokenUsage>?
+                ).self
+            ) { group in
+                group.addTask {
+                    async let statusResult = self.api.status(force: force)
+                    async let codexResult = self.codexClient.read(force: force)
+                    async let codexTokenResult = self.codexTokenClient.read(force: force)
+                    async let deepSeekResult = self.deepSeekClient.read(
+                        configuration: deepSeekConfiguration,
+                        force: force
+                    )
+                    async let grokResult = self.grokClient.read(force: force)
+                    async let grokTokenResult = self.grokTokenClient.read(force: force)
+                    let (
+                        status,
+                        codexUsage,
+                        codexTokenUsageResult,
+                        deepSeekUsage,
+                        grokUsage,
+                        grokTokenUsageResult
+                    ) = await (
+                        statusResult,
+                        codexResult,
+                        codexTokenResult,
+                        deepSeekResult,
+                        grokResult,
+                        grokTokenResult
+                    )
+                    return (
+                        status,
+                        codexUsage,
+                        codexTokenUsageResult,
+                        deepSeekUsage,
+                        grokUsage,
+                        grokTokenUsageResult
+                    )
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(12))
+                    return (nil, nil, nil, nil, nil, nil)
+                }
+
+                let first = await group.next() ?? (nil, nil, nil, nil, nil, nil)
+                group.cancelAll()
+                return (
+                    first.0 ?? .init(value: nil, error: "刷新超时"),
+                    first.1 ?? .init(value: nil, error: nil),
+                    first.2 ?? .init(value: nil, error: nil),
+                    first.3 ?? .init(value: nil, error: nil),
+                    first.4 ?? .init(value: nil, error: nil),
+                    first.5 ?? .init(value: nil, error: nil)
+                )
+            }
+
+            let (
+                status,
+                codexUsage,
+                codexTokenUsageResult,
+                deepSeekUsage,
+                grokUsage,
+                grokTokenUsageResult
+            ) = collected
+
+            if Task.isCancelled { return }
+
             if let statusValue = status.value {
                 snapshot = statusValue
                 if statusValue.weather.isAvailable { weatherUpdatedAt = Date() }
                 weatherError = statusValue.weather.error
                 if let github = statusValue.github {
                     if selectedGitHubMonthKey == nil
-                        || !(github.contributionMonths.contains { $0.key == selectedGitHubMonthKey })
+                        || !(github.contributionMonths.contains { $0.key == self.selectedGitHubMonthKey })
                     {
                         selectedGitHubMonthKey = github.contributionMonths.last?.key
                         selectedGitHubDateKey = nil
                     }
-                    if let dateKey = selectedGitHubDateKey {
-                        if githubContributionDetail.rangeKey != dateKey {
-                            await loadGitHubContributionDetail(date: dateKey)
-                        }
-                    } else if let monthKey = selectedGitHubMonthKey,
+                    // Do not block the usage spinner on GraphQL contribution detail.
+                    let dateKey = selectedGitHubDateKey
+                    let monthKey = selectedGitHubMonthKey
+                    if let dateKey, githubContributionDetail.rangeKey != dateKey {
+                        Task { await self.loadGitHubContributionDetail(date: dateKey) }
+                    } else if dateKey == nil,
+                              let monthKey,
                               githubContributionDetail.rangeKey != monthKey
                     {
-                        await loadGitHubContributionDetail(month: monthKey)
+                        Task { await self.loadGitHubContributionDetail(month: monthKey) }
                     }
                 }
             }
-            let shouldRefreshAlerts = force || weatherAlertsUpdatedAt.map { Date().timeIntervalSince($0) > 300 } ?? true
+
+            let shouldRefreshAlerts = force
+                || weatherAlertsUpdatedAt.map { Date().timeIntervalSince($0) > 300 } ?? true
             if snapshot.weather.isAvailable && shouldRefreshAlerts {
-                _ = await refreshWeatherAlerts()
+                Task { _ = await self.refreshWeatherAlerts() }
             } else if !snapshot.weather.isAvailable {
                 weatherAlerts = .empty
                 weatherAlertError = nil
                 weatherAlertsUpdatedAt = nil
             }
+
             if let codexValue = codexUsage.value {
                 if codexValue.isAvailable {
                     codex = codexValue
@@ -270,6 +427,9 @@ final class AppState: ObservableObject {
                 }
             }
             codexError = codexUsage.error
+            if let tokenUsage = codexTokenUsageResult.value {
+                codexTokenUsage = tokenUsage
+            }
             if let deepSeekValue = deepSeekUsage.value {
                 if deepSeekValue.isAvailable {
                     deepSeek = deepSeekValue
@@ -281,8 +441,26 @@ final class AppState: ObservableObject {
                 }
             }
             deepSeekError = deepSeekUsage.error
-            lastError = status.error ?? weatherError ?? codexUsage.error ?? deepSeekUsage.error ?? weatherAlertError
-            isRefreshing = false
+            if let grokValue = grokUsage.value {
+                if grokValue.isAvailable {
+                    superGrok = grokValue
+                    superGrokUpdatedAt = Date()
+                } else {
+                    superGrok = grokValue.status == "Unconfigured"
+                        ? grokValue
+                        : superGrok.preservingValues(status: "Unavailable")
+                }
+            }
+            superGrokError = grokUsage.error
+            if let grokTokenUsage = grokTokenUsageResult.value {
+                superGrokTokenUsage = grokTokenUsage
+            }
+            lastError = status.error
+                ?? weatherError
+                ?? codexUsage.error
+                ?? deepSeekUsage.error
+                ?? grokUsage.error
+                ?? weatherAlertError
         }
     }
 
@@ -311,6 +489,20 @@ final class AppState: ObservableObject {
         if monthChanged || selectedGitHubDateKey != nil {
             selectedGitHubDateKey = nil
             Task { await loadGitHubContributionDetail(month: key) }
+        }
+    }
+
+    func selectGitHubContributionRepository(_ repository: GitHubContributionRepository) {
+        guard selectedGitHubContributionRepository?.nameWithOwner != repository.nameWithOwner else { return }
+        selectedGitHubContributionRepository = repository
+        let rangeKey = githubContributionDetail.rangeKey
+        let dateKey = selectedGitHubDateKey
+        Task {
+            await loadGitHubRepositoryCommits(
+                repository,
+                rangeKey: rangeKey,
+                dateKey: dateKey
+            )
         }
     }
 
@@ -343,6 +535,8 @@ final class AppState: ObservableObject {
         let dateKey = date
         guard dateKey != nil || monthKey != nil else { return }
 
+        resetGitHubRepositoryCommitSelection()
+
         if let dateKey {
             selectedGitHubDateKey = dateKey
         } else {
@@ -354,6 +548,7 @@ final class AppState: ObservableObject {
             githubContributionDetail = cached
             githubContributionError = cached.message.isEmpty ? nil : cached.message
             isLoadingGitHubContributionDetail = false
+            await loadDefaultGitHubRepositoryCommits(for: cached)
             return
         }
 
@@ -381,6 +576,7 @@ final class AppState: ObservableObject {
             if let cacheKey {
                 githubContributionDetailCache[cacheKey] = detail
             }
+            await loadDefaultGitHubRepositoryCommits(for: detail)
         } else if let fallback = contributionFallback(
             monthKey: monthKey,
             dateKey: dateKey,
@@ -397,7 +593,9 @@ final class AppState: ObservableObject {
 
     private func clearGitHubContributionCache(resetSelectionToCurrentMonth: Bool, github: GitHubSnapshot?) {
         githubContributionDetailCache.removeAll()
+        githubRepositoryCommitsCache.removeAll()
         selectedGitHubDateKey = nil
+        resetGitHubRepositoryCommitSelection()
         githubContributionRequestID += 1
         if resetSelectionToCurrentMonth {
             if let github {
@@ -408,6 +606,65 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    private func loadDefaultGitHubRepositoryCommits(for detail: GitHubContributionDetail) async {
+        guard let repository = detail.repositories.first else { return }
+        selectedGitHubContributionRepository = repository
+        await loadGitHubRepositoryCommits(
+            repository,
+            rangeKey: detail.rangeKey,
+            dateKey: selectedGitHubDateKey
+        )
+    }
+
+    private func loadGitHubRepositoryCommits(
+        _ repository: GitHubContributionRepository,
+        rangeKey: String,
+        dateKey: String?
+    ) async {
+        guard !rangeKey.isEmpty else { return }
+        let cacheKey = GitHubContributionFormatting.cacheKey(
+            month: dateKey == nil ? rangeKey : nil,
+            date: dateKey
+        ).map { "\($0)|repository:\(repository.nameWithOwner)" }
+        if let cacheKey, let cached = githubRepositoryCommitsCache[cacheKey] {
+            githubRepositoryCommits = cached
+            githubRepositoryCommitsError = cached.message.isEmpty ? nil : cached.message
+            isLoadingGitHubRepositoryCommits = false
+            return
+        }
+
+        githubRepositoryCommitsRequestID += 1
+        let requestID = githubRepositoryCommitsRequestID
+        isLoadingGitHubRepositoryCommits = true
+        githubRepositoryCommitsError = nil
+        let result = await api.githubRepositoryCommits(
+            repository: repository.nameWithOwner,
+            month: dateKey == nil ? rangeKey : nil,
+            date: dateKey
+        )
+        guard requestID == githubRepositoryCommitsRequestID else { return }
+
+        if let commits = result.value {
+            githubRepositoryCommits = commits
+            githubRepositoryCommitsError = commits.message.isEmpty ? nil : commits.message
+            if let cacheKey, commits.detailsAvailable {
+                githubRepositoryCommitsCache[cacheKey] = commits
+            }
+        } else {
+            githubRepositoryCommits = .empty
+            githubRepositoryCommitsError = result.error
+        }
+        isLoadingGitHubRepositoryCommits = false
+    }
+
+    private func resetGitHubRepositoryCommitSelection() {
+        selectedGitHubContributionRepository = nil
+        githubRepositoryCommits = .empty
+        githubRepositoryCommitsError = nil
+        githubRepositoryCommitsRequestID += 1
+        isLoadingGitHubRepositoryCommits = false
     }
 
     private func contributionFallback(
@@ -451,7 +708,7 @@ final class AppState: ObservableObject {
     private func refreshWhenLocalAPIReady() {
         Task { [weak self] in
             guard let self else { return }
-            for attempt in 0..<8 {
+            for attempt in 0..<20 {
                 guard !Task.isCancelled else { return }
                 if attempt > 0 {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -462,6 +719,10 @@ final class AppState: ObservableObject {
                     if status.weather.isAvailable { self.weatherUpdatedAt = Date() }
                     self.weatherError = status.weather.error
                     self.lastError = status.weather.error ?? result.error
+                    if status.weather.isAvailable {
+                        _ = await self.refreshWeatherAlerts()
+                    }
+                    self.loadNotifications()
                     return
                 }
                 if result.error != "本地服务不可用" { return }
@@ -535,24 +796,100 @@ final class AppState: ObservableObject {
     }
 
     func openMail(_ item: MailItem) {
+        openMail(uid: item.uid)
+    }
+
+    private func openMail(uid: String) {
         Task {
-            let result = await api.readMail(uid: item.uid)
+            let result = await api.readMail(uid: uid)
             selectedMail = result.value
             lastError = result.error
-            if result.value != nil { loadMail() }
+            if result.value != nil {
+                loadMail()
+                loadNotifications()
+            }
         }
     }
 
     func closeMail() { selectedMail = nil }
+
+    func openNotification(_ notification: AppNotification) {
+        openNotification(NotificationConversation(latest: notification, updates: [notification]))
+    }
+
+    func openNotification(_ conversation: NotificationConversation) {
+        let notification = conversation.latest
+        if notification.source == "mail", let uid = notification.sourceID {
+            openMail(uid: uid)
+        } else if conversation.unreadIDs.count > 1 {
+            markNotificationsRead(conversation.unreadIDs)
+        } else if notification.unread {
+            markNotificationRead(notification)
+        }
+    }
+
+    func openNotificationSource(_ notification: AppNotification) {
+        switch notification.source {
+        case "mail":
+            if let uid = notification.sourceID { openMail(uid: uid) }
+        case "qweather":
+            selectedWorkspace = .weather
+        case "github":
+            selectedWorkspace = .github
+        default:
+            if let url = notification.resolvedExternalURL {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
 
     func loadNotifications() {
         guard !isRefreshingNotifications else { return }
         isRefreshingNotifications = true
         Task {
             let result = await api.notifications()
-            notifications = result.value ?? .empty
+            if let value = result.value {
+                notifications = value
+                notificationError = nil
+            } else {
+                notificationError = result.error
+            }
             lastError = result.error
             isRefreshingNotifications = false
+        }
+    }
+
+    private func refreshNotificationsWhenLocalAPIReady() {
+        notificationStartupTask?.cancel()
+        isRefreshingNotifications = true
+        notificationStartupTask = Task { [weak self] in
+            guard let self else { return }
+            for attempt in 0..<20 {
+                guard !Task.isCancelled else { return }
+                if attempt > 0 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                let result = await self.api.notifications()
+                if let value = result.value {
+                    self.notifications = value
+                    self.notificationError = nil
+                    self.lastError = nil
+                    self.isRefreshingNotifications = false
+                    self.notificationStartupTask = nil
+                    return
+                }
+                if result.error != "本地服务不可用" {
+                    self.notificationError = result.error
+                    self.lastError = result.error
+                    self.isRefreshingNotifications = false
+                    self.notificationStartupTask = nil
+                    return
+                }
+            }
+            self.notificationError = "本地通知服务启动超时"
+            self.lastError = self.notificationError
+            self.isRefreshingNotifications = false
+            self.notificationStartupTask = nil
         }
     }
 
@@ -561,6 +898,22 @@ final class AppState: ObservableObject {
         Task {
             let result = await api.markNotificationRead(id: notification.id)
             notifications = result.value ?? notifications
+            notificationError = result.error
+            lastError = result.error
+        }
+    }
+
+    func markNotificationRead(id: String) {
+        guard let notification = notifications.items.first(where: { $0.id == id }) else { return }
+        markNotificationRead(notification)
+    }
+
+    private func markNotificationsRead(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Task {
+            let result = await api.markNotificationsRead(ids: ids)
+            notifications = result.value ?? notifications
+            notificationError = result.error
             lastError = result.error
         }
     }
@@ -569,7 +922,20 @@ final class AppState: ObservableObject {
         Task {
             let result = await api.markAllNotificationsRead()
             notifications = result.value ?? notifications
+            notificationError = result.error
             lastError = result.error
+        }
+    }
+
+    func clearReadNotifications() {
+        guard !isClearingReadNotifications else { return }
+        isClearingReadNotifications = true
+        Task {
+            let result = await api.clearReadNotifications()
+            notifications = result.value ?? notifications
+            notificationError = result.error
+            lastError = result.error
+            isClearingReadNotifications = false
         }
     }
 

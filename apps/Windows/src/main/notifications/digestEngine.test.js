@@ -20,6 +20,7 @@ test("normalizes supported sources into the RawNotification contract", () => {
   assert.deepEqual(Object.keys(item), [
     "schemaVersion", "id", "source", "sourceId", "type", "title", "body", "level", "createdAt", "unread", "dedupeKey", "meta", "actions"
   ]);
+  assert.equal(item.severity, undefined);
   assert.equal(item.schemaVersion, 1);
   assert.equal(item.source, "mail");
   assert.equal(item.sourceId, "1");
@@ -52,10 +53,16 @@ test("maps source semantics to the requested notification tiers", () => {
   const item = (source, title, level = "info", metadata = {}) =>
     normalizeRawNotification({ source, title, level, metadata });
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警")), "danger");
+  // Orange matches yellow/blue band (warning), not red danger — same as Windows weather cards.
   assert.equal(severityForNotification(item("qweather", "暴雨橙色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "高温黄色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "info");
   assert.equal(severityForNotification(item("qweather", "天气转多云")), "info");
+  assert.equal(severityForNotification(item("qweather", "暴雨橙色预警", "warning", { severity: "orange", lifecycle: "issued" })), "warning");
+  // QWeather maps orange → "severe"; must stay warning, not red danger.
+  assert.equal(severityForNotification(item("qweather", "高温橙色预警", "critical", { severity: "severe", lifecycle: "issued" })), "warning");
+  assert.equal(severityForNotification(item("qweather", "暴雨红色预警", "critical", { severity: "red", lifecycle: "issued" })), "danger");
+  assert.equal(severityForNotification(item("qweather", "暴雨红色预警", "critical", { severity: "extreme", lifecycle: "issued" })), "danger");
   assert.equal(severityForNotification(item("mail", "新邮件：Launch")), "info");
   assert.equal(severityForNotification(item("codex", "Codex 任务完成")), "info");
   assert.equal(severityForNotification(item("chatgpt", "ChatGPT 任务完成")), "info");
@@ -64,6 +71,31 @@ test("maps source semantics to the requested notification tiers", () => {
   assert.equal(severityForNotification(item("system", "系统发生严重错误")), "danger");
   assert.equal(severityForNotification(item("system", "API 连续失败")), "danger");
   assert.equal(severityForNotification(item("system", "核心模块不可用")), "danger");
+});
+
+test("prefers API-authored severity over local heuristics", () => {
+  assert.equal(severityForNotification({
+    source: "qweather",
+    title: "暴雨红色预警",
+    body: "",
+    level: "critical",
+    severity: "warning",
+    meta: {}
+  }), "warning");
+  const normalized = normalizeRawNotification({
+    id: "qweather:a1",
+    source: "qweather",
+    title: "暴雨红色预警解除",
+    message: "本轮强降雨过程结束",
+    level: "success",
+    severity: "info",
+    metadata: { lifecycle: "resolved", severity: "red" },
+    unread: true,
+    createdAt: 200
+  });
+  assert.equal(normalized.severity, "info");
+  assert.equal(normalized.meta.lifecycle, "resolved");
+  assert.equal(severityForNotification(normalized), "info");
 });
 
 test("aggregates the highest semantic severity", () => {

@@ -99,7 +99,8 @@ test("maps app-server rate limits to the compact usage windows", () => {
     }
   }, now);
 
-  assert.equal(usage.remainingPct, 82);
+  // Headline prefers weekly remaining when both legacy windows exist.
+  assert.equal(usage.remainingPct, 64);
   assert.deepEqual(usage.windows.fiveHour, {
     remainingPct: 82,
     usedPct: 18,
@@ -113,4 +114,25 @@ test("maps app-server rate limits to the compact usage windows", () => {
     resetClock: formatLocalClock(secondaryReset)
   });
   assert.equal(usage.source, "codex-app-server");
+});
+
+test("maps single primary weekly window (10080 mins) to sevenDay only", () => {
+  const now = Date.UTC(2026, 7, 5, 12, 0, 0);
+  const resetAt = Math.floor((now + 2 * 24 * 60 * 60 * 1000) / 1000);
+  const usage = parseRateLimitsResponse({
+    rateLimits: {
+      primary: {
+        usedPercent: 51,
+        windowDurationMins: 10080,
+        resetsAt: resetAt
+      },
+      secondary: null
+    }
+  }, now);
+
+  assert.equal(usage.remainingPct, 49);
+  assert.equal(usage.windows.fiveHour, null);
+  assert.equal(usage.windows.sevenDay.remainingPct, 49);
+  assert.equal(usage.windows.sevenDay.resetText, "2d");
+  assert.equal(usage.status, "Normal");
 });

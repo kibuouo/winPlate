@@ -284,12 +284,24 @@ struct UsageSnapshot: Decodable {
     let balances: [Balance]
 
     static let unconfigured = UsageSnapshot(source: "deepseek-api", status: "Unconfigured", remainingPct: nil, resetText: nil, windows: nil, balances: [])
+    static func unconfigured(source: String) -> UsageSnapshot {
+        UsageSnapshot(source: source, status: "Unconfigured", remainingPct: nil, resetText: nil, windows: nil, balances: [])
+    }
     static func unavailable(source: String) -> UsageSnapshot {
         UsageSnapshot(source: source, status: "Unavailable", remainingPct: nil, resetText: nil, windows: nil, balances: [])
     }
 
     var isAvailable: Bool { status == "Normal" }
-    var fiveHour: UsageWindow? { windows?.fiveHour ?? UsageWindow(remainingPct: remainingPct, resetText: resetText) }
+    /// Session-style window (~5h). Nil when the plan only exposes a weekly limit.
+    var fiveHour: UsageWindow? { windows?.fiveHour }
+    /// Weekly window (~7d). Falls back to top-level remaining when only one quota exists.
+    var sevenDay: UsageWindow? {
+        windows?.sevenDay ?? (
+            windows?.fiveHour == nil
+                ? UsageWindow(remainingPct: remainingPct, resetText: resetText)
+                : nil
+        )
+    }
     var cnyBalance: String? { balances.first(where: { $0.currency.uppercased() == "CNY" })?.totalBalance }
 
     func preservingValues(status: String) -> UsageSnapshot {
@@ -306,6 +318,36 @@ struct UsageSnapshot: Decodable {
 
 struct UsageWindows: Decodable { let fiveHour: UsageWindow?; let sevenDay: UsageWindow? }
 struct Balance: Decodable { let currency: String; let totalBalance: String }
+
+/// Token usage aggregated from Codex's local turn logs.
+struct CodexTokenUsage: Equatable {
+    struct Bucket: Identifiable, Equatable {
+        let start: Date
+        let tokens: Int64
+
+        var id: Date { start }
+    }
+
+    let hourly: [Bucket]
+    let daily: [Bucket]
+    let updatedAt: Date?
+    let isAvailable: Bool
+
+    static let unavailable = CodexTokenUsage(
+        hourly: [],
+        daily: [],
+        updatedAt: nil,
+        isAvailable: false
+    )
+
+    var totalTokens: Int64 {
+        daily.reduce(0) { $0 + $1.tokens }
+    }
+
+    var hourlyTotalTokens: Int64 {
+        hourly.reduce(0) { $0 + $1.tokens }
+    }
+}
 
 struct GitHubSnapshot: Decodable {
     let name: String
@@ -614,6 +656,96 @@ struct GitHubContributionRepository: Decodable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey { case nameWithOwner, url, count }
 }
 
+struct GitHubRepositoryCommits: Decodable {
+    let rangeType: String
+    let rangeKey: String
+    let label: String
+    let repository: String
+    let commits: [GitHubCommit]
+    let hasMore: Bool
+    let detailsAvailable: Bool
+    let message: String
+
+    static let empty = GitHubRepositoryCommits(
+        rangeType: "month",
+        rangeKey: "",
+        label: "",
+        repository: "",
+        commits: [],
+        hasMore: false,
+        detailsAvailable: false,
+        message: ""
+    )
+
+    init(
+        rangeType: String,
+        rangeKey: String,
+        label: String,
+        repository: String,
+        commits: [GitHubCommit],
+        hasMore: Bool,
+        detailsAvailable: Bool,
+        message: String
+    ) {
+        self.rangeType = rangeType
+        self.rangeKey = rangeKey
+        self.label = label
+        self.repository = repository
+        self.commits = commits
+        self.hasMore = hasMore
+        self.detailsAvailable = detailsAvailable
+        self.message = message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rangeType = try c.decodeIfPresent(String.self, forKey: .rangeType) ?? "month"
+        rangeKey = try c.decodeIfPresent(String.self, forKey: .rangeKey) ?? ""
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        repository = try c.decodeIfPresent(String.self, forKey: .repository) ?? ""
+        commits = try c.decodeIfPresent([GitHubCommit].self, forKey: .commits) ?? []
+        hasMore = try c.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
+        detailsAvailable = try c.decodeIfPresent(Bool.self, forKey: .detailsAvailable) ?? false
+        message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rangeType, rangeKey, label, repository, commits, hasMore, detailsAvailable, message
+    }
+
+    var displayLabel: String {
+        let localized = GitHubContributionFormatting.localizedLabel(rangeType: rangeType, rangeKey: rangeKey)
+        return localized.isEmpty ? label : localized
+    }
+}
+
+struct GitHubCommit: Decodable, Identifiable, Hashable {
+    let sha: String
+    let message: String
+    let url: String
+    let authorName: String
+    let authorLogin: String
+    let authoredAt: String
+
+    var id: String { sha }
+    var shortSHA: String { String(sha.prefix(7)) }
+    var subject: String {
+        message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sha = try c.decodeIfPresent(String.self, forKey: .sha) ?? ""
+        message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        authorName = try c.decodeIfPresent(String.self, forKey: .authorName) ?? ""
+        authorLogin = try c.decodeIfPresent(String.self, forKey: .authorLogin) ?? ""
+        authoredAt = try c.decodeIfPresent(String.self, forKey: .authoredAt) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey { case sha, message, url, authorName, authorLogin, authoredAt }
+}
+
 enum GitHubContributionFormatting {
     static func localizedLabel(rangeType: String, rangeKey: String) -> String {
         if rangeType == "date" {
@@ -728,14 +860,186 @@ struct NotificationSummary: Decodable {
 
     private enum CodingKeys: String, CodingKey { case items, unreadCount, latest, updatedAt }
 }
+struct NotificationMetadata: Decodable {
+    let sourceID: String?
+    let messageID: String?
+    let uid: String?
+    let alertID: String?
+    let threadID: String?
+    let severity: String?
+    let lifecycle: String?
+    let status: String?
+    let externalURL: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
+        messageID = try container.decodeIfPresent(String.self, forKey: .messageID)
+        uid = try container.decodeIfPresent(String.self, forKey: .uid)
+        alertID = try container.decodeIfPresent(String.self, forKey: .alertID)
+        threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
+        severity = try container.decodeIfPresent(String.self, forKey: .severity)
+        lifecycle = try container.decodeIfPresent(String.self, forKey: .lifecycle)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        externalURL = try container.decodeIfPresent(String.self, forKey: .externalURL)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceID = "sourceId"
+        case messageID = "messageId"
+        case uid
+        case alertID = "alertId"
+        case threadID = "threadId"
+        case severity, lifecycle, status
+        case externalURL = "externalUrl"
+    }
+}
+
 struct AppNotification: Decodable, Identifiable {
     let id: String
     let source: String
     let level: String
+    /// Semantic display severity from local-api: info | warning | danger.
+    let severity: String
     let title: String
     let message: String
     let unread: Bool
     let createdAt: Int64
+    let externalURL: String?
+    let metadata: NotificationMetadata?
+
+    var sourceID: String? {
+        let explicit = [
+            metadata?.sourceID,
+            metadata?.messageID,
+            metadata?.uid,
+            metadata?.alertID,
+            metadata?.threadID,
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        if let explicit { return explicit }
+
+        let parts = id.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0] == Substring(source), !parts[1].isEmpty else { return nil }
+        return String(parts[1])
+    }
+
+    var resolvedExternalURL: URL? {
+        let value = externalURL ?? metadata?.externalURL
+        guard let value, let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased()) else {
+            return nil
+        }
+        return url
+    }
+
+    var requiresAcknowledgement: Bool {
+        guard source == "qweather", metadata?.severity?.lowercased() == "red" else { return false }
+        let lifecycle = (metadata?.lifecycle ?? metadata?.status ?? "issued").lowercased()
+        return !["resolved", "cancelled", "canceled", "expired", "cleared"].contains(lifecycle)
+    }
+
+    /// Display severity aligned with Windows digest: info | warning | danger.
+    /// Prefers API `severity`; for weather, never promote orange/severe to danger from bare `level`.
+    var displaySeverity: String {
+        switch severity.lowercased() {
+        case "danger", "warning", "info":
+            return severity.lowercased()
+        default:
+            break
+        }
+        // Weather fallback: title/metadata color beats storage level (severe≈orange → warning).
+        if source == "qweather" {
+            let color = (metadata?.severity ?? "").lowercased()
+            if color == "red" || color == "extreme" { return "danger" }
+            if ["orange", "severe", "yellow", "blue", "moderate", "minor"].contains(color) {
+                return "warning"
+            }
+            let text = "\(title) \(message)"
+            if text.range(of: "红色预警|red alert", options: [.regularExpression, .caseInsensitive]) != nil {
+                return "danger"
+            }
+            if text.range(of: "橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert", options: [.regularExpression, .caseInsensitive]) != nil {
+                return "warning"
+            }
+        }
+        switch level.lowercased() {
+        case "critical": return "danger"
+        case "warning": return "warning"
+        default: return "info"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "external"
+        level = try container.decodeIfPresent(String.self, forKey: .level) ?? "info"
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "WinPlate 通知"
+        message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+        unread = try container.decodeIfPresent(Bool.self, forKey: .unread) ?? false
+        createdAt = try container.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
+        externalURL = try container.decodeIfPresent(String.self, forKey: .externalURL)
+        metadata = try container.decodeIfPresent(NotificationMetadata.self, forKey: .metadata)
+        // Prefer API display severity when present. Otherwise leave empty so
+        // `displaySeverity` can apply weather color/title rules (severe≈orange → warning).
+        let decodedSeverity = try container.decodeIfPresent(String.self, forKey: .severity)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let decodedSeverity, ["info", "warning", "danger"].contains(decodedSeverity) {
+            severity = decodedSeverity
+        } else {
+            severity = ""
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, source, level, severity, title, message, unread, createdAt, metadata
+        case externalURL = "externalUrl"
+    }
+}
+
+struct NotificationConversation: Identifiable {
+    let latest: AppNotification
+    let updates: [AppNotification]
+
+    var id: String { latest.id }
+    var memberIDs: [String] { updates.map(\.id) }
+    var unreadIDs: [String] { updates.filter(\.unread).map(\.id) }
+    var unread: Bool { !unreadIDs.isEmpty }
+    var updateCount: Int { updates.count }
+
+    static func fold(_ items: [AppNotification], continuityMilliseconds: Int64 = 4 * 60 * 60 * 1_000) -> [NotificationConversation] {
+        struct Group {
+            let key: String?
+            let newestAt: Int64
+            var updates: [AppNotification]
+        }
+
+        let developmentSources: Set<String> = ["codex", "chatgpt"]
+        let sorted = items.sorted { $0.createdAt > $1.createdAt }
+        var groups: [Group] = []
+
+        for item in sorted {
+            let title = item.title
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+                .lowercased()
+            let key = developmentSources.contains(item.source) && !title.isEmpty && item.createdAt > 0
+                ? "\(item.source)\u{1F}\(title)"
+                : nil
+            if let key,
+               let index = groups.firstIndex(where: {
+                   $0.key == key && $0.newestAt - item.createdAt <= continuityMilliseconds
+               })
+            {
+                groups[index].updates.append(item)
+            } else {
+                groups.append(Group(key: key, newestAt: item.createdAt, updates: [item]))
+            }
+        }
+
+        return groups.map { NotificationConversation(latest: $0.updates[0], updates: $0.updates) }
+    }
 }
 
 struct WeatherLocationSearch: Decodable { let locations: [WeatherLocation] }

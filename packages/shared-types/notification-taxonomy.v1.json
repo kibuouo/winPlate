@@ -49,12 +49,12 @@
     "alertColors": {
       "red": [
         "red",
-        "extreme",
-        "severe"
+        "extreme"
       ],
       "yellow": [
         "orange",
-        "yellow"
+        "yellow",
+        "severe"
       ],
       "blue": [
         "blue"

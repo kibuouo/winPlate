@@ -72,11 +72,11 @@
     );
   }
 
-  function renderDigestDrawerList(digest, items, { sourceLabel, relativeTime } = {}) {
+  function renderDigestDrawerList(digest, items, { sourceLabel, relativeTime, severityClass } = {}) {
     const list = selectDigestItems(digest, items);
     if (!list.length) return '<div class="notification-drawer-empty"><strong>暂无需要处理的通知</strong></div>';
     return `<div class="notification-drawer-list">${list.map((item) => `
-      <button class="notification-drawer-item level-${escapeHtml(item.level || "info")}${notificationColorClass(item)}" type="button" data-notification-drawer-item="${escapeHtml(item.id)}">
+      <button class="notification-drawer-item level-${escapeHtml(severityClass?.(item) || item.level || "info")}${notificationColorClass(item)}" type="button" data-notification-drawer-item="${escapeHtml(item.id)}">
         <span><i class="notification-status-dot" aria-hidden="true"></i>${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
         <strong>${escapeHtml(item.title || "通知")}</strong>
         <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
@@ -178,11 +178,11 @@
       </article>`;
   }
 
-  function renderRawNotifications(items, { expanded = false, sourceLabel, levelLabel, relativeTime } = {}) {
+  function renderRawNotifications(items, { expanded = false, sourceLabel, levelLabel, relativeTime, severityClass } = {}) {
     const list = Array.isArray(items) ? items : [];
     // Baseline markup remains <details class="notification-raw-section"> when collapsed.
     const rows = list.length ? `<div class="notification-page-list">${list.map((item) => `
-      <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(item.level)}${notificationColorClass(item)} ${item.unread ? "unread" : ""}" data-notification-open="${escapeHtml(item.id)}">
+      <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(severityClass?.(item) || item.level || "info")}${notificationColorClass(item)} ${item.unread ? "unread" : ""}" data-notification-open="${escapeHtml(item.id)}">
         <div class="notification-page-main">
           <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
           <h2>${escapeHtml(item.title)}</h2>
@@ -244,7 +244,7 @@
 
   function renderNotificationTimeline(items, {
     selectedId = null, sourceLabel, sourceIcon, levelLabel, absoluteTime, relativeTime,
-    inlineDetail = () => "", now = new Date()
+    severityClass, inlineDetail = () => "", now = new Date()
   } = {}) {
     const groups = groupNotificationItemsByDate(items, now);
     if (!groups.length) {
@@ -255,7 +255,8 @@
         <h2 class="notification-date-label">${escapeHtml(group.label)}</h2>
         ${group.items.map((item) => {
           const selected = String(item.id) === String(selectedId);
-          return `<article class="notification-timeline-entry level-${escapeHtml(item.level || "info")}${notificationColorClass(item)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}">
+          const emphasis = severityClass?.(item) || item.level || "info";
+          return `<article class="notification-timeline-entry level-${escapeHtml(emphasis)}${notificationColorClass(item)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}">
             <button class="notification-timeline-row" type="button" data-notification-select="${escapeHtml(item.id)}" aria-expanded="${selected}">
               <i class="notification-timeline-dot" aria-hidden="true"></i>
               <span class="notification-source-icon source-${escapeHtml(item.source || "system")}" aria-hidden="true">${sourceIcon?.(item.source) || ""}</span>
@@ -279,15 +280,16 @@
       && !["resolved", "cancelled", "ended"].includes(meta.lifecycle);
   }
 
-  function renderNotificationList(items, { selectedId = null, sourceLabel, levelLabel, relativeTime } = {}) {
+  function renderNotificationList(items, { selectedId = null, sourceLabel, levelLabel, relativeTime, severityClass } = {}) {
     const list = Array.isArray(items) ? items : [];
     if (!list.length) {
       return '<div class="notification-master-empty"><strong>没有匹配的通知</strong><span>尝试调整筛选条件。</span></div>';
     }
     return `<div class="notification-master-list">${list.map((item) => {
       const selected = String(item.id) === String(selectedId);
+      const emphasis = severityClass?.(item) || item.level || "info";
       return `
-        <button class="notification-master-row source-${escapeHtml(item.source)} level-${escapeHtml(item.level)}${notificationColorClass(item)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}"
+        <button class="notification-master-row source-${escapeHtml(item.source)} level-${escapeHtml(emphasis)}${notificationColorClass(item)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}"
           type="button" aria-pressed="${selected}" data-notification-select="${escapeHtml(item.id)}">
           <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
           <strong>${escapeHtml(item.title || "通知")}</strong>

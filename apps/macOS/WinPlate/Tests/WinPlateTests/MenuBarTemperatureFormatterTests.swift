@@ -2,6 +2,19 @@ import XCTest
 @testable import WinPlate
 
 final class MenuBarTemperatureFormatterTests: XCTestCase {
+    func testSidebarPresentationMapsStoredVisibilityToSplitViewVisibility() {
+        XCTAssertEqual(SidebarPresentation.visibility(isVisible: true), .all)
+        XCTAssertEqual(SidebarPresentation.visibility(isVisible: false), .detailOnly)
+        XCTAssertTrue(SidebarPresentation.isVisible(.all))
+        XCTAssertTrue(SidebarPresentation.isVisible(.automatic))
+        XCTAssertFalse(SidebarPresentation.isVisible(.detailOnly))
+    }
+
+    func testSidebarPresentationUsesStateSpecificAccessibleLabels() {
+        XCTAssertEqual(SidebarPresentation.actionLabel(isVisible: true), "隐藏侧栏")
+        XCTAssertEqual(SidebarPresentation.actionLabel(isVisible: false), "显示侧栏")
+    }
+
     func testFormatsRoundedCelsiusTemperature() {
         XCTAssertEqual(MenuBarTemperatureFormatter.title(for: 25.6), "26°C")
         XCTAssertEqual(MenuBarTemperatureFormatter.title(for: -4.6), "-5°C")
@@ -285,6 +298,39 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertTrue(detail.summaryText.contains("10"))
     }
 
+    func testDecodesGitHubRepositoryCommits() throws {
+        let payload = """
+        {
+          "rangeType": "month",
+          "rangeKey": "2026-07",
+          "label": "July 2026",
+          "repository": "kibuouo/winPlate",
+          "commits": [{
+            "sha": "abcdef1234567890",
+            "message": "Add contribution history\\n\\nDetails",
+            "url": "https://github.com/kibuouo/winPlate/commit/abcdef1234567890",
+            "authorName": "Kibo",
+            "authorLogin": "kibuouo",
+            "authoredAt": "2026-07-20T08:30:00Z"
+          }],
+          "hasMore": false,
+          "detailsAvailable": true,
+          "message": ""
+        }
+        """
+
+        let commits = try JSONDecoder().decode(
+            GitHubRepositoryCommits.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(commits.repository, "kibuouo/winPlate")
+        XCTAssertEqual(commits.commits.first?.shortSHA, "abcdef1")
+        XCTAssertEqual(commits.commits.first?.subject, "Add contribution history")
+        XCTAssertEqual(commits.commits.first?.authorLogin, "kibuouo")
+        XCTAssertTrue(commits.detailsAvailable)
+    }
+
     func testGitHubContributionFallbackUsesCalendarTotalsWithoutGuessingRepos() throws {
         let monthPayload = """
         {
@@ -313,5 +359,415 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(GitHubContributionFormatting.cacheKey(date: "2026-07-24"), "date:2026-07-24")
         XCTAssertEqual(GitHubContributionFormatting.cacheKey(month: "2026-07"), "month:2026-07")
         XCTAssertNil(GitHubContributionFormatting.cacheKey())
+    }
+
+    func testNotificationDerivesMailSourceID() throws {
+        let payload = """
+        {
+          "id": "mail:12345",
+          "source": "mail",
+          "level": "info",
+          "title": "新邮件",
+          "message": "sender@example.com",
+          "unread": true,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+
+        let notification = try JSONDecoder().decode(AppNotification.self, from: payload)
+
+        XCTAssertEqual(notification.sourceID, "12345")
+    }
+
+    func testNotificationRejectsMismatchedSourceID() throws {
+        let payload = """
+        {
+          "id": "mail:12345",
+          "source": "system",
+          "level": "info",
+          "title": "系统通知",
+          "message": "",
+          "unread": false,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+
+        let notification = try JSONDecoder().decode(AppNotification.self, from: payload)
+
+        XCTAssertNil(notification.sourceID)
+    }
+
+    func testNotificationUsesStructuredSourceMetadata() throws {
+        let payload = """
+        {
+          "id": "external:opaque",
+          "source": "mail",
+          "level": "info",
+          "title": "新邮件",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "externalUrl": "https://mail.qq.com/",
+          "metadata": {
+            "messageId": "67890"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let notification = try JSONDecoder().decode(AppNotification.self, from: payload)
+
+        XCTAssertEqual(notification.sourceID, "67890")
+        XCTAssertEqual(notification.resolvedExternalURL?.host, "mail.qq.com")
+    }
+
+    func testFoldsDevelopmentNotificationsWithinFourHours() throws {
+        let payload = """
+        [
+          {
+            "id": "codex:latest",
+            "source": "codex",
+            "level": "success",
+            "title": "  Build   WinPlate ",
+            "message": "完成",
+            "unread": false,
+            "createdAt": 1780003600000
+          },
+          {
+            "id": "codex:earlier",
+            "source": "codex",
+            "level": "info",
+            "title": "build winplate",
+            "message": "处理中",
+            "unread": true,
+            "createdAt": 1780000000000
+          },
+          {
+            "id": "mail:1",
+            "source": "mail",
+            "level": "info",
+            "title": "Build WinPlate",
+            "message": "邮件",
+            "unread": true,
+            "createdAt": 1780000000000
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let items = try JSONDecoder().decode([AppNotification].self, from: payload)
+        let conversations = NotificationConversation.fold(items)
+
+        XCTAssertEqual(conversations.count, 2)
+        XCTAssertEqual(conversations.first?.updateCount, 2)
+        XCTAssertEqual(conversations.first?.memberIDs, ["codex:latest", "codex:earlier"])
+        XCTAssertTrue(conversations.first?.unread == true)
+        XCTAssertEqual(conversations.last?.latest.id, "mail:1")
+    }
+
+    func testDoesNotFoldDevelopmentNotificationsOutsideFourHours() throws {
+        let payload = """
+        [
+          {
+            "id": "chatgpt:new",
+            "source": "chatgpt",
+            "level": "success",
+            "title": "Review",
+            "message": "完成",
+            "unread": true,
+            "createdAt": 1780020000000
+          },
+          {
+            "id": "chatgpt:old",
+            "source": "chatgpt",
+            "level": "info",
+            "title": "Review",
+            "message": "开始",
+            "unread": true,
+            "createdAt": 1780000000000
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let items = try JSONDecoder().decode([AppNotification].self, from: payload)
+
+        XCTAssertEqual(NotificationConversation.fold(items).count, 2)
+    }
+
+    func testOnlyActiveRedWeatherAlertRequiresAcknowledgement() throws {
+        let payload = """
+        [
+          {
+            "id": "qweather:red-active",
+            "source": "qweather",
+            "level": "critical",
+            "severity": "danger",
+            "title": "红色预警",
+            "message": "",
+            "unread": true,
+            "createdAt": 1780000000000,
+            "metadata": {"severity": "red", "lifecycle": "issued"}
+          },
+          {
+            "id": "qweather:red-resolved",
+            "source": "qweather",
+            "level": "success",
+            "severity": "info",
+            "title": "红色预警解除",
+            "message": "",
+            "unread": true,
+            "createdAt": 1780000000000,
+            "metadata": {"severity": "red", "lifecycle": "resolved"}
+          },
+          {
+            "id": "qweather:orange",
+            "source": "qweather",
+            "level": "warning",
+            "severity": "warning",
+            "title": "橙色预警",
+            "message": "",
+            "unread": true,
+            "createdAt": 1780000000000,
+            "metadata": {"severity": "orange", "lifecycle": "issued"}
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let items = try JSONDecoder().decode([AppNotification].self, from: payload)
+
+        XCTAssertTrue(items[0].requiresAcknowledgement)
+        XCTAssertFalse(items[1].requiresAcknowledgement)
+        XCTAssertFalse(items[2].requiresAcknowledgement)
+        XCTAssertEqual(items[0].displaySeverity, "danger")
+        XCTAssertEqual(items[1].displaySeverity, "info")
+        // Orange weather is warning band (same as yellow), not red danger.
+        XCTAssertEqual(items[2].displaySeverity, "warning")
+    }
+
+    func testNotificationDisplaySeverityPrefersAPIAndFallsBackFromLevel() throws {
+        let withAPI = """
+        {
+          "id": "qweather:1",
+          "source": "qweather",
+          "level": "critical",
+          "severity": "info",
+          "title": "暴雨红色预警解除",
+          "message": "风险降低",
+          "unread": true,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+        let withoutAPI = """
+        {
+          "id": "system:1",
+          "source": "system",
+          "level": "critical",
+          "title": "系统故障",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000
+        }
+        """.data(using: .utf8)!
+
+        let resolved = try JSONDecoder().decode(AppNotification.self, from: withAPI)
+        let fallback = try JSONDecoder().decode(AppNotification.self, from: withoutAPI)
+
+        XCTAssertEqual(resolved.severity, "info")
+        XCTAssertEqual(resolved.displaySeverity, "info")
+        // Missing API severity is left empty; displaySeverity falls back from level.
+        XCTAssertEqual(fallback.severity, "")
+        XCTAssertEqual(fallback.displaySeverity, "danger")
+    }
+
+    func testGrokBillingInvertsUsedPercentToRemaining() {
+        let payload = """
+        {
+          "config": {
+            "creditUsagePercent": 30,
+            "billingPeriodEnd": "2099-01-01T00:00:00Z"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let usage = ProcessGrokUsageReader.parseBilling(payload)
+
+        XCTAssertEqual(usage.source, "grok-cli")
+        XCTAssertEqual(usage.status, "Normal")
+        // Upstream 30 is used → display remaining 70 (same polarity as Codex).
+        XCTAssertEqual(usage.remainingPct, 70)
+        XCTAssertNotEqual(usage.remainingPct, 30)
+    }
+
+    func testGrokBillingClampsUsedPercent() {
+        let over = ProcessGrokUsageReader.parseBilling("""
+        {"config":{"creditUsagePercent":150}}
+        """.data(using: .utf8)!)
+        let under = ProcessGrokUsageReader.parseBilling("""
+        {"config":{"creditUsagePercent":-5}}
+        """.data(using: .utf8)!)
+
+        XCTAssertEqual(over.remainingPct, 0)
+        XCTAssertEqual(under.remainingPct, 100)
+    }
+
+    func testAgentUsageItemsMapChatGPTFromCodexAndSuperGrokRemaining() {
+        let codex = UsageSnapshot(
+            source: "codex-app-server",
+            status: "Normal",
+            remainingPct: 49,
+            resetText: "2d 4h",
+            windows: UsageWindows(
+                fiveHour: nil,
+                sevenDay: UsageWindow(remainingPct: 49, resetText: "2d 4h")
+            ),
+            balances: []
+        )
+        let deepSeek = UsageSnapshot(
+            source: "deepseek-api",
+            status: "Normal",
+            remainingPct: nil,
+            resetText: nil,
+            windows: nil,
+            balances: [Balance(currency: "CNY", totalBalance: "12.34")]
+        )
+        let superGrok = UsageSnapshot(
+            source: "grok-cli",
+            status: "Normal",
+            remainingPct: 41,
+            resetText: "1d 2h",
+            windows: nil,
+            balances: []
+        )
+
+        let grokTokens = CodexTokenUsage(
+            hourly: [.init(start: Date(timeIntervalSince1970: 0), tokens: 42)],
+            daily: [.init(start: Date(timeIntervalSince1970: 0), tokens: 42)],
+            updatedAt: Date(),
+            isAvailable: true
+        )
+        let items = AgentUsageItem.build(
+            codex: codex,
+            codexError: nil,
+            deepSeek: deepSeek,
+            deepSeekError: nil,
+            deepSeekUpdatedAt: nil,
+            superGrok: superGrok,
+            superGrokError: nil,
+            superGrokTokenUsage: grokTokens,
+            relativeTime: { _ in "刚刚" }
+        )
+
+        XCTAssertEqual(items.map(\.id), ["chatgpt", "deepseek", "supergrok"])
+        XCTAssertEqual(items[0].name, "ChatGPT")
+        XCTAssertEqual(items[0].primary, "49%")
+        XCTAssertEqual(items[0].polarity, .remaining)
+        XCTAssertTrue(items[0].secondary.contains("7d 剩余"))
+        XCTAssertTrue(items[0].secondary.contains("重置 2d 4h"))
+        XCTAssertFalse(items[0].secondary.contains("5h"))
+        XCTAssertEqual(items[1].primary, "¥12.34")
+        XCTAssertEqual(items[2].name, "SuperGrok")
+        XCTAssertEqual(items[2].primary, "41%")
+        XCTAssertEqual(items[2].polarity, .remaining)
+        XCTAssertTrue(items[2].secondary.contains("重置 1d 2h"))
+        XCTAssertFalse(items[2].secondary.contains("账期"))
+        XCTAssertTrue(items[2].tokenUsage.isAvailable)
+        XCTAssertEqual(items[2].tokenUsage.totalTokens, 42)
+    }
+
+    func testCodexRateLimitsParserMapsPrimaryWeeklyWindowToSevenDay() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let response: [String: Any] = [
+            "id": 2,
+            "result": [
+                "rateLimits": [
+                    "limitId": "codex",
+                    "primary": [
+                        "usedPercent": 51,
+                        "windowDurationMins": 10_080,
+                        "resetsAt": 1_000_000 + (2 * 86_400)
+                    ],
+                    "secondary": NSNull()
+                ]
+            ]
+        ]
+
+        let usage = CodexRateLimitsParser.snapshot(from: response, now: now)
+
+        XCTAssertEqual(usage.status, "Normal")
+        XCTAssertEqual(usage.remainingPct, 49)
+        XCTAssertNil(usage.fiveHour)
+        XCTAssertEqual(usage.sevenDay?.remainingPct, 49)
+        XCTAssertEqual(usage.sevenDay?.resetText, "2d")
+        XCTAssertEqual(usage.windows?.fiveHour?.remainingPct, nil)
+        XCTAssertEqual(usage.windows?.sevenDay?.remainingPct, 49)
+    }
+
+    func testCodexRateLimitsParserStillMapsShortPrimaryAsFiveHourWhenPresent() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let response: [String: Any] = [
+            "id": 2,
+            "result": [
+                "rateLimits": [
+                    "primary": [
+                        "usedPercent": 20,
+                        "windowDurationMins": 300,
+                        "resetsAt": 1_000_000 + 7_200
+                    ],
+                    "secondary": [
+                        "usedPercent": 40,
+                        "windowDurationMins": 10_080,
+                        "resetsAt": 1_000_000 + 86_400
+                    ]
+                ]
+            ]
+        ]
+
+        let usage = CodexRateLimitsParser.snapshot(from: response, now: now)
+
+        XCTAssertEqual(usage.fiveHour?.remainingPct, 80)
+        XCTAssertEqual(usage.sevenDay?.remainingPct, 60)
+        // Headline prefers weekly remaining when both exist.
+        XCTAssertEqual(usage.remainingPct, 60)
+    }
+
+    func testWorkspaceDestinationIncludesAgent() {
+        XCTAssertTrue(WorkspaceDestination.allCases.contains(.agent))
+        XCTAssertEqual(WorkspaceDestination.agent.title, "Agent")
+        XCTAssertEqual(WorkspaceDestination.agent.symbol, "cpu")
+    }
+
+    func testOrangeWeatherWithQWeatherSevereIsWarningNotDanger() throws {
+        // QWeather encodes orange band as metadata.severity "severe".
+        let payload = """
+        {
+          "id": "qweather:heat-orange",
+          "source": "qweather",
+          "level": "critical",
+          "severity": "warning",
+          "title": "高温橙色预警",
+          "message": "白天最高气温将升至37℃以上。",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "severe", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+        let withoutAPISeverity = """
+        {
+          "id": "qweather:heat-orange-2",
+          "source": "qweather",
+          "level": "critical",
+          "title": "高温橙色预警",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "severe", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+
+        let withAPI = try JSONDecoder().decode(AppNotification.self, from: payload)
+        let fallback = try JSONDecoder().decode(AppNotification.self, from: withoutAPISeverity)
+
+        XCTAssertEqual(withAPI.displaySeverity, "warning")
+        XCTAssertEqual(fallback.displaySeverity, "warning")
+        XCTAssertFalse(withAPI.requiresAcknowledgement)
+        XCTAssertFalse(fallback.requiresAcknowledgement)
     }
 }

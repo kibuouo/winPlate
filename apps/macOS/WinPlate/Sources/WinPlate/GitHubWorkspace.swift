@@ -145,6 +145,11 @@ private struct GitHubContributionSection: View {
                             isLoading: state.isLoadingGitHubContributionDetail,
                             error: state.githubContributionError,
                             selectedDateKey: state.selectedGitHubDateKey,
+                            selectedRepository: state.selectedGitHubContributionRepository,
+                            repositoryCommits: state.githubRepositoryCommits,
+                            isLoadingRepositoryCommits: state.isLoadingGitHubRepositoryCommits,
+                            repositoryCommitsError: state.githubRepositoryCommitsError,
+                            onSelectRepository: { state.selectGitHubContributionRepository($0) },
                             onClearDate: { state.clearGitHubDateSelection() }
                         )
                         .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
@@ -156,6 +161,11 @@ private struct GitHubContributionSection: View {
                             isLoading: state.isLoadingGitHubContributionDetail,
                             error: state.githubContributionError,
                             selectedDateKey: state.selectedGitHubDateKey,
+                            selectedRepository: state.selectedGitHubContributionRepository,
+                            repositoryCommits: state.githubRepositoryCommits,
+                            isLoadingRepositoryCommits: state.isLoadingGitHubRepositoryCommits,
+                            repositoryCommitsError: state.githubRepositoryCommitsError,
+                            onSelectRepository: { state.selectGitHubContributionRepository($0) },
                             onClearDate: { state.clearGitHubDateSelection() }
                         )
                     }
@@ -207,12 +217,14 @@ private struct GitHubContributionSection: View {
             }
             .disabled(selectedIndex <= 0)
 
-            Button("今天") {
-                if let last = months.last {
-                    state.selectGitHubMonth(last.key)
+            if let currentMonth = months.last {
+                Button("本月") {
+                    state.selectGitHubMonth(currentMonth.key)
                 }
+                .buttonStyle(.bordered)
+                .disabled(selectedIndex == months.count - 1)
+                .help("返回当前月份")
             }
-            .buttonStyle(.bordered)
 
             Button {
                 guard selectedIndex < months.count - 1 else { return }
@@ -243,6 +255,7 @@ private struct GitHubYearHeatmap: View {
     let months: [GitHubContributionMonth]
     let selectedKey: String?
     let onSelectMonth: (String) -> Void
+    @State private var didSetInitialScrollPosition = false
 
     private let cell: CGFloat = 9
     private let gap: CGFloat = 2
@@ -251,43 +264,60 @@ private struct GitHubYearHeatmap: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("近 12 个月")
                 .font(.subheadline.weight(.semibold))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(months) { month in
-                        Button {
-                            onSelectMonth(month.key)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                LazyVGrid(
-                                    columns: Array(
-                                        repeating: GridItem(.fixed(cell), spacing: gap),
-                                        count: 7
-                                    ),
-                                    spacing: gap
-                                ) {
-                                    ForEach(Array(month.levels.enumerated()), id: \.offset) { _, level in
-                                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                            .fill(GitHubContributionPalette.color(for: level))
-                                            .frame(width: cell, height: cell)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(months) { month in
+                            Button {
+                                onSelectMonth(month.key)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    LazyVGrid(
+                                        columns: Array(
+                                            repeating: GridItem(.fixed(cell), spacing: gap),
+                                            count: 7
+                                        ),
+                                        spacing: gap
+                                    ) {
+                                        ForEach(Array(month.levels.enumerated()), id: \.offset) { _, level in
+                                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                                .fill(GitHubContributionPalette.color(for: level))
+                                                .frame(width: cell, height: cell)
+                                        }
                                     }
+                                    Text(shortMonthLabel(month.key))
+                                        .font(.system(size: 10, weight: selectedKey == month.key ? .bold : .regular))
+                                        .foregroundStyle(selectedKey == month.key ? Color.primary : Color.secondary)
                                 }
-                                Text(shortMonthLabel(month.key))
-                                    .font(.system(size: 10, weight: selectedKey == month.key ? .bold : .regular))
-                                    .foregroundStyle(selectedKey == month.key ? Color.primary : Color.secondary)
+                                .padding(6)
+                                .background(
+                                    selectedKey == month.key
+                                        ? Color.accentColor.opacity(0.12)
+                                        : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                )
                             }
-                            .padding(6)
-                            .background(
-                                selectedKey == month.key
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            )
+                            .buttonStyle(.plain)
+                            .id(month.id)
+                            .help("\(month.label)：\(month.commits) 次贡献")
                         }
-                        .buttonStyle(.plain)
-                        .help("\(month.label)：\(month.commits) 次贡献")
                     }
                 }
+                .onAppear {
+                    positionAtCurrentMonth(using: proxy)
+                }
+                .onChange(of: months.map(\.id)) { _, _ in
+                    positionAtCurrentMonth(using: proxy)
+                }
             }
+        }
+    }
+
+    private func positionAtCurrentMonth(using proxy: ScrollViewProxy) {
+        guard !didSetInitialScrollPosition, let currentMonth = months.last else { return }
+        didSetInitialScrollPosition = true
+        DispatchQueue.main.async {
+            proxy.scrollTo(currentMonth.id, anchor: .trailing)
         }
     }
 
@@ -424,11 +454,12 @@ private struct GitHubContributionActivityPanel: View {
     let isLoading: Bool
     let error: String?
     let selectedDateKey: String?
+    let selectedRepository: GitHubContributionRepository?
+    let repositoryCommits: GitHubRepositoryCommits
+    let isLoadingRepositoryCommits: Bool
+    let repositoryCommitsError: String?
+    let onSelectRepository: (GitHubContributionRepository) -> Void
     let onClearDate: () -> Void
-
-    private var maxRepoCount: Int {
-        detail.repositories.map(\.count).max() ?? 0
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -464,7 +495,7 @@ private struct GitHubContributionActivityPanel: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     } else if detail.detailsAvailable {
-                        Text("已按仓库拆分")
+                        Text("可查看仓库 Git 提交记录")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -487,18 +518,7 @@ private struct GitHubContributionActivityPanel: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 120)
             } else if !detail.repositories.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(detail.repositories) { repo in
-                            GitHubContributionRepositoryRow(
-                                repository: repo,
-                                total: max(detail.totalCount, 1),
-                                peak: max(maxRepoCount, 1)
-                            )
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: 140, maxHeight: 280, alignment: .topLeading)
+                repositoryCommitContent
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("共 \(detail.totalCount) 次提交")
@@ -525,58 +545,126 @@ private struct GitHubContributionActivityPanel: View {
         }
         return "该时段暂无按仓库汇总的提交明细。"
     }
+
+    @ViewBuilder
+    private var repositoryCommitContent: some View {
+        let repository = selectedRepository ?? detail.repositories.first
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Git 提交记录")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                Menu {
+                    ForEach(detail.repositories) { item in
+                        Button {
+                            onSelectRepository(item)
+                        } label: {
+                            Text("\(item.shortName) · \(item.count) 次")
+                        }
+                    }
+                } label: {
+                    Label(repository?.shortName ?? "选择仓库", systemImage: "shippingbox")
+                        .font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+                .help("选择要查看提交记录的仓库")
+            }
+
+            if isLoadingRepositoryCommits && repositoryCommits.commits.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在读取仓库 Git 提交记录…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+            } else if !repositoryCommits.commits.isEmpty {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(repositoryCommits.commits) { commit in
+                            GitHubCommitRow(commit: commit)
+                        }
+                        if repositoryCommits.hasMore {
+                            Text("仅展示最近 100 条提交记录")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 140, maxHeight: 280, alignment: .topLeading)
+            } else {
+                Text(repositoryCommitsError ?? repositoryCommits.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+            }
+        }
+    }
 }
 
-private struct GitHubContributionRepositoryRow: View {
-    let repository: GitHubContributionRepository
-    let total: Int
-    let peak: Int
-
-    private var share: Double {
-        guard total > 0 else { return 0 }
-        return min(1, Double(repository.count) / Double(total))
-    }
-
-    private var bar: Double {
-        guard peak > 0 else { return 0 }
-        return min(1, Double(repository.count) / Double(peak))
-    }
+private struct GitHubCommitRow: View {
+    let commit: GitHubCommit
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let url = URL(string: repository.url), !repository.url.isEmpty {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "arrow.turn.down.right")
+                .font(.caption)
+                .foregroundStyle(.green)
+                .frame(width: 18, height: 18)
+                .background(Color.green.opacity(0.12), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                if let url = URL(string: commit.url), !commit.url.isEmpty {
                     Link(destination: url) {
-                        Text(repository.shortName)
+                        Text(commit.subject)
                             .font(.caption.weight(.semibold))
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
                     }
-                    .help(repository.nameWithOwner)
+                    .buttonStyle(.plain)
                 } else {
-                    Text(repository.shortName)
+                    Text(commit.subject)
                         .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .help(repository.nameWithOwner)
+                        .lineLimit(2)
                 }
-                Spacer(minLength: 4)
-                Text("\(repository.count)")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(String(format: "%.0f%%", share * 100))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 34, alignment: .trailing)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.06))
-                    Capsule()
-                        .fill(Color.green.opacity(0.75))
-                        .frame(width: max(4, geo.size.width * bar))
+                HStack(spacing: 6) {
+                    Text(commit.shortSHA)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                    if !commit.authorName.isEmpty {
+                        Text(commit.authorName)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    if let date = formattedCommitDate {
+                        Text(date)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
-            .frame(height: 5)
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 3)
+    }
+
+    private var formattedCommitDate: String? {
+        guard !commit.authoredAt.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = formatter.date(from: commit.authoredAt)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: commit.authoredAt)
+        }
+        guard let date else { return commit.authoredAt }
+        let display = DateFormatter()
+        display.locale = Locale(identifier: "zh_CN")
+        display.dateFormat = "MM-dd HH:mm"
+        return display.string(from: date)
     }
 }
 

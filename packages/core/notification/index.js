@@ -4,6 +4,7 @@ const SOURCE_ALIASES = {
 };
 
 const VALID_LEVELS = new Set(notificationTaxonomy.levels);
+const VALID_SEVERITIES = new Set(["info", "warning", "danger"]);
 const UNKNOWN_SOURCE = notificationTaxonomy.unknownSource;
 const WEATHER_LIFECYCLE = notificationTaxonomy.weather.lifecycle;
 const WEATHER_RESOLVED_RE = /解除|取消|撤销|终止|结束|失效|expired|cancel(?:led|ed)?|resolved|cleared/i;
@@ -40,6 +41,11 @@ function normalizeSource(value) {
 function normalizeLevel(value) {
   const level = String(value || "info").toLowerCase();
   return VALID_LEVELS.has(level) ? level : "info";
+}
+
+function normalizeSeverity(value) {
+  const severity = String(value || "").trim().toLowerCase();
+  return VALID_SEVERITIES.has(severity) ? severity : null;
 }
 
 function weatherLifecycle(item, combinedText) {
@@ -177,6 +183,10 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   const sourceId = deriveSourceId(item, source, id, meta);
   const dedupeKey = text(item.dedupeKey || meta.alertId || meta.threadId || sourceId || id, 180);
   let level = normalizeLevel(item.level);
+  if (lifecycle === "resolved") level = "success";
+  // Prefer local-api severity when present; otherwise leave unset for digest fallback.
+  let severity = normalizeSeverity(item.severity ?? item.displaySeverity ?? meta.severity);
+  if (lifecycle === "resolved") severity = "info";
   let alertColor = weatherAlertColor({ source, title, body, meta });
   if (alertColor) meta.alertColor = alertColor;
   if (source === "qweather") {
@@ -217,6 +227,7 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
     dedupeKey,
     meta
   };
+  if (severity) notification.severity = severity;
   notification.actions = getActionsForNotification(notification);
   return notification;
 }
@@ -237,6 +248,7 @@ module.exports = {
   getActionsForNotification,
   normalizedConversationTitle,
   normalizeLevel,
+  normalizeSeverity,
   normalizeRawNotification,
   normalizeSource,
   notificationRoute,

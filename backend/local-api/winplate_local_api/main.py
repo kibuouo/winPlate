@@ -501,8 +501,201 @@ def normalize_notification_level(level: str) -> str:
     return NotificationManager.normalize_level(level)
 
 
+def normalize_display_severity(severity: str) -> str:
+    value = str(severity or "info").strip().lower()
+    return value if value in {"info", "warning", "danger"} else "info"
+
+
+# Semantic display severity (info | warning | danger). Mirrors packages/core/digest
+# severityForNotification so both platform clients consume one authoritative rule set.
+# Match Windows weather storage: only red-class alerts are danger.
+# Orange sits with yellow/blue as warning (amber UI), not red danger.
+DANGER_WEATHER_RE = re.compile(r"红色预警|red alert", re.I)
+WARNING_WEATHER_RE = re.compile(
+    r"橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert",
+    re.I,
+)
+# QWeather color ladder: blue/minor → yellow/moderate → orange/severe → red/extreme.
+# Only true red-class maps to display danger; severe is orange band → warning.
+DANGER_WEATHER_COLORS = frozenset({"red", "extreme"})
+WARNING_WEATHER_COLORS = frozenset({
+    "orange", "yellow", "blue", "severe", "moderate", "minor", "unknown", "white", "green",
+})
+TASK_FAILURE_RE = re.compile(r"失败|错误|异常|崩溃|failed|failure|error|crash", re.I)
+CORE_FAILURE_RE = re.compile(
+    r"(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)"
+    r"|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)"
+    r"|核心模块.*(?:不可用|故障|失败)"
+    r"|core module.*(?:unavailable|failure|failed)"
+    r"|service unavailable",
+    re.I,
+)
+SEVERE_SYSTEM_RE = re.compile(
+    r"严重错误|致命错误|系统崩溃|critical error|fatal error|system crash",
+    re.I,
+)
+
+
+def severity_for_notification(item: dict | None = None) -> str:
+    """Map a notification to display severity: info | warning | danger."""
+    payload = item if isinstance(item, dict) else {}
+    source = str(payload.get("source") or "system").strip().lower() or "system"
+    title = str(payload.get("title") or "")
+    body = str(payload.get("body") or payload.get("message") or "")
+    content = f"{title} {body}"
+    level = normalize_notification_level(str(payload.get("level") or "info"))
+    meta = payload.get("metadata")
+    if not isinstance(meta, dict):
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    lifecycle = str(meta.get("lifecycle") or meta.get("status") or "").strip().lower()
+
+    if source == "qweather":
+        if lifecycle == "resolved":
+            return "info"
+        weather_color = str(meta.get("severity") or "").strip().lower()
+        if weather_color in DANGER_WEATHER_COLORS:
+            return "danger"
+        if weather_color in WARNING_WEATHER_COLORS:
+            return "warning"
+        if DANGER_WEATHER_RE.search(content):
+            return "danger"
+        if WARNING_WEATHER_RE.search(content):
+            return "warning"
+        if level == "critical":
+            return "danger"
+        if level == "warning":
+            return "warning"
+        return "info"
+    if CORE_FAILURE_RE.search(content):
+        return "danger"
+    if source == "mail":
+        return "info"
+    if source in {"codex", "chatgpt"}:
+        return "warning" if TASK_FAILURE_RE.search(content) else "info"
+    if source == "system":
+        if level == "critical" or SEVERE_SYSTEM_RE.search(content):
+            return "danger"
+        if level == "warning" or TASK_FAILURE_RE.search(content):
+            return "warning"
+        return "info"
+    if level == "critical":
+        return "danger"
+    if level == "warning":
+        return "warning"
+    return "info"
+
+
 def notification_row_to_item(row: sqlite3.Row) -> dict:
-    return NotificationManager.row_to_item(row)
+    return notification_api_item(NotificationManager.row_to_item(row))
+
+
+def notification_api_item(item: dict) -> dict:
+    value = dict(item)
+    value["severity"] = severity_for_notification(value)
+    return value
+
+
+def normalize_digest_severity(severity: str) -> str:
+    value = str(severity or "info").strip().lower()
+    return value if value in {"info", "warning", "danger"} else "info"
+
+
+def notification_digest_record_row_to_item(row: sqlite3.Row) -> dict:
+    try:
+        payload = json.loads(row["payload"])
+    except (TypeError, json.JSONDecodeError):
+        payload = {}
+    return {
+        "id": int(row["id"]),
+        "source": row["source"],
+        "model": row["model"] or None,
+        "title": row["title"],
+        "summary": row["summary"],
+        "content": row["content"],
+        "severity": row["severity"],
+        "category": row["category"],
+        "iconKey": row["icon_key"],
+        "unreadCount": int(row["unread_count"]),
+        "generatedAt": int(row["generated_at"]),
+        "generatedAtIso": row["generated_at_iso"],
+        "createdAt": int(row["created_at"]),
+        "payload": payload if isinstance(payload, dict) else {},
+    }
+
+
+def persist_notification_digest_record(payload: NotificationDigestRecordPayload) -> dict:
+    generated_at = int(payload.generatedAt or utc_epoch_seconds() * 1000)
+    created_at = utc_epoch_seconds() * 1000
+    title = clean_mail_text(payload.title, limit=120) or "智能摘要"
+    summary = clean_mail_text(payload.summary, limit=500) or title
+    content = clean_mail_text(payload.content or f"{title} {summary}", limit=800) or summary
+    severity = normalize_digest_severity(payload.severity)
+    category = clean_mail_text(payload.category, limit=40).lower() or "system"
+    icon_key = clean_mail_text(payload.iconKey, limit=80) or "bell"
+    source = normalize_notification_source(payload.source)
+    model = clean_mail_text(payload.model or "", limit=80)
+    unread_count = max(0, int(payload.unreadCount or 0))
+    source_ids = [
+        clean_mail_text(str(item), limit=160)
+        for item in (payload.sourceIds or [])
+        if clean_mail_text(str(item), limit=160)
+    ]
+    stored_payload = json.dumps({
+        "sourceIds": source_ids,
+        "generatedAtIso": datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
+    }, ensure_ascii=False)
+    with closing(connect()) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO notification_digest_records
+            (source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source,
+                model,
+                title,
+                summary,
+                content,
+                severity,
+                category,
+                icon_key,
+                unread_count,
+                generated_at,
+                datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
+                created_at,
+                stored_payload,
+            ),
+        )
+        row = connection.execute(
+            """
+            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
+            FROM notification_digest_records
+            WHERE id = ?
+            """,
+            (cursor.lastrowid,),
+        ).fetchone()
+        connection.commit()
+    return notification_digest_record_row_to_item(row)
+
+
+def notification_digest_records(limit: int = 20) -> dict:
+    safe_limit = max(1, min(100, int(limit or 20)))
+    with closing(connect()) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
+            FROM notification_digest_records
+            ORDER BY generated_at DESC, id DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+    items = [notification_digest_record_row_to_item(row) for row in rows]
+    return {
+        "items": items,
+        "updatedAt": utc_epoch_seconds() * 1000,
+    }
 
 
 def sync_mail_notifications(items: list[dict]) -> None:
@@ -873,7 +1066,11 @@ def sync_chatgpt_desktop_task_notifications() -> None:
 def notification_summary(limit: int = 50) -> dict:
     sync_openai_desktop_notifications()
     sync_chatgpt_desktop_task_notifications()
-    return notification_manager.summary(limit)
+    summary = notification_manager.summary(limit)
+    summary["items"] = [notification_api_item(item) for item in summary.get("items", [])]
+    if summary.get("latest") is not None:
+        summary["latest"] = notification_api_item(summary["latest"])
+    return summary
 
 
 def set_mail_notification_unread_state(uid: str, unread: bool) -> None:
@@ -954,7 +1151,7 @@ def push_notification(payload: NotificationPayload) -> dict:
     source = normalize_notification_source(payload.source)
     now = utc_epoch_seconds() * 1000
     notification_id = payload.id or f"{source}:{now}"
-    return notification_manager.publish(
+    return notification_api_item(notification_manager.publish(
         notification_id=notification_id,
         source=source,
         title=clean_mail_text(payload.title, limit=180),
@@ -962,7 +1159,7 @@ def push_notification(payload: NotificationPayload) -> dict:
         level=payload.level,
         created_at=payload.createdAt,
         external_url=payload.externalUrl,
-    )
+    ))
 
 
 def cached_mail_outline() -> list[dict]:
@@ -2003,6 +2200,42 @@ def weather_alert_lifecycle(alert: dict, title: str = "", message: str = "") -> 
     return "issued"
 
 
+def weather_alert_family_key(alert: dict) -> str | None:
+    issuer = clean_mail_text(str(
+        alert.get("senderName")
+        or alert.get("sender")
+        or alert.get("issuer")
+        or alert.get("organization")
+        or ""
+    ), limit=120).casefold()
+    event_type = clean_mail_text(str(
+        alert.get("type")
+        or alert.get("typeName")
+        or alert.get("eventType")
+        or alert.get("event")
+        or ""
+    ), limit=120).casefold()
+    if not issuer or not event_type:
+        return None
+    normalized = re.sub(r"\s+", " ", f"{issuer}\x1f{event_type}").strip()
+    return normalized[:240] or None
+
+
+def settle_weather_notification_family(family_key: str, current_notification_id: str) -> None:
+    notification_manager.settle_metadata_family(
+        source="qweather",
+        family_key=family_key,
+        current_notification_id=current_notification_id,
+    )
+
+
+def settle_stale_weather_notifications(current_notification_ids: set[str]) -> None:
+    notification_manager.settle_stale_source_notifications(
+        source="qweather",
+        current_notification_ids=current_notification_ids,
+    )
+
+
 def qweather_alerts(latitude: float | None = None, longitude: float | None = None) -> dict:
     location = {"latitude": latitude, "longitude": longitude}
     if latitude is None or longitude is None:
@@ -2020,6 +2253,7 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
     if not isinstance(alerts, list):
         alerts = []
     normalized = []
+    current_notification_ids: set[str] = set()
     for alert in alerts:
         if not isinstance(alert, dict):
             continue
@@ -2031,7 +2265,13 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
         message = clean_mail_text(str(alert.get("description") or alert.get("text") or ""), limit=360)
         severity = str(alert.get("severity") or alert.get("color") or "warning").lower()
         lifecycle = weather_alert_lifecycle(alert, title, message)
-        level = "success" if lifecycle == "resolved" else "critical" if severity in {"red", "extreme", "severe"} else "warning"
+        family_key = weather_alert_family_key(alert)
+        # Storage level: red/extreme → critical; orange(severe)/yellow/blue → warning.
+        level = (
+            "success" if lifecycle == "resolved"
+            else "critical" if severity in {"red", "extreme"}
+            else "warning"
+        )
         if lifecycle == "resolved" and "风险降低" not in f"{title} {message}":
             message = clean_mail_text(f"预警已解除，风险降低。{message}", limit=360)
         created_at = None
@@ -2053,21 +2293,32 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
             "riskDelta": "decreased" if lifecycle == "resolved" else "increased" if lifecycle == "upgraded" else "active",
             "createdAt": created_at,
         }
+        if family_key:
+            normalized_alert["familyKey"] = family_key
         normalized.append(normalized_alert)
         if alert_id:
+            notification_id = f"qweather:{alert_id}"
+            current_notification_ids.add(notification_id)
+            if family_key and lifecycle in {"resolved", "upgraded"}:
+                settle_weather_notification_family(family_key, notification_id)
+            metadata = {
+                "severity": severity,
+                "lifecycle": lifecycle,
+                "riskDelta": normalized_alert["riskDelta"],
+            }
+            if family_key:
+                metadata["familyKey"] = family_key
+            metadata["alertId"] = alert_id
             notification_manager.publish(
-                notification_id=f"qweather:{alert_id}",
+                notification_id=notification_id,
                 source="qweather",
                 level=level,
                 title=title,
                 message=message,
                 created_at=created_at,
-                metadata={
-                    "severity": severity,
-                    "lifecycle": lifecycle,
-                    "riskDelta": normalized_alert["riskDelta"],
-                },
+                metadata=metadata,
             )
+    settle_stale_weather_notifications(current_notification_ids)
     return {
         "source": "qweather",
         "alerts": normalized,
@@ -2374,6 +2625,97 @@ def github_contribution_detail(
         return {**base, "message": "Repository details are temporarily unavailable."}
 
 
+def github_repository_commits(
+    username: str,
+    repository_name: str,
+    *,
+    date_text: str | None = None,
+    month_text: str | None = None,
+) -> dict:
+    if bool(date_text) == bool(month_text):
+        raise ValueError("exactly one contribution range is required")
+
+    repository_parts = repository_name.strip().split("/")
+    if len(repository_parts) != 2 or not all(repository_parts):
+        raise ValueError("invalid repository name")
+
+    try:
+        if date_text:
+            start = datetime.strptime(date_text, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+            range_type, range_key = "date", date_text
+            label = start.strftime("%B %-d, %Y") if os.name != "nt" else start.strftime("%B %#d, %Y")
+        else:
+            start = datetime.strptime(month_text, "%Y-%m").replace(tzinfo=timezone.utc)
+            next_year, next_month = (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+            end = datetime(next_year, next_month, 1, tzinfo=timezone.utc)
+            range_type, range_key = "month", month_text or ""
+            label = start.strftime("%B %Y")
+    except ValueError as error:
+        raise ValueError("invalid contribution range") from error
+
+    base = {
+        "rangeType": range_type,
+        "rangeKey": range_key,
+        "label": label,
+        "repository": repository_name.strip(),
+        "commits": [],
+        "hasMore": False,
+        "detailsAvailable": False,
+    }
+    if not github_token():
+        return {**base, "message": "仓库 Git 提交记录需要配置 GitHub Token。"}
+
+    owner, name = repository_parts
+    params = urlencode({
+        "author": username,
+        "since": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "until": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "per_page": 100,
+    })
+    path = f"/repos/{quote(owner, safe='')}/{quote(name, safe='')}/commits?{params}"
+    try:
+        payload = github_request(path)
+        if not isinstance(payload, list):
+            raise RuntimeError("unavailable: GitHub commits response was invalid")
+
+        commits = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            commit = item.get("commit")
+            if not isinstance(commit, dict):
+                continue
+            sha = item.get("sha")
+            message = commit.get("message")
+            if not isinstance(sha, str) or not sha or not isinstance(message, str) or not message:
+                continue
+            commit_author = commit.get("author") if isinstance(commit.get("author"), dict) else {}
+            github_author = item.get("author") if isinstance(item.get("author"), dict) else {}
+            commits.append({
+                "sha": sha,
+                "message": message,
+                "url": item.get("html_url") if isinstance(item.get("html_url"), str) else "",
+                "authorName": commit_author.get("name") if isinstance(commit_author.get("name"), str) else username,
+                "authorLogin": github_author.get("login") if isinstance(github_author.get("login"), str) else username,
+                "authoredAt": commit_author.get("date") if isinstance(commit_author.get("date"), str) else "",
+            })
+        return {
+            **base,
+            "commits": commits,
+            "hasMore": len(payload) >= 100,
+            "detailsAvailable": True,
+            "message": "" if commits else "该时段没有可读取的 Git 提交记录。",
+        }
+    except RuntimeError as error:
+        _reason, _, _detail = str(error).partition(":")
+        messages = {
+            "auth": "GitHub 身份验证失败，无法读取该仓库的提交记录。",
+            "rate-limit": "GitHub 请求频率受限，暂时无法读取提交记录。",
+            "slow": "GitHub 响应较慢，暂时无法读取提交记录。",
+            "unavailable": "GitHub 当前不可用，暂时无法读取提交记录。",
+        }
+        return {**base, "message": messages.get(_reason, messages["unavailable"])}
 def map_github_commit_record(item: object, repository_name: str) -> dict | None:
     if not isinstance(item, dict):
         return None
@@ -2690,6 +3032,23 @@ def github_contributions(date: str | None = None, month: str | None = None) -> d
     try:
         return github_contribution_detail(
             github_username(),
+            date_text=date,
+            month_text=month,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@api.get("/api/github/commits")
+def github_commits(
+    repository: str,
+    date: str | None = None,
+    month: str | None = None,
+) -> dict:
+    try:
+        return github_repository_commits(
+            github_username(),
+            repository,
             date_text=date,
             month_text=month,
         )

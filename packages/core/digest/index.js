@@ -19,9 +19,50 @@ const PRIORITY_BY_SCORE = [
 ];
 const SEVERITY_RANK = { info: 0, warning: 1, danger: 2 };
 const ALERT_COLORS = new Set(["red", "yellow", "blue", "green"]);
+// Match Windows weather storage: only red-class alerts are danger.
+// Orange sits with yellow as warning (amber UI); blue remains informational.
+const DANGER_WEATHER_RE = /红色预警|red alert/i;
+const WARNING_WEATHER_RE = /橙色预警|黄色预警|orange alert|yellow alert/i;
+// QWeather: severe ≈ orange band; only red/extreme are display danger.
+const DANGER_WEATHER_COLORS = new Set(["red", "extreme"]);
+const WARNING_WEATHER_COLORS = new Set([
+  "orange", "yellow", "severe", "moderate", "minor", "unknown", "white", "green"
+]);
+const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
+const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;
+const SEVERE_SYSTEM_RE = /严重错误|致命错误|系统崩溃|critical error|fatal error|system crash/i;
+
+function normalizeDisplaySeverity(value) {
+  const severity = String(value || "").trim().toLowerCase();
+  return severity === "info" || severity === "warning" || severity === "danger" ? severity : null;
+}
 
 function severityForNotification(item = {}) {
-  if (item.source === "qweather" && item.meta?.lifecycle === "resolved") return "info";
+  // Prefer API-authored severity when present so clients share one rule set.
+  const provided = normalizeDisplaySeverity(item.severity ?? item.displaySeverity);
+  if (provided) return provided;
+
+  const source = String(item.source || "system");
+  const content = `${item.title || ""} ${item.body || item.message || ""}`;
+  if (source === "qweather") {
+    if (item.meta?.lifecycle === "resolved") return "info";
+    const weatherColor = String(item.meta?.alertColor || item.meta?.severity || "").toLowerCase();
+    if (DANGER_WEATHER_COLORS.has(weatherColor)) return "danger";
+    if (WARNING_WEATHER_COLORS.has(weatherColor)) return "warning";
+    if (DANGER_WEATHER_RE.test(content)) return "danger";
+    if (WARNING_WEATHER_RE.test(content)) return "warning";
+    if (item.level === "critical") return "danger";
+    if (item.level === "warning") return "warning";
+    return "info";
+  }
+  if (CORE_FAILURE_RE.test(content)) return "danger";
+  if (source === "mail") return "info";
+  if (source === "codex" || source === "chatgpt") return TASK_FAILURE_RE.test(content) ? "warning" : "info";
+  if (source === "system") {
+    if (item.level === "critical" || SEVERE_SYSTEM_RE.test(content)) return "danger";
+    if (item.level === "warning" || TASK_FAILURE_RE.test(content)) return "warning";
+    return "info";
+  }
   if (item.level === "critical") return "danger";
   if (item.level === "warning") return "warning";
   return "info";
@@ -184,6 +225,7 @@ module.exports = {
   dedupeNotifications,
   digestHash,
   highestSeverity,
+  normalizeDisplaySeverity,
   severityForNotification,
   scoreNotification,
   weatherAlertColor

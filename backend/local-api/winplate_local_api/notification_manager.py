@@ -240,6 +240,73 @@ class NotificationManager:
             connection.execute("DELETE FROM notifications WHERE unread = 0")
             connection.commit()
 
+    def settle_metadata_family(
+        self,
+        *,
+        source: str,
+        family_key: str,
+        current_notification_id: str,
+    ) -> None:
+        """Mark older unread notifications in the same source family as read."""
+        if not family_key:
+            return
+        normalized_source = self.normalize_source(source)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, metadata
+                FROM notifications
+                WHERE source = ? AND unread = 1 AND id != ?
+                """,
+                (normalized_source, current_notification_id),
+            ).fetchall()
+            settled_ids = []
+            for row in rows:
+                try:
+                    metadata = json.loads(row["metadata"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if isinstance(metadata, dict) and metadata.get("familyKey") == family_key:
+                    settled_ids.append(row["id"])
+            if settled_ids:
+                placeholders = ", ".join("?" for _ in settled_ids)
+                connection.execute(
+                    f"UPDATE notifications SET unread = 0, updated_at = ? WHERE id IN ({placeholders})",
+                    [self._now_ms(), *settled_ids],
+                )
+            connection.commit()
+
+    def settle_stale_source_notifications(
+        self,
+        *,
+        source: str,
+        current_notification_ids: Iterable[str],
+    ) -> None:
+        """Mark unread source notifications absent from the current snapshot as read."""
+        normalized_source = self.normalize_source(source)
+        current_ids = {str(value) for value in current_notification_ids if str(value)}
+        with closing(self._connect()) as connection:
+            if current_ids:
+                placeholders = ", ".join("?" for _ in current_ids)
+                connection.execute(
+                    f"""
+                    UPDATE notifications
+                    SET unread = 0, updated_at = ?
+                    WHERE source = ? AND unread = 1 AND id NOT IN ({placeholders})
+                    """,
+                    [self._now_ms(), normalized_source, *sorted(current_ids)],
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE notifications
+                    SET unread = 0, updated_at = ?
+                    WHERE source = ? AND unread = 1
+                    """,
+                    (self._now_ms(), normalized_source),
+                )
+            connection.commit()
+
     @staticmethod
     def was_imported(connection: sqlite3.Connection, import_id: str) -> bool:
         return connection.execute(

@@ -1,10 +1,10 @@
+import AppKit
 import SwiftUI
 
 struct NotificationsWorkspace: View {
     @EnvironmentObject private var state: AppState
     @State private var selectedSource = "all"
     @State private var selectedState = "all"
-    @State private var selectedNotificationID: String?
 
     private let sourceOrder = ["mail", "qweather", "codex", "chatgpt", "github", "system", "external"]
 
@@ -18,22 +18,33 @@ struct NotificationsWorkspace: View {
             .padding(28)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: state.notifications.items.map(\.id)) { _, ids in
-            if let selectedNotificationID, !ids.contains(selectedNotificationID) {
-                self.selectedNotificationID = nil
+        .onChange(of: conversations.map(\.id)) { _, ids in
+            if let selectedNotificationID = state.selectedNotificationID,
+               !conversations.contains(where: { $0.memberIDs.contains(selectedNotificationID) })
+            {
+                state.selectedNotificationID = nil
             }
+        }
+        .onChange(of: state.selectedNotificationID) { _, notificationID in
+            guard let notificationID,
+                  let conversation = conversations.first(where: { $0.memberIDs.contains(notificationID) })
+            else { return }
+            state.selectedNotificationID = conversation.id
+            selectedSource = "all"
+            selectedState = "all"
         }
     }
 
     private var header: some View {
-        PageHeader(
+        let unreadConversationCount = conversations.filter(\.unread).count
+        return PageHeader(
             title: "通知中心",
-            subtitle: "统一收纳邮件、天气预警和本地任务提示，帮助你快速理解变化并采取行动。"
+            subtitle: state.notificationError ?? "统一收纳邮件、天气预警和本地任务提示，帮助你快速理解变化并采取行动。"
         ) {
             HStack(spacing: 8) {
-                Text("\(state.notifications.unreadCount) 条未读")
+                Text("\(unreadConversationCount) 条未读")
                     .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(state.notifications.unreadCount > 0 ? Color.accentColor : .secondary)
+                    .foregroundStyle(unreadConversationCount > 0 ? Color.accentColor : .secondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -43,7 +54,14 @@ struct NotificationsWorkspace: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
-                .disabled(state.notifications.unreadCount == 0)
+                .disabled(unreadConversationCount == 0)
+
+                Button("清空已读") {
+                    state.clearReadNotifications()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(!conversations.contains { !$0.unread } || state.isClearingReadNotifications)
 
                 NativeRefreshButton(title: "刷新通知", isRefreshing: state.isRefreshingNotifications) {
                     state.loadNotifications()
@@ -56,7 +74,7 @@ struct NotificationsWorkspace: View {
         VStack(alignment: .leading, spacing: 12) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    sourceChip("all", label: "全部", count: state.notifications.items.count)
+                    sourceChip("all", label: "全部", count: conversations.count)
                     ForEach(availableSources, id: \.self) { source in
                         sourceChip(source, label: sourceLabel(source), count: sourceCount(source))
                     }
@@ -95,10 +113,10 @@ struct NotificationsWorkspace: View {
                     ForEach(groupedItems, id: \.title) { group in
                         NotificationTimelineGroup(
                             title: group.title,
-                            items: group.items,
-                            selectedNotificationID: $selectedNotificationID,
-                            markRead: { notification in
-                                state.markNotificationRead(notification)
+                            conversations: group.conversations,
+                            selectedNotificationID: $state.selectedNotificationID,
+                            openNotification: { conversation in
+                                state.openNotification(conversation)
                             }
                         )
                     }
@@ -108,21 +126,33 @@ struct NotificationsWorkspace: View {
     }
 
     private var availableSources: [String] {
-        let extras = Set(state.notifications.items.map(\.source)).subtracting(sourceOrder)
-        return sourceOrder.filter { source in state.notifications.items.contains { $0.source == source } } + extras.sorted()
+        let sources = conversations.map { $0.latest.source }
+        let extras = Set(sources).subtracting(sourceOrder)
+        return sourceOrder.filter { sources.contains($0) } + extras.sorted()
     }
 
-    private var filteredItems: [AppNotification] {
-        state.notifications.items
-            .filter { selectedSource == "all" || $0.source == selectedSource }
+    private var conversations: [NotificationConversation] {
+        NotificationConversation.fold(state.notifications.items)
+    }
+
+    private var filteredItems: [NotificationConversation] {
+        conversations
+            .filter { selectedSource == "all" || $0.latest.source == selectedSource }
             .filter { selectedState == "all" || (selectedState == "unread" ? $0.unread : !$0.unread) }
-            .sorted { $0.createdAt > $1.createdAt }
+            .sorted { $0.latest.createdAt > $1.latest.createdAt }
     }
 
     private var groupedItems: [NotificationGroup] {
-        let groups = Dictionary(grouping: filteredItems) { dateLabel(for: $0.createdAt) }
-        return groups.map { NotificationGroup(title: $0.key, items: $0.value.sorted { $0.createdAt > $1.createdAt }) }
-            .sorted { ($0.items.first?.createdAt ?? 0) > ($1.items.first?.createdAt ?? 0) }
+        let groups = Dictionary(grouping: filteredItems) { dateLabel(for: $0.latest.createdAt) }
+        return groups.map {
+            NotificationGroup(
+                title: $0.key,
+                conversations: $0.value.sorted { $0.latest.createdAt > $1.latest.createdAt }
+            )
+        }
+        .sorted {
+            ($0.conversations.first?.latest.createdAt ?? 0) > ($1.conversations.first?.latest.createdAt ?? 0)
+        }
     }
 
     private func sourceChip(_ source: String, label: String, count: Int) -> some View {
@@ -150,7 +180,7 @@ struct NotificationsWorkspace: View {
     }
 
     private func sourceCount(_ source: String) -> Int {
-        state.notifications.items.filter { $0.source == source }.count
+        conversations.filter { $0.latest.source == source }.count
     }
 
     private func sourceLabel(_ source: String) -> String {
@@ -193,14 +223,14 @@ struct NotificationsWorkspace: View {
 
 private struct NotificationGroup {
     let title: String
-    let items: [AppNotification]
+    let conversations: [NotificationConversation]
 }
 
 private struct NotificationTimelineGroup: View {
     let title: String
-    let items: [AppNotification]
+    let conversations: [NotificationConversation]
     @Binding var selectedNotificationID: String?
-    let markRead: (AppNotification) -> Void
+    let openNotification: (NotificationConversation) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -222,13 +252,13 @@ private struct NotificationTimelineGroup: View {
                 .frame(width: 20)
 
                 VStack(spacing: 8) {
-                    ForEach(items) { notification in
+                    ForEach(conversations) { conversation in
                         NotificationTimelineRow(
-                            notification: notification,
-                            isSelected: selectedNotificationID == notification.id,
+                            conversation: conversation,
+                            isSelected: selectedNotificationID == conversation.id,
                             onTap: {
-                                selectedNotificationID = selectedNotificationID == notification.id ? nil : notification.id
-                                if notification.unread { markRead(notification) }
+                                selectedNotificationID = selectedNotificationID == conversation.id ? nil : conversation.id
+                                openNotification(conversation)
                             }
                         )
                     }
@@ -239,13 +269,16 @@ private struct NotificationTimelineGroup: View {
 }
 
 private struct NotificationTimelineRow: View {
-    let notification: AppNotification
+    @EnvironmentObject private var state: AppState
+    let conversation: NotificationConversation
     let isSelected: Bool
     let onTap: () -> Void
 
+    private var notification: AppNotification { conversation.latest }
+
     var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: onTap) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: sourceIcon)
                         .font(.system(size: 15, weight: .semibold))
@@ -261,13 +294,18 @@ private struct NotificationTimelineRow: View {
                             Text(levelLabel)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            if notification.unread {
+                            if conversation.unread {
                                 Text("未读")
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(Color.accentColor)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
                                     .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            }
+                            if conversation.updateCount > 1 {
+                                Text("\(conversation.updateCount) 条更新")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 8)
                             Text(timeLabel)
@@ -283,25 +321,88 @@ private struct NotificationTimelineRow: View {
                         Text(notification.message)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .lineLimit(isSelected ? nil : 2)
+                            .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
                 }
+            }
+            .buttonStyle(.plain)
 
-                if isSelected {
-                    Divider()
-                    Text("点击通知后会同步到本机 API；当前状态：\(notification.unread ? "未读" : "已读")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            if isSelected {
+                Divider()
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 18) {
+                        detailValue("来源", sourceLabel)
+                        detailValue("状态", conversation.unread ? "未读" : "已读")
+                        detailValue("级别", levelLabel)
+                        Spacer()
+                    }
+
+                    if !notification.message.isEmpty {
+                        Text(notification.message)
+                            .font(.subheadline)
+                            .textSelection(.enabled)
+                    }
+
+                    if conversation.updateCount > 1 {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("本轮更新")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(conversation.updates) { update in
+                                HStack(alignment: .top, spacing: 10) {
+                                    Text(timeLabel(for: update.createdAt))
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.tertiary)
+                                        .frame(width: 52, alignment: .leading)
+                                    Text(update.message.isEmpty ? update.title : update.message)
+                                        .font(.caption)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Button("复制内容") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(
+                                [notification.title, notification.message]
+                                    .filter { !$0.isEmpty }
+                                    .joined(separator: "\n\n"),
+                                forType: .string
+                            )
+                        }
+                        .buttonStyle(.bordered)
+
+                        if ["mail", "qweather", "github"].contains(notification.source)
+                            || notification.resolvedExternalURL != nil
+                        {
+                            Button("打开来源") {
+                                state.openNotificationSource(notification)
+                            }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        Spacer()
+                    }
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.accentColor.opacity(0.09) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.12), lineWidth: 1))
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(sourceLabel)，\(notification.title)，\(notification.unread ? "未读" : "已读")")
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isSelected ? Color.accentColor.opacity(0.09) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.12), lineWidth: 1))
+        .accessibilityLabel("\(sourceLabel)，\(notification.title)，\(conversation.unread ? "未读" : "已读")")
+    }
+
+    private func detailValue(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.caption)
+        }
     }
 
     private var sourceLabel: String {
@@ -330,25 +431,29 @@ private struct NotificationTimelineRow: View {
     }
 
     private var levelLabel: String {
-        switch notification.level {
-        case "success": return "完成"
-        case "warning": return "提醒"
-        case "critical": return "紧急"
+        // Unified 3-way labels: 信息 | 预警 | 危险 (matches Windows).
+        switch notification.displaySeverity {
+        case "danger": return "危险"
+        case "warning": return "预警"
         default: return "信息"
         }
     }
 
     private var levelColor: Color {
-        switch notification.level {
-        case "success": return .green
+        switch notification.displaySeverity {
+        case "danger": return .red
         case "warning": return .orange
-        case "critical": return .red
-        default: return .accentColor
+        // Emerald-style info treatment matching Windows digest strip.
+        default: return Color(red: 0.06, green: 0.73, blue: 0.51)
         }
     }
 
     private var timeLabel: String {
-        let raw = TimeInterval(notification.createdAt)
+        timeLabel(for: notification.createdAt)
+    }
+
+    private func timeLabel(for timestamp: Int64) -> String {
+        let raw = TimeInterval(timestamp)
         let date = Date(timeIntervalSince1970: raw > 10_000_000_000 ? raw / 1000 : raw)
         return date.formatted(date: .omitted, time: .shortened)
     }

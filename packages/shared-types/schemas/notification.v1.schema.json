@@ -28,6 +28,7 @@
     "title": { "type": "string" },
     "body": { "type": "string" },
     "level": { "type": "string", "enum": ["info", "success", "warning", "critical"] },
+    "severity": { "type": "string", "enum": ["info", "warning", "danger"] },
     "createdAt": { "type": "number" },
     "unread": { "type": "boolean" },
     "dedupeKey": { "type": "string" },
