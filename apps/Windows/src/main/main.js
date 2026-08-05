@@ -42,8 +42,10 @@ const { createAppTray } = require("./tray");
 const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
+const { readCodexTokenUsage } = require("./codexTokenUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
 const { readSuperGrokUsage } = require("./supergrokUsage");
+const { readGrokTokenUsage } = require("./grokTokenUsage");
 const {
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
   readDeepSeekUsage
@@ -933,7 +935,13 @@ if (!gotLock) {
       });
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
+    ipcMain.handle("codex:token-usage", (_event, options) => readCodexTokenUsage(
+      (options && typeof options === "object") ? options : {}
+    ));
     ipcMain.handle("supergrok:usage", (_event, options) => readSuperGrokUsage(
+      (options && typeof options === "object") ? options : {}
+    ));
+    ipcMain.handle("supergrok:token-usage", (_event, options) => readGrokTokenUsage(
       (options && typeof options === "object") ? options : {}
     ));
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));

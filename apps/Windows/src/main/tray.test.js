@@ -54,7 +54,11 @@ test("menu and double-click callbacks discard Electron metadata", () => {
   const tray = FakeTray.instances.at(-1);
   tray.destroyed = true;
   const current = createAppTray(actions(calls));
-  lastTemplate[0].click({ label: "Show WinPlate" }, { type: "click" });
+  lastTemplate[0].click({ label: "打开 WinPlate" }, { type: "click" });
+  assert.equal(lastTemplate[0].label, "打开 WinPlate");
+  assert.equal(lastTemplate[2].label, "显示浮窗");
+  assert.equal(lastTemplate[3].label, "隐藏浮窗");
+  assert.equal(lastTemplate[5].label, "退出");
   current.emit("double-click", { type: "double-click" }, { x: 4, y: 5 });
   assert.deepEqual(calls, ["Dashboard", "Dashboard"]);
 });

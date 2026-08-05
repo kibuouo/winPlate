@@ -82,27 +82,48 @@ test("SuperGrok renders the remaining quota derived from Grok usage", () => {
   const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 
   assert.match(source, /usageRow\("7d", supergrok\)/);
-  assert.match(source, /dashboardCodexRow\("SuperGrok · 7d", supergrok, \{ icon: grokBrandIcon \}\)/);
-  assert.match(source, /usageWindowCard\("7d", supergrok\)/);
+  assert.match(source, /dashboardCodexRow\("SuperGrok · 7 天", supergrok, \{ icon: grokBrandIcon \}\)/);
+  assert.match(source, /id: "supergrok"/);
   assert.match(source, /const percentage = normalizePercent\(usage\?\.remainingPct\)/);
+});
+
+test("Agent workspace prefers 7d remaining and token trends without DeepSeek chat", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
+
+  assert.match(appSource, /function buildAgentUsageItems\(\)/);
+  assert.match(appSource, /function agentTokenUsageCharts\(/);
+  assert.match(appSource, /function dashboardDeepSeekBalanceColumn\(\)/);
+  assert.match(appSource, /windows\.fiveHour \|\| null/);
+  assert.match(appSource, /7 天剩余/);
+  assert.match(appSource, /ChatGPT、DeepSeek、SuperGrok 的用量与额度/);
+  assert.match(appSource, /getCodexTokenUsage|refreshCodexTokenUsageData/);
+  assert.match(preloadSource, /getCodexTokenUsage/);
+  assert.match(preloadSource, /getSuperGrokTokenUsage/);
+  assert.match(mainSource, /codex:token-usage/);
+  assert.match(mainSource, /supergrok:token-usage/);
+  assert.doesNotMatch(appSource, /今日 Token|应用累计|测试 AI 调用|启用 AI 摘要/);
+  assert.doesNotMatch(preloadSource, /testDeepSeekChat|SmartBrief|smart-brief/);
+  assert.doesNotMatch(mainSource, /deepseekChatClient|chat\/completions/);
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekChatClient.js")), false);
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekTokenUsage.js")), false);
 });
 
 test("DeepSeek exposes only balance configuration and balance display", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
-  const sectionStart = appSource.indexOf("function deepseekCompactSection()");
-  const sectionEnd = appSource.indexOf("function superGrokUsageSection()", sectionStart);
-  const deepSeekSection = appSource.slice(sectionStart, sectionEnd);
+  const buildStart = appSource.indexOf("function buildAgentUsageItems()");
+  const buildEnd = appSource.indexOf("function deepseekCompactSection()", buildStart);
+  const buildSource = appSource.slice(buildStart, buildEnd);
 
-  assert.match(deepSeekSection, /可用余额/);
-  assert.match(deepSeekSection, /usage-window-grid-single/);
-  assert.equal((deepSeekSection.match(/usage-window-card/g) || []).length, 1);
+  assert.match(buildSource, /id: "deepseek"/);
+  assert.match(buildSource, /primaryDeepSeekBalance/);
+  assert.match(buildSource, /tokenUsage: null/);
   assert.doesNotMatch(appSource, /今日 Token|应用累计|测试 AI 调用|启用 AI 摘要/);
   assert.doesNotMatch(preloadSource, /testDeepSeekChat|SmartBrief|smart-brief/);
-  assert.doesNotMatch(mainSource, /deepseekChatClient|deepseekTokenUsage|chat\/completions/);
-  assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekChatClient.js")), false);
-  assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekTokenUsage.js")), false);
+  assert.doesNotMatch(mainSource, /deepseekChatClient|chat\/completions/);
 });
 
 test("notification summaries are generated automatically by local rules", () => {

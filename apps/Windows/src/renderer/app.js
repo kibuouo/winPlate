@@ -60,7 +60,19 @@ const githubContributionDetailCache = new Map();
 let githubContributionRequestId = 0;
 let githubRefreshInFlight = false;
 let dashboardRefreshInFlight = false;
+let agentRefreshInFlight = false;
 let refreshNoticeTimer = null;
+const emptyTokenUsage = () => ({
+  available: false,
+  isAvailable: false,
+  hourly: [],
+  daily: [],
+  totalTokens: 0,
+  updatedAt: null
+});
+let codexTokenUsage = emptyTokenUsage();
+let superGrokTokenUsage = emptyTokenUsage();
+const agentChartGranularity = { chatgpt: "hour", supergrok: "hour" };
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
 let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" };
@@ -218,6 +230,77 @@ function moduleHealthLabel(id) {
 function moduleHealthAttributes(id) {
   const health = moduleHealth[id] || {};
   return `data-module-health="${escapeHtml(health.state || "loading")}" data-module-error="${escapeHtml(health.error || "")}"`;
+}
+
+/**
+ * Overview service-health kind for the shared pill used by GitHub / Agent / Heart / QWeather.
+ * live -> green「服务正常」; cached/stale -> yellow「缓存」.
+ */
+function dashboardServiceHealthKind(moduleId) {
+  const health = moduleHealth[moduleId] || {};
+  if (health.state === "error") return "error";
+  if (health.state === "stale") return "cached";
+  if (health.state === "loading") return "loading";
+
+  if (moduleId === "github") {
+    const github = statusData.github || {};
+    const status = String(github.status || "");
+    const source = String(github.source || "");
+    if (
+      github.availability === "cached"
+      || /cache/i.test(status)
+      || source.includes("cache")
+    ) {
+      return "cached";
+    }
+    if (
+      github.availability
+      && !["live", "loading", ""].includes(github.availability)
+    ) {
+      return "error";
+    }
+  }
+
+  if (moduleId === "codex") {
+    const statuses = [
+      statusData.codex?.status,
+      statusData.supergrok?.status,
+      statusData.deepseek?.status
+    ].filter(Boolean);
+    if (statuses.some((status) => status === "Cached")) return "cached";
+    const available = statuses.filter((status) => status === "Normal" || status === "Cached");
+    if (statuses.length && available.length === 0) return "error";
+  }
+
+  if (moduleId === "weather") {
+    const weather = statusData.weather || {};
+    if (weather.source === "unconfigured") return "error";
+    if (String(weather.source || "").includes("cache") || weather.availability === "cached") {
+      return "cached";
+    }
+  }
+
+  if (moduleId === "heart") {
+    const heart = statusData.heart || {};
+    if (String(heart.source || "").includes("cache") || heart.availability === "cached") {
+      return "cached";
+    }
+  }
+
+  return "live";
+}
+
+function serviceHealthBadge(kind = "live") {
+  if (kind === "cached") {
+    return `<span class="service-health cached"><i></i>缓存</span>`;
+  }
+  if (kind === "error") {
+    return `<span class="service-health error"><i></i>不可用</span>`;
+  }
+  if (kind === "loading") {
+    return `<span class="service-health loading"><i></i>读取中</span>`;
+  }
+  return `<span class="service-health"><i></i>服务正常</span>`;
 }
 
 function normalizeMailAutoRefreshSeconds(value) {
@@ -1452,7 +1535,6 @@ function brandIconMarkup(name, className = "") {
 const openaiBrandIcon = brandIconMarkup("openai");
 const deepseekBrandIcon = brandIconMarkup("deepseek");
 const grokBrandIcon = brandIconMarkup("grok");
-const dashboardAgentIcon = '<img class="dashboard-agent-icon" src="../../assets/codex-icon.png" alt="" aria-hidden="true">';
 // Original sidebar / capsule glyph (unchanged by the Agent rename).
 const sidebarCodexIcon = `
   <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -2447,7 +2529,8 @@ function renderFloating() {
         resetText: statusData.codex.resetText,
         status: statusData.codex.status,
         windows: statusData.codex.windows,
-        supergrok: statusData.supergrok
+        supergrok: statusData.supergrok,
+        deepseek: statusData.deepseek
       }
     });
   });
@@ -2581,6 +2664,14 @@ function renderTooltip(data = {}) {
     const fiveHour = windows.fiveHour || null;
     const weekly = windows.sevenDay || (Number.isFinite(data?.remainingPct) ? data : null);
     const supergrok = data.supergrok || {};
+    const deepseek = data.deepseek || {};
+    const usageStatusLabel = (status) => {
+      if (status === "Normal") return "正常";
+      if (status === "Cached") return "缓存";
+      if (status === "Unconfigured") return "未配置";
+      if (status === "Unavailable") return "不可用";
+      return status || "不可用";
+    };
     const usageRow = (title, usage) => {
       const percentage = normalizePercent(usage?.remainingPct);
       if (percentage === null) return "";
@@ -2595,28 +2686,47 @@ function renderTooltip(data = {}) {
           <span class="compact-reset">${usage?.resetText || "--"}</span>
         </div>`;
     };
+    const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
+    const balance = balances[0] || null;
+    const deepseekAmount = balance
+      ? `${balance.currency === "CNY" ? "¥" : balance.currency === "USD" ? "$" : ""}${
+        Number.isFinite(Number(balance.totalBalance))
+          ? Number(balance.totalBalance).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : (balance.totalBalance || "--")
+      }`
+      : "¥--";
+    // Keep DeepSeek in the same two-block height: balance sits left of status text.
+    const deepseekStatus = usageStatusLabel(deepseek.status);
 
-    const supergrokStatus = supergrok.status || "Unavailable";
     appRoot.innerHTML = `
-      <article class="codex-tooltip placement-${data.placement || "above"}" role="tooltip" aria-label="Codex and SuperGrok">
+      <article class="codex-tooltip placement-${data.placement || "above"}" role="tooltip" aria-label="Agent 用量预览">
         <section class="codex-tooltip-block">
           <header>
             <strong>Codex</strong>
-            <span>${data.status || "Unavailable"}</span>
+            <span>${usageStatusLabel(data.status)}</span>
           </header>
           <div class="codex-tooltip-rows">
-            ${usageRow(`${data.windowHours ?? 5}h`, fiveHour)}
+            ${usageRow("5h", fiveHour)}
             ${usageRow("7d", weekly)}
           </div>
         </section>
         <section class="codex-tooltip-block">
           <header>
             <strong>SuperGrok</strong>
-            <span>${supergrokStatus}</span>
+            <span>${usageStatusLabel(supergrok.status)}</span>
           </header>
           <div class="codex-tooltip-rows">
             ${usageRow("7d", supergrok)}
           </div>
+        </section>
+        <section class="codex-tooltip-block codex-tooltip-deepseek">
+          <header>
+            <strong>DeepSeek</strong>
+            <span class="codex-tooltip-status-inline">
+              <b>${escapeHtml(deepseekAmount)}</b>
+              <i>${escapeHtml(deepseekStatus)}</i>
+            </span>
+          </header>
         </section>
       </article>`;
     updateProgressBars(appRoot);
@@ -2706,11 +2816,7 @@ function qweatherServiceCard(official, failures, { interactive = false } = {}) {
       <div class="qweather-card-heading">
         <div class="card-icon">${qweatherIconMarkup("qweather-service-icon")}</div>
         <div class="card-actions">
-          <span class="service-health"><i></i>服务正常</span>
-          <button type="button" class="refresh-button qweather-verify-button" id="qweather-verify" aria-label="刷新 QWeather 官方用量">
-            ${refreshIcon}
-            <span>刷新</span>
-          </button>
+          ${serviceHealthBadge(dashboardServiceHealthKind("weather"))}
         </div>
       </div>
       <span>QWeather API</span>
@@ -2729,8 +2835,13 @@ function qweatherServiceCard(official, failures, { interactive = false } = {}) {
 function heartCard({ interactive = false } = {}) {
   return `
     <article class="dashboard-card heart-card" data-module-id="heart" ${interactive ? dashboardCardNavigationAttributes("heart") : ""} ${moduleHealthAttributes("heart")}>
-      <div class="card-icon">♥</div><span>Heart Rate</span>
-      <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong><small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
+      <div class="dashboard-card-heading">
+        <div class="card-icon">♥</div>
+        ${serviceHealthBadge(dashboardServiceHealthKind("heart"))}
+      </div>
+      <span>Heart Rate</span>
+      <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong>
+      <small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
     </article>`;
 }
 
@@ -2759,7 +2870,7 @@ function dashboardGithubCard() {
             <span>${github.username}</span>
           </div>
         </div>
-        <span class="github-dashboard-live">${github.status || "Live"}</span>
+        ${serviceHealthBadge(dashboardServiceHealthKind("github"))}
       </div>
       <div class="github-dashboard-stats">
         ${stats.map((item) => `
@@ -2821,25 +2932,42 @@ function primaryDeepSeekBalance(deepseek = statusData.deepseek) {
   return balances[0] || null;
 }
 
+function dashboardDeepSeekBalanceColumn() {
+  const deepseek = statusData.deepseek || {};
+  const balance = primaryDeepSeekBalance(deepseek);
+  const amount = balance
+    ? `${deepseekCurrencySymbol(balance.currency)}${formatDeepSeekBalance(balance)}`
+    : "¥--";
+  const meta = balance
+    ? (deepseek.status === "Normal" ? "余额可用" : `状态 ${deepseek.status || "未知"}`)
+    : (deepseek.configured ? "余额暂不可用" : "未配置");
+  return `
+    <div class="dashboard-codex-window dashboard-deepseek-window">
+      <div class="dashboard-codex-window-head">
+        <span class="dashboard-codex-window-title">${deepseekBrandIcon}<span>DeepSeek</span></span>
+        <strong class="deepseek-balance-value">${escapeHtml(amount)}</strong>
+      </div>
+      <small>${escapeHtml(meta)}</small>
+    </div>`;
+}
+
 function dashboardCodexCard() {
   const windows = statusData.codex.windows || {};
   const fiveHour = windows.fiveHour || null;
   const sevenDay = windows.sevenDay
     || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
   const supergrok = statusData.supergrok || mockStatus.supergrok;
+  // Overview only: icon + service-health pill (no Agent title).
   return `
     <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${dashboardCardNavigationAttributes("codex")} ${moduleHealthAttributes("codex")}>
-      <div class="dashboard-codex-header">
+      <div class="dashboard-card-heading">
         <div class="card-icon codex-card-icon">${openaiBrandIcon}</div>
-        <div class="dashboard-codex-copy">
-          <strong>Agent</strong>
-          <small>${relativeUpdatedAt(statusData.codex.updatedAt)}</small>
-        </div>
+        ${serviceHealthBadge(dashboardServiceHealthKind("codex"))}
       </div>
       <div class="dashboard-codex-windows">
-        ${fiveHour ? dashboardCodexRow("Codex · 5 hours", fiveHour, { icon: dashboardAgentIcon }) : ""}
-        ${sevenDay ? dashboardCodexRow("Codex · 7d", sevenDay, { icon: dashboardAgentIcon }) : dashboardCodexRow("Codex · 7d", {}, { icon: dashboardAgentIcon })}
-        ${dashboardCodexRow("SuperGrok · 7d", supergrok, { icon: grokBrandIcon })}
+        ${fiveHour ? dashboardCodexRow("ChatGPT · 5 小时", fiveHour, { icon: openaiBrandIcon }) : ""}
+        ${sevenDay ? dashboardCodexRow("ChatGPT · 7 天", sevenDay, { icon: openaiBrandIcon }) : dashboardCodexRow("ChatGPT · 7 天", {}, { icon: openaiBrandIcon })}
+        ${dashboardCodexRow("SuperGrok · 7 天", supergrok, { icon: grokBrandIcon })}
         ${dashboardDeepSeekBalanceColumn()}
       </div>
     </article>`;
@@ -3510,97 +3638,338 @@ function relativeUpdatedAt(timestamp) {
 function usageWindowCard(title, data) {
   const percentage = data?.remainingPct;
   const displayPercentage = percentage ?? "--";
+  const resetLabel = data?.resetText
+    ? `重置 ${String(data.resetText).replace(/^in\s+/i, "")}`
+    : "重置时间不可用";
   return `
     <article class="usage-window-card">
       <span>${title}</span>
       <strong>${displayPercentage}%</strong>
-      <small>${data?.resetText ? `Resets in ${data.resetText.replace(/^in\s+/i, "")}` : "Reset unavailable"}</small>
+      <small>${resetLabel}</small>
       ${progressBar(percentage, "codex-progress")}
     </article>`;
 }
 
-function deepseekCompactSection() {
+function agentStatusMeta(usage = {}) {
+  // Align with overview service-health: 服务正常 (green) / 缓存 (yellow).
+  switch (usage.status) {
+    case "Normal":
+      return { kind: "live", text: "服务正常" };
+    case "Cached":
+      return { kind: "cached", text: "缓存" };
+    case "Unconfigured":
+      return { kind: "loading", text: "未配置" };
+    case "Unavailable":
+      return { kind: "error", text: "不可用" };
+    default:
+      return { kind: "loading", text: usage.status || "读取中" };
+  }
+}
+
+function formatTokenCount(value) {
+  const tokens = Math.max(0, Math.round(Number(value) || 0));
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return String(tokens);
+}
+
+/** Axis labels: hour mode shows HH:mm when density allows, else M/D. */
+function formatAgentAxisLabel(value, { showHourLabels = false } = {}) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  if (!showHourLabels) return `${month}/${day}`;
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
+}
+
+function formatAgentTooltipDate(value, { showHourLabels = false } = {}) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  if (!showHourLabels) return `${month}/${day}`;
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")} ${hour}:${minute}`;
+}
+
+function agentChartLabelIndexes(count) {
+  if (count <= 0) return [];
+  const labelCount = Math.min(6, count);
+  if (labelCount <= 1) return [0];
+  return Array.from({ length: labelCount }, (_, index) => (
+    Math.round((index * (count - 1)) / (labelCount - 1))
+  ));
+}
+
+function agentTokenChartSvg(buckets = [], tint = "#4f8cff", granularity = "hour") {
+  // Left Y axis + bottom sparse X labels (shared product layout).
+  const width = 560;
+  const chartHeight = 88;
+  const verticalAxisWidth = 32;
+  const horizontalInset = 4;
+  const bottomLabelSpace = 28;
+  const height = chartHeight + bottomLabelSpace;
+  const plotOriginX = verticalAxisWidth + horizontalInset;
+  const plotWidth = Math.max(1, width - plotOriginX - horizontalInset);
+  const plotHeight = chartHeight;
+  const showHourLabels = granularity === "hour" && buckets.length <= 48;
+  const values = buckets.map((bucket) => Math.max(0, Number(bucket.tokens) || 0));
+  const maxTokens = Math.max(1, ...values);
+  if (!values.length) {
+    return `<div class="agent-token-chart-empty">暂无 Token 用量数据</div>`;
+  }
+
+  const xPosition = (index) => (
+    values.length === 1 ? plotWidth / 2 : (plotWidth * index) / (values.length - 1)
+  );
+  const yPosition = (tokens) => {
+    const ratio = Math.min(1, Math.max(0, tokens / maxTokens));
+    return plotHeight * (1 - ratio);
+  };
+
+  const points = values.map((tokens, index) => {
+    const x = plotOriginX + xPosition(index);
+    const y = yPosition(tokens);
+    return {
+      x,
+      y,
+      tokens,
+      label: formatAgentTooltipDate(buckets[index]?.start, { showHourLabels })
+    };
+  });
+  const polyline = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const area = `M ${plotOriginX} ${plotHeight} L ${polyline} L ${plotOriginX + plotWidth} ${plotHeight} Z`;
+  // fraction 0 at top = maxTokens, fraction 1 at bottom = 0
+  const yTicks = [0, 0.5, 1].map((fraction) => {
+    const tokens = Math.round(maxTokens * (1 - fraction));
+    const y = plotHeight * fraction;
+    return { y, label: formatTokenCount(tokens), solid: fraction === 1 };
+  });
+  const xLabels = agentChartLabelIndexes(buckets.length).map((index) => ({
+    x: plotOriginX + xPosition(index),
+    label: formatAgentAxisLabel(buckets[index]?.start, { showHourLabels })
+  }));
+  const lastPoint = points.at(-1);
+  const payload = encodeURIComponent(JSON.stringify(points.map((point) => ({
+    x: point.x,
+    y: point.y,
+    tokens: point.tokens,
+    label: point.label
+  }))));
+
+  return `
+    <div class="agent-token-chart" data-agent-chart-root data-agent-chart-points="${payload}" data-agent-chart-width="${width}" data-agent-chart-plot-origin-x="${plotOriginX}" data-agent-chart-plot-width="${plotWidth}">
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Token 使用趋势" preserveAspectRatio="xMidYMid meet">
+        ${yTicks.map((tick) => `
+          <line
+            x1="${plotOriginX}"
+            y1="${tick.y.toFixed(1)}"
+            x2="${plotOriginX + plotWidth}"
+            y2="${tick.y.toFixed(1)}"
+            class="agent-token-grid ${tick.solid ? "solid" : ""}"
+          ></line>
+          <text x="${(verticalAxisWidth / 2).toFixed(1)}" y="${(tick.y + 3).toFixed(1)}" class="agent-token-y-label" text-anchor="middle">${escapeHtml(tick.label)}</text>
+        `).join("")}
+        <path d="${area}" fill="${tint}" fill-opacity="0.09"></path>
+        <polyline fill="none" stroke="${tint}" stroke-opacity="0.92" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="${polyline}"></polyline>
+        ${lastPoint ? `<circle cx="${lastPoint.x.toFixed(1)}" cy="${lastPoint.y.toFixed(1)}" r="3.5" fill="${tint}"></circle>` : ""}
+        ${xLabels.map((item) => `
+          <text x="${item.x.toFixed(1)}" y="${(plotHeight + 18).toFixed(1)}" class="agent-token-x-label" text-anchor="middle">${escapeHtml(item.label)}</text>
+        `).join("")}
+        <line class="agent-token-hover-guide" x1="${plotOriginX}" y1="0" x2="${plotOriginX}" y2="${plotHeight}" visibility="hidden"></line>
+        <circle class="agent-token-hover-dot" cx="${plotOriginX}" cy="0" r="4" fill="${tint}" visibility="hidden"></circle>
+      </svg>
+      <div class="agent-token-hover-card" hidden>
+        <span data-agent-hover-time></span>
+        <strong data-agent-hover-tokens>--</strong>
+      </div>
+    </div>`;
+}
+
+function agentTokenUsageCharts(cardId, usage, tint) {
+  const granularity = agentChartGranularity[cardId] || "hour";
+  const buckets = granularity === "day" ? (usage?.daily || []) : (usage?.hourly || []);
+  const available = Boolean(usage?.available || usage?.isAvailable);
+  const total = granularity === "hour"
+    ? (Number(usage?.hourlyTotalTokens) || buckets.reduce((sum, bucket) => sum + (Number(bucket.tokens) || 0), 0))
+    : (Number(usage?.totalTokens) || 0);
+  const unit = granularity === "hour" ? "小时" : "天";
+  const grainTitle = granularity === "hour" ? "每小时" : "每日";
+  const summary = available
+    ? `共 ${buckets.length} ${unit} · ${formatTokenCount(total)}`
+    : "暂无数据";
+  return `
+    <div class="agent-token-usage" data-agent-chart="${escapeHtml(cardId)}">
+      <div class="agent-token-usage-head">
+        <strong>使用趋势</strong>
+        <div class="agent-token-granularity" role="group" aria-label="趋势粒度">
+          <button type="button" data-agent-granularity="hour" class="${granularity === "hour" ? "active" : ""}" aria-pressed="${granularity === "hour"}">每小时</button>
+          <button type="button" data-agent-granularity="day" class="${granularity === "day" ? "active" : ""}" aria-pressed="${granularity === "day"}">每日</button>
+        </div>
+        <span class="agent-token-summary">${escapeHtml(summary)}</span>
+      </div>
+      ${available && buckets.length
+        ? `<div class="agent-token-chart-block"><span class="agent-token-grain-title">${grainTitle}</span>${agentTokenChartSvg(buckets, tint, granularity)}</div>`
+        : `<div class="agent-token-chart-empty">${available ? "暂无 Token 用量数据" : "未读取到本地日志（检查 ~/.codex/logs*.sqlite）"}</div>`}
+    </div>`;
+}
+
+function agentQuotaCard({
+  id,
+  name,
+  via,
+  icon,
+  primary,
+  secondary,
+  status,
+  progress = null,
+  tokenUsage = null,
+  tint = "#4f8cff",
+  featured = false,
+  updatedAt = null
+}) {
+  const meta = agentStatusMeta(status);
+  return `
+    <article class="agent-quota-card ${featured ? "agent-quota-card-featured" : ""}" data-agent-card="${escapeHtml(id)}">
+      <header class="agent-quota-card-head">
+        <div class="agent-quota-identity">
+          <span class="agent-quota-icon">${icon}</span>
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            ${via ? `<small>${escapeHtml(via)}</small>` : ""}
+          </div>
+        </div>
+        <div class="agent-quota-head-meta">
+          <span class="agent-quota-update">${escapeHtml(relativeUpdatedAt(updatedAt))}</span>
+          ${serviceHealthBadge(meta.kind)}
+        </div>
+      </header>
+      <div class="agent-quota-primary ${meta.kind === "loading" || meta.kind === "error" ? "muted" : ""}">${escapeHtml(primary)}</div>
+      <p class="agent-quota-secondary">${escapeHtml(secondary)}</p>
+      ${progress == null ? "" : progressBar(progress, "agent-quota-progress")}
+      ${tokenUsage ? agentTokenUsageCharts(id, tokenUsage, tint) : ""}
+    </article>`;
+}
+
+function buildAgentUsageItems() {
+  const windows = statusData.codex.windows || {};
+  const sevenDay = windows.sevenDay
+    || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
+  const fiveHour = windows.fiveHour || null;
+  const codexStatus = statusData.codex || {};
   const deepseek = statusData.deepseek || {};
+  const supergrok = statusData.supergrok || mockStatus.supergrok;
   const balance = primaryDeepSeekBalance(deepseek);
   const amount = balance
     ? `${deepseekCurrencySymbol(balance.currency)}${formatDeepSeekBalance(balance)}`
     : "¥--";
-  const deepseekActive = deepseek.status === "Normal";
-  const balanceMeta = balance
-    ? (deepseekActive ? "API 正常 · 自动刷新 60s" : `状态 ${deepseek.status || "未知"}`)
+
+  const chatSecondary = [
+    "7 天剩余",
+    sevenDay?.resetText ? `重置 ${String(sevenDay.resetText).replace(/^in\s+/i, "")}` : null,
+    fiveHour && Number.isFinite(fiveHour.remainingPct)
+      ? `5 小时 ${Math.round(fiveHour.remainingPct)}%`
+      : null
+  ].filter(Boolean).join(" · ");
+
+  const grokSecondary = [
+    "剩余",
+    supergrok.resetText ? `重置 ${String(supergrok.resetText).replace(/^in\s+/i, "")}` : null,
+    supergrok.subscriptionTier || null
+  ].filter(Boolean).join(" · ");
+
+  const deepSecondary = deepseek.status === "Normal"
+    ? `正常 · ${relativeUpdatedAt(deepseek.updatedAt)}`
     : deepseek.configured
-      ? "余额暂不可用，请检查 API 配置"
+      ? (deepseek.status === "Unconfigured" ? "未配置" : "余额暂不可用")
       : "请先在设置中配置 API Key";
-  return `
-    <section class="codex-usage-panel deepseek-usage-panel">
-      <div class="codex-panel-title">
-        <div>${deepseekBrandIcon}<h2>DeepSeek</h2></div>
-        <span class="codex-update">${relativeUpdatedAt(deepseek.updatedAt)}</span>
-      </div>
-      <div class="usage-window-grid usage-window-grid-single deepseek-compact-grid">
-        <article class="usage-window-card deepseek-compact-card">
-          <span>可用余额</span>
-          <strong class="deepseek-balance-value">${amount}</strong>
-          <small>${balanceMeta}</small>
-        </article>
-      </div>
-      <div class="deepseek-panel-footer ${deepseekActive ? "" : "inactive"}">
-        <span></span>Status: API ${deepseekActive ? "active" : "inactive"} · Last sync ${relativeUpdatedAt(deepseek.updatedAt)}
-      </div>
-    </section>`;
+
+  return [
+    {
+      id: "chatgpt",
+      name: "ChatGPT",
+      via: "via Codex",
+      icon: openaiBrandIcon,
+      primary: Number.isFinite(sevenDay?.remainingPct) ? `${Math.round(sevenDay.remainingPct)}%` : "--%",
+      secondary: chatSecondary || "7 天剩余",
+      status: codexStatus,
+      progress: sevenDay?.remainingPct ?? null,
+      tokenUsage: codexTokenUsage,
+      tint: "#4f8cff",
+      featured: true,
+      updatedAt: codexStatus.updatedAt
+    },
+    {
+      id: "supergrok",
+      name: "SuperGrok",
+      via: "via Grok CLI",
+      icon: grokBrandIcon,
+      primary: Number.isFinite(supergrok?.remainingPct) ? `${Math.round(supergrok.remainingPct)}%` : "--%",
+      secondary: grokSecondary || "剩余",
+      status: supergrok,
+      progress: supergrok?.remainingPct ?? null,
+      tokenUsage: superGrokTokenUsage,
+      tint: "#f59e0b",
+      featured: true,
+      updatedAt: supergrok.updatedAt
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      via: null,
+      icon: deepseekBrandIcon,
+      primary: amount,
+      secondary: deepSecondary,
+      status: deepseek,
+      progress: null,
+      tokenUsage: null,
+      tint: "#8b5cf6",
+      featured: false,
+      updatedAt: deepseek.updatedAt
+    }
+  ];
+}
+
+function deepseekCompactSection() {
+  const item = buildAgentUsageItems().find((entry) => entry.id === "deepseek");
+  return agentQuotaCard(item);
 }
 
 function superGrokUsageSection() {
-  const supergrok = statusData.supergrok || mockStatus.supergrok;
-  const tier = supergrok.subscriptionTier ? ` · ${escapeHtml(supergrok.subscriptionTier)}` : "";
-  const statusLabel = supergrok.status === "Normal"
-    ? "active"
-    : supergrok.status === "Cached"
-      ? "cached"
-      : "unavailable";
-  const hint = supergrok.status === "Unavailable" && supergrok.raw
-    ? `<small class="supergrok-hint">${escapeHtml(supergrok.raw)}</small>`
-    : "";
-  return `
-    <section class="codex-usage-panel supergrok-usage-panel">
-      <div class="codex-panel-title">
-        <div>${grokBrandIcon}<h2>SuperGrok</h2></div>
-        <span class="codex-update">${relativeUpdatedAt(supergrok.updatedAt)}</span>
-      </div>
-      <div class="usage-window-grid usage-window-grid-single">
-        ${usageWindowCard("7d", supergrok)}
-      </div>
-      ${hint}
-      <div class="codex-cli-status ${supergrok.status === "Normal" || supergrok.status === "Cached" ? "" : "inactive"}">
-        <span></span>Status: Grok Build ${statusLabel}${tier}
-      </div>
-    </section>`;
+  const item = buildAgentUsageItems().find((entry) => entry.id === "supergrok");
+  return agentQuotaCard(item);
 }
 
 function codexContent() {
-  const windows = statusData.codex.windows || {};
-  const fiveHour = windows.fiveHour || statusData.codex;
-  const sevenDay = windows.sevenDay;
+  const items = buildAgentUsageItems();
+  const featured = items.filter((item) => item.featured);
+  const compact = items.filter((item) => !item.featured);
   return `
-    <div data-module-id="codex" ${moduleHealthAttributes("codex")}>
-    ${modulePageHeader({
-      title: "Agent 用量",
-      description: "查看 Codex、DeepSeek 与 SuperGrok 用量窗口。",
-      className: "codex-page-header"
-    })}
-    <section class="codex-usage-panel">
-      <div class="codex-panel-title">
-        <div>${openaiBrandIcon}<h2>Codex</h2></div>
-        <span class="codex-update">${relativeUpdatedAt(statusData.codex.updatedAt)}</span>
+    <div class="agent-workspace" data-module-id="codex" ${moduleHealthAttributes("codex")}>
+      ${modulePageHeader({
+        title: "Agent",
+        description: "ChatGPT、DeepSeek、SuperGrok 的用量与额度（统一展示剩余）",
+        className: "codex-page-header agent-page-header",
+        actions: `<button
+          class="refresh-button module-refresh-button agent-refresh-button ${agentRefreshInFlight ? "refreshing" : ""}"
+          id="refresh-agent"
+          type="button"
+          aria-label="刷新 Agent 用量"
+          ${agentRefreshInFlight ? "disabled" : ""}
+        >${refreshIcon}<span>${agentRefreshInFlight ? "刷新中" : "刷新用量"}</span></button>`
+      })}
+      <div class="agent-quota-stack">
+        ${featured.map((item) => agentQuotaCard(item)).join("")}
       </div>
-      <div class="usage-window-grid">
-        ${usageWindowCard("5-hour window", fiveHour)}
-        ${usageWindowCard("7d", sevenDay)}
+      <div class="agent-quota-grid">
+        ${compact.map((item) => agentQuotaCard(item)).join("")}
       </div>
-      <div class="codex-cli-status"><span></span>Status: Codex CLI ${statusData.codex.status === "Unavailable" ? "unavailable" : "active"}</div>
-    </section>
-    ${deepseekCompactSection()}
-    ${superGrokUsageSection()}
     </div>`;
 }
 
@@ -4948,12 +5317,45 @@ async function refreshGithubData({ force = false } = {}) {
   return statusData.github;
 }
 
+async function refreshCodexTokenUsageData({ force = false } = {}) {
+  if (!window.winplate?.getCodexTokenUsage) {
+    codexTokenUsage = emptyTokenUsage();
+    return codexTokenUsage;
+  }
+  try {
+    codexTokenUsage = {
+      ...emptyTokenUsage(),
+      ...await window.winplate.getCodexTokenUsage({ force })
+    };
+  } catch {
+    codexTokenUsage = emptyTokenUsage();
+  }
+  return codexTokenUsage;
+}
+
+async function refreshSuperGrokTokenUsageData({ force = false } = {}) {
+  if (!window.winplate?.getSuperGrokTokenUsage) {
+    superGrokTokenUsage = emptyTokenUsage();
+    return superGrokTokenUsage;
+  }
+  try {
+    superGrokTokenUsage = {
+      ...emptyTokenUsage(),
+      ...await window.winplate.getSuperGrokTokenUsage({ force })
+    };
+  } catch {
+    superGrokTokenUsage = emptyTokenUsage();
+  }
+  return superGrokTokenUsage;
+}
+
 async function refreshCodexData({ force = false } = {}) {
   statusData.codex = {
     ...mockStatus.codex,
     ...statusData.codex,
     ...await window.winplate.getCodexUsage({ force })
   };
+  await refreshCodexTokenUsageData({ force });
   updateCurrentViewDom("codex");
   if (statusData.codex.status === "Unavailable") {
     throw new Error(statusData.codex.error || "Codex 用量不可用");
@@ -4978,6 +5380,7 @@ async function refreshSuperGrokData({ force = false } = {}) {
       ...statusData.supergrok,
       updatedAt: Date.now()
     };
+    await refreshSuperGrokTokenUsageData({ force });
     updateCurrentViewDom("codex");
     return statusData.supergrok;
   }
@@ -4986,6 +5389,7 @@ async function refreshSuperGrokData({ force = false } = {}) {
     ...statusData.supergrok,
     ...await window.winplate.getSuperGrokUsage({ force })
   };
+  await refreshSuperGrokTokenUsageData({ force });
   updateCurrentViewDom("codex");
   if (statusData.supergrok.status === "Unavailable") {
     throw new Error(statusData.supergrok.raw || "Grok Build 用量不可用");
@@ -5087,7 +5491,119 @@ async function refreshStatus(options = {}) {
   return results;
 }
 
+function bindAgentTokenChartHover(chartRoot) {
+  if (!chartRoot || chartRoot.dataset.hoverBound === "true") return;
+  const payloadRaw = chartRoot.dataset.agentChartPoints;
+  if (!payloadRaw) return;
+  let points = [];
+  try {
+    points = JSON.parse(decodeURIComponent(payloadRaw));
+  } catch {
+    return;
+  }
+  if (!Array.isArray(points) || !points.length) return;
+
+  const svg = chartRoot.querySelector("svg");
+  const guide = chartRoot.querySelector(".agent-token-hover-guide");
+  const dot = chartRoot.querySelector(".agent-token-hover-dot");
+  const card = chartRoot.querySelector(".agent-token-hover-card");
+  const tokensEl = chartRoot.querySelector("[data-agent-hover-tokens]");
+  const timeEl = chartRoot.querySelector("[data-agent-hover-time]");
+  if (!svg || !guide || !dot || !card || !tokensEl || !timeEl) return;
+
+  const chartWidth = Number(chartRoot.dataset.agentChartWidth) || 560;
+  const nearestPoint = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return points[0];
+    const x = ((clientX - rect.left) / rect.width) * chartWidth;
+    let best = points[0];
+    let bestDistance = Math.abs(best.x - x);
+    for (const point of points) {
+      const distance = Math.abs(point.x - x);
+      if (distance < bestDistance) {
+        best = point;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  };
+
+  const showPoint = (point) => {
+    if (!point) return;
+    guide.setAttribute("x1", String(point.x));
+    guide.setAttribute("x2", String(point.x));
+    guide.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", String(point.x));
+    dot.setAttribute("cy", String(point.y));
+    dot.setAttribute("visibility", "visible");
+    // Hover card: date first, then absolute token count.
+    timeEl.textContent = point.label || "";
+    tokensEl.textContent = `${Number(point.tokens || 0).toLocaleString("zh-CN")} tokens`;
+    card.hidden = false;
+    const rect = chartRoot.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const scaleX = svgRect.width / chartWidth;
+    const localX = (point.x * scaleX);
+    const halfWidth = 62;
+    card.style.left = `${Math.min(Math.max(localX, halfWidth + 4), rect.width - halfWidth - 4)}px`;
+  };
+
+  const hidePoint = () => {
+    guide.setAttribute("visibility", "hidden");
+    dot.setAttribute("visibility", "hidden");
+    card.hidden = true;
+  };
+
+  chartRoot.dataset.hoverBound = "true";
+  chartRoot.addEventListener("pointermove", (event) => {
+    showPoint(nearestPoint(event.clientX));
+  });
+  chartRoot.addEventListener("pointerleave", hidePoint);
+  chartRoot.addEventListener("pointercancel", hidePoint);
+}
+
+function bindAgentControls() {
+  const pageContent = document.querySelector("#page-content");
+  if (!pageContent) return;
+
+  pageContent.querySelectorAll("[data-agent-chart]").forEach((chartRoot) => {
+    const cardId = chartRoot.dataset.agentChart;
+    chartRoot.querySelectorAll("[data-agent-granularity]").forEach((button) => {
+      button.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const next = button.dataset.agentGranularity;
+        if (!["hour", "day"].includes(next)) return;
+        agentChartGranularity[cardId] = next;
+        updateMainStatusDom("codex");
+      };
+    });
+    chartRoot.querySelectorAll("[data-agent-chart-root]").forEach((root) => {
+      bindAgentTokenChartHover(root);
+    });
+  });
+
+  const refreshButton = document.querySelector("#refresh-agent");
+  if (!refreshButton) return;
+  refreshButton.onclick = async () => {
+    if (agentRefreshInFlight) return;
+    agentRefreshInFlight = true;
+    updateMainStatusDom("codex");
+    try {
+      await Promise.allSettled([
+        refreshCodexData({ force: true }),
+        refreshDeepSeekData({ force: true }),
+        refreshSuperGrokData({ force: true })
+      ]);
+    } finally {
+      agentRefreshInFlight = false;
+      updateMainStatusDom("codex");
+    }
+  };
+}
+
 function bindDashboardControls() {
+  bindAgentControls();
   const refreshButton = document.querySelector("#refresh-dashboard");
   if (!refreshButton) return;
   refreshButton.onclick = async () => {

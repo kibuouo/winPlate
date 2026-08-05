@@ -21,12 +21,12 @@ function createAppTray(actions) {
   tray.setToolTip("WinPlate");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Show WinPlate", click: () => actions.showMainWindow("Dashboard") },
+      { label: "打开 WinPlate", click: () => actions.showMainWindow("Dashboard") },
       { type: "separator" },
-      { label: "Show Floating Window", click: actions.showFloatingWindow },
-      { label: "Hide Floating Window", click: actions.hideFloatingWindow },
+      { label: "显示浮窗", click: actions.showFloatingWindow },
+      { label: "隐藏浮窗", click: actions.hideFloatingWindow },
       { type: "separator" },
-      { label: "Quit", click: actions.quit }
+      { label: "退出", click: actions.quit }
     ])
   );
   tray.on("double-click", () => actions.showMainWindow("Dashboard"));
