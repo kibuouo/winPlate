@@ -12,7 +12,6 @@ function unavailableUsage(message, configured = false) {
     configured,
     available: false,
     balances: [],
-    tokenUsage: null,
     updatedAt: Date.now(),
     status: configured ? "Unavailable" : "Unconfigured",
     raw: message
@@ -33,7 +32,6 @@ function parseDeepSeekBalance(payload, now = Date.now()) {
     configured: true,
     available: Boolean(payload?.is_available),
     balances,
-    tokenUsage: null,
     updatedAt: now,
     status: balances.length ? (payload.is_available ? "Normal" : "Insufficient") : "Unavailable",
     raw: ""

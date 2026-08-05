@@ -23,6 +23,7 @@ const {
   setQuitting,
   setFloatingPinned,
   setFloatingPinInteractive,
+  restoreFloatingCapsule,
   showTooltipWindow,
   hideTooltipWindow,
   setMainWindowTheme,
@@ -42,12 +43,11 @@ const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
 const { readCodexUsage } = require("./codexUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
+const { readSuperGrokUsage } = require("./supergrokUsage");
 const {
-  DEFAULT_BASE_URL: DEEPSEEK_DEFAULT_BASE_URL,
   normalizeBaseUrl: normalizeDeepSeekBaseUrl,
   readDeepSeekUsage
 } = require("./deepseekUsage");
-const { DEFAULT_MODEL: DEEPSEEK_CHAT_MODEL, callDeepSeekChat, testDeepSeekChat } = require("./deepseekChatClient");
 const {
   DEFAULT_SERVICE_SETTINGS,
   serviceSettingsFileExists,
@@ -64,13 +64,9 @@ const {
 } = require("./serviceSettingsLifecycle");
 const { registerSettingsIpc } = require("./settingsIpc");
 const { readWindowsServiceEnvironment } = require("./windowsEnvironment");
-const {
-  readDeepSeekTokenUsage,
-  recordDeepSeekTokenUsage
-} = require("./deepseekTokenUsage");
-const { createNotificationStore } = require("./notifications/notificationStore");
+const { createNotificationManager } = require("./notifications/notificationStore");
 const { createNotificationDetailService } = require("./notifications/detailService");
-const { createNotificationSummaryService } = require("./ai/notificationSummaryService");
+const { createNotificationSummaryService } = require("./notifications/summaryService");
 const { mainModules, validateMainModules } = require("./modules");
 const { readSettings, writeSettings } = require("./settingsStore");
 const MODULES = validateMainModules().map((module) => module.meta);
@@ -105,6 +101,7 @@ const processServiceEnvironment = Object.freeze({
 const responseCacheVersions = new Map();
 let notificationSummaryService = null;
 let notificationDetailService = null;
+let notificationManager = null;
 let currentSettings = null;
 let serviceSettingsLifecycle = null;
 const desktopIconPath = assetPath("icon.ico");
@@ -358,13 +355,6 @@ async function publicSettingsPayload(settings = currentSettings) {
   };
 }
 
-async function recordDeepSeekTokenUsageSafely(usage, feature = "unknown") {
-  try {
-    await recordDeepSeekTokenUsage(app.getPath("userData"), usage, { feature });
-  } catch (error) {
-    console.warn("deepseek token usage record failed:", error.message);
-  }
-}
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -402,7 +392,7 @@ if (!gotLock) {
       await registerWindowsDesktopApp({
         app,
         shell,
-        iconPath: desktopIconPath
+        iconPath: app.isPackaged ? app.getPath("exe") : desktopIconPath
       });
     } catch (error) {
       console.warn("WinPlate desktop app registration skipped:", error.message);
@@ -468,7 +458,6 @@ if (!gotLock) {
     ipcMain.handle("settings:save", async (event, settings) => {
       requireMainWindowSender(event);
       validateSettingsInput(settings);
-      const previousDigestEnabled = currentSettings.notificationDigest.enabled;
       const github = settings?.integrations?.github || {};
       const username = typeof github.username === "string" ? github.username.trim() : "";
       const token = typeof github.token === "string" ? github.token.trim() : "";
@@ -480,10 +469,6 @@ if (!gotLock) {
       currentSettings = await writeSettings(userDataPath, settings);
       setAppWindowOpacity(1);
       invalidateResponseCache("Status");
-      if (previousDigestEnabled !== currentSettings.notificationDigest.enabled) {
-        clearNotificationCaches();
-        await notificationSummaryService?.refreshNow({ force: true });
-      }
       const payload = await publicSettingsPayload();
       broadcastSettingsUpdated(payload);
       return payload;
@@ -537,7 +522,6 @@ if (!gotLock) {
       normalizeDeepSeekBaseUrl,
       defaultDeepSeekBaseUrl: DEFAULT_SERVICE_SETTINGS.deepseekBaseUrl,
       readDeepSeekUsage,
-      readDeepSeekTokenUsage,
       publicServiceSettings,
       safeObject
     });
@@ -551,6 +535,10 @@ if (!gotLock) {
       ipcMain.on("floating:pin-interactive", (event, value) => {
         requireFloatingWindowSender(event);
         setFloatingPinInteractive(value);
+      });
+      ipcMain.handle("floating:restore-capsule", (event) => {
+        requireFloatingWindowSender(event);
+        return restoreFloatingCapsule();
       });
       ipcMain.on("tooltip:show", (event, payload) => {
         requireFloatingWindowSender(event);
@@ -572,9 +560,33 @@ if (!gotLock) {
     }
 
     ipcMain.on("window:show-main", (_event, section) => showMainWindow(section));
-    ipcMain.on("github:open-profile", (_event, url) => {
-      if (typeof url === "string" && /^https:\/\/github\.com\/[^/]+\/?$/.test(url)) {
-        shell.openExternal(url);
+    ipcMain.on("github:open-profile", (event, url) => {
+      requireMainWindowSender(event);
+      if (typeof url !== "string") return;
+      try {
+        const target = new URL(url);
+        const segments = target.pathname.split("/").filter(Boolean);
+        const safeSegment = (value) => /^[A-Za-z0-9_.-]+$/.test(value || "");
+        const isProfile = segments.length === 1 && safeSegment(segments[0]);
+        const isRepository = segments.length === 2 && segments.every(safeSegment);
+        const isCommit = segments.length === 4
+          && safeSegment(segments[0])
+          && safeSegment(segments[1])
+          && segments[2] === "commit"
+          && /^[a-f0-9]{7,64}$/i.test(segments[3]);
+        if (
+          target.protocol === "https:"
+          && target.hostname === "github.com"
+          && !target.username
+          && !target.password
+          && !target.search
+          && !target.hash
+          && (isProfile || isRepository || isCommit)
+        ) {
+          shell.openExternal(target.href);
+        }
+      } catch {
+        // Ignore malformed or non-GitHub URLs from renderer content.
       }
     });
     ipcMain.handle("mail:open", async () => {
@@ -610,10 +622,32 @@ if (!gotLock) {
       if (!response.ok) throw new Error(`GitHub contributions failed: HTTP ${response.status}`);
       return readJsonWithTimeout(response, "GitHub contributions");
     });
-    ipcMain.handle("status:get", () => (
-      fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
-    ));
+    ipcMain.handle("status:get", (_event, options = {}) => {
+      const force = Boolean(options?.force);
+      if (force) invalidateResponseCache("Status");
+      return fetchJsonCached(
+        "Status",
+        "http://127.0.0.1:8765/api/status",
+        force ? 0 : STATUS_CACHE_TTL_MS
+      );
+    });
     ipcMain.handle("network:speed", () => readNetworkSpeed());
+    ipcMain.handle("weather:refresh", async () => {
+      const response = await fetchWithTimeout("http://127.0.0.1:8765/api/weather/refresh", {
+        method: "POST"
+      });
+      if (!response.ok) {
+        const payload = await readJsonWithTimeout(response, "Weather refresh error").catch(() => null);
+        const detail = payload?.detail ? `: ${payload.detail}` : "";
+        throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
+      }
+      invalidateResponseCache("Status");
+      clearWeatherAlertCaches();
+      responseCaches.delete("QWeather usage");
+      const weather = await readJsonWithTimeout(response, "Weather refresh");
+      broadcastStatusRefresh(weather);
+      return weather;
+    });
     ipcMain.handle("weather:set-location", async (event, location) => {
       requireMainWindowSender(event);
       const { latitude, longitude } = normalizeWeatherCoordinates(location);
@@ -691,8 +725,7 @@ if (!gotLock) {
         "http://127.0.0.1:8765/api/weather/alerts",
         WEATHER_ALERT_CACHE_TTL_MS
       );
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
+      await notificationManager?.sourceChanged("qweather");
       return alerts;
     });
     ipcMain.handle("mail:get-settings", () => (
@@ -753,8 +786,7 @@ if (!gotLock) {
       }
       const outline = await readJsonWithTimeout(response, "Mail refresh");
       clearMailCaches();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
+      await notificationManager?.sourceChanged("mail");
       return outline;
     });
     ipcMain.handle("mail:connect", async () => {
@@ -768,65 +800,80 @@ if (!gotLock) {
       clearMailCaches();
       return payload;
     });
-    ipcMain.handle("notifications:get", async () => {
-      await syncWeatherAlertsIntoNotifications();
-      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
-    });
-    const loadNotificationSummary = async () => {
-      await syncWeatherAlertsIntoNotifications();
-      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", NOTIFICATION_CACHE_TTL_MS);
+    const loadRawNotificationSummary = async (options = {}) => {
+      const force = Boolean(options?.force);
+      if (force) clearNotificationCaches();
+      return fetchJsonCached(
+        "Notifications",
+        "http://127.0.0.1:8765/api/notifications",
+        force ? 0 : NOTIFICATION_CACHE_TTL_MS
+      );
     };
-    const notificationStore = createNotificationStore({
-      loadNotifications: loadNotificationSummary
+    const mutateRawNotifications = async (operation, payload = {}) => {
+      const requests = {
+        publish: {
+          url: "http://127.0.0.1:8765/api/notifications",
+          method: "POST",
+          body: payload
+        },
+        markRead: {
+          url: `http://127.0.0.1:8765/api/notifications/${encodeURIComponent(payload.id || "")}/read`,
+          method: "POST"
+        },
+        markManyRead: {
+          url: "http://127.0.0.1:8765/api/notifications/read-many",
+          method: "POST",
+          body: { ids: payload.ids }
+        },
+        markAllRead: {
+          url: "http://127.0.0.1:8765/api/notifications/read-all",
+          method: "POST"
+        },
+        clear: {
+          url: "http://127.0.0.1:8765/api/notifications",
+          method: "DELETE"
+        },
+        clearRead: {
+          url: "http://127.0.0.1:8765/api/notifications/read",
+          method: "DELETE"
+        }
+      };
+      const request = requests[operation];
+      if (!request) throw new Error(`Unsupported notification operation: ${operation}`);
+      const response = await fetchWithTimeout(request.url, {
+        method: request.method,
+        ...(request.body ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body)
+        } : {})
+      });
+      if (!response.ok) {
+        const errorPayload = await readJsonWithTimeout(response, "Notification mutation error").catch(() => null);
+        throw new Error(errorPayload?.detail || `Notification ${operation} failed: HTTP ${response.status}`);
+      }
+      return readJsonWithTimeout(response, `Notification ${operation}`);
+    };
+    notificationManager = createNotificationManager({
+      loadNotifications: loadRawNotificationSummary,
+      mutateNotifications: mutateRawNotifications,
+      syncSources: (options = {}) => options.skipSourceSync ? null : syncWeatherAlertsIntoNotifications(),
+      onChanged: () => {
+        clearNotificationCaches();
+        scheduleNotificationDigestRefresh();
+      }
     });
+    const loadNotificationSummary = (options = {}) => notificationManager.list(options);
+    ipcMain.handle("notifications:get", (_event, options = {}) => notificationManager.list(options));
     notificationDetailService = createNotificationDetailService({
       loadNotifications: loadNotificationSummary,
       fetchMailMessage: (uid) => fetchMailMessageByUid(uid, { markRead: false }),
       fetchWeatherAlert: (alertId) => fetchWeatherAlertById(alertId)
     });
     notificationSummaryService = createNotificationSummaryService({
-      store: notificationStore,
-      onUpdated: broadcastNotificationDigest,
-      shouldUseAi: () => currentSettings.notificationDigest.enabled,
-      aiModel: DEEPSEEK_CHAT_MODEL,
-      persistDigest: async ({ digest, snapshot, model }) => {
-        const response = await fetch("http://127.0.0.1:8765/api/notifications/digest-records", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source: "deepseek",
-            model,
-            title: digest.title,
-            summary: digest.summary,
-            content: `${digest.title}\n${digest.summary}`.trim(),
-            severity: digest.severity,
-            category: digest.category,
-            iconKey: digest.iconKey,
-            unreadCount: digest.unreadCount,
-            generatedAt: digest.generatedAt,
-            sourceIds: Array.isArray(snapshot?.items) ? snapshot.items.map((item) => item.id).filter(Boolean) : []
-          })
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-      },
-      callChat: async (options) => {
-        const settings = serviceSettingsLifecycle.effectiveSettings();
-        return callDeepSeekChat({
-          ...options,
-          apiKey: settings.deepseekApiKey,
-          baseUrl: settings.deepseekBaseUrl || DEEPSEEK_DEFAULT_BASE_URL,
-          onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, options.feature || "unknown")
-        });
-      }
+      store: notificationManager,
+      onUpdated: broadcastNotificationDigest
     });
     ipcMain.handle("notification:get-digest", () => notificationSummaryService.getDigest());
-    ipcMain.handle("notifications:get-smart-brief", () => notificationSummaryService.getDigest());
-    ipcMain.handle("notifications:refresh-smart-brief", async (event) => {
-      requireMainWindowSender(event);
-      return notificationSummaryService.refreshNow({ force: true });
-    });
     ipcMain.handle("notifications:get-detail", async (_event, id) => notificationDetailService.getNotificationDetail(id));
     ipcMain.handle("notifications:copy", (_event, value) => {
       const text = typeof value === "string" ? value : "";
@@ -854,17 +901,7 @@ if (!gotLock) {
       if (!notificationId) {
         throw new Error("Notification id is required");
       }
-      const response = await fetch(
-        `http://127.0.0.1:8765/api/notifications/${encodeURIComponent(notificationId)}/read`,
-        { method: "POST" }
-      );
-      if (!response.ok) {
-        throw new Error(`Notification read failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.markRead(notificationId);
     });
     ipcMain.handle("notifications:mark-read-many", async (event, ids) => {
       requireMainWindowSender(event);
@@ -872,81 +909,33 @@ if (!gotLock) {
       if (!notificationIds.length || notificationIds.some((id) => !id) || new Set(notificationIds).size !== notificationIds.length) {
         throw new Error("Notification ids are required");
       }
-      const response = await fetch("http://127.0.0.1:8765/api/notifications/read-many", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: notificationIds })
-      });
-      if (!response.ok) {
-        throw new Error(`Notification batch read failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.markManyRead(notificationIds);
     });
     ipcMain.handle("notifications:mark-all-read", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications/read-all", { method: "POST" });
-      if (!response.ok) {
-        throw new Error(`Notification read-all failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.markAllRead();
     });
     ipcMain.handle("notifications:clear", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications", { method: "DELETE" });
-      if (!response.ok) {
-        throw new Error(`Notification clear failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.clear();
     });
     ipcMain.handle("notifications:clear-read", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications/read", { method: "DELETE" });
-      if (!response.ok) {
-        throw new Error(`Notification clear-read failed: HTTP ${response.status}`);
-      }
-      const summary = await response.json();
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return summary;
+      return notificationManager.clearRead();
     });
     ipcMain.handle("notifications:push-test", async (event) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: "codex",
-          level: "success",
-          title: "Codex 任务完成",
-          message: "WinPlate 已收到一条本地测试通知"
-        })
+      return notificationManager.publish({
+        source: "codex",
+        level: "success",
+        title: "Codex 任务完成",
+        message: "WinPlate 已收到一条本地测试通知"
       });
-      if (!response.ok) {
-        throw new Error(`Notification push failed: HTTP ${response.status}`);
-      }
-      clearNotificationCaches();
-      scheduleNotificationDigestRefresh();
-      return fetchJsonCached("Notifications", "http://127.0.0.1:8765/api/notifications", 0);
     });
     ipcMain.handle("codex:usage", (_event, options) => readCodexUsage(options));
-    ipcMain.handle("deepseek:test-chat", async (event) => {
-      requireMainWindowSender(event);
-      const settings = serviceSettingsLifecycle.effectiveSettings();
-      return testDeepSeekChat({
-        apiKey: settings.deepseekApiKey,
-        baseUrl: settings.deepseekBaseUrl || DEEPSEEK_DEFAULT_BASE_URL,
-        onUsage: (usage) => recordDeepSeekTokenUsageSafely(usage, "testChat")
-      });
-    });
+    ipcMain.handle("supergrok:usage", (_event, options) => readSuperGrokUsage(
+      (options && typeof options === "object") ? options : {}
+    ));
     ipcMain.on("window:set-theme", (_event, theme) => setMainWindowTheme(theme));
     ipcMain.on("window:minimize", minimizeMainWindow);
     ipcMain.handle("window:toggle-maximize", toggleMaximizeMainWindow);

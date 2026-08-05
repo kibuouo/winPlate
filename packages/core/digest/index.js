@@ -18,14 +18,15 @@ const PRIORITY_BY_SCORE = [
   [0, "low"]
 ];
 const SEVERITY_RANK = { info: 0, warning: 1, danger: 2 };
+const ALERT_COLORS = new Set(["red", "yellow", "blue", "green"]);
 // Match Windows weather storage: only red-class alerts are danger.
-// Orange sits with yellow/blue as warning (amber UI), not red danger.
+// Orange sits with yellow as warning (amber UI); blue remains informational.
 const DANGER_WEATHER_RE = /红色预警|red alert/i;
-const WARNING_WEATHER_RE = /橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert/i;
+const WARNING_WEATHER_RE = /橙色预警|黄色预警|orange alert|yellow alert/i;
 // QWeather: severe ≈ orange band; only red/extreme are display danger.
 const DANGER_WEATHER_COLORS = new Set(["red", "extreme"]);
 const WARNING_WEATHER_COLORS = new Set([
-  "orange", "yellow", "blue", "severe", "moderate", "minor", "unknown", "white", "green"
+  "orange", "yellow", "severe", "moderate", "minor", "unknown", "white", "green"
 ]);
 const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
 const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;
@@ -38,14 +39,14 @@ function normalizeDisplaySeverity(value) {
 
 function severityForNotification(item = {}) {
   // Prefer API-authored severity when present so clients share one rule set.
-  const provided = normalizeDisplaySeverity(item.severity ?? item.meta?.severity);
+  const provided = normalizeDisplaySeverity(item.severity ?? item.displaySeverity);
   if (provided) return provided;
 
   const source = String(item.source || "system");
   const content = `${item.title || ""} ${item.body || item.message || ""}`;
   if (source === "qweather") {
     if (item.meta?.lifecycle === "resolved") return "info";
-    const weatherColor = String(item.meta?.severity || "").toLowerCase();
+    const weatherColor = String(item.meta?.alertColor || item.meta?.severity || "").toLowerCase();
     if (DANGER_WEATHER_COLORS.has(weatherColor)) return "danger";
     if (WARNING_WEATHER_COLORS.has(weatherColor)) return "warning";
     if (DANGER_WEATHER_RE.test(content)) return "danger";
@@ -111,15 +112,21 @@ function groupSummary(group, items) {
 
 function buildGroups(items, now = Date.now()) {
   const grouped = new Map();
-  for (const item of items) {
+  const scoredItems = items.map((item) => ({
+    item,
+    score: scoreNotification(item, now)
+  }));
+  for (const scored of scoredItems) {
+    const { item } = scored;
     const group = groupForSource(item.source);
     if (!grouped.has(group.key)) grouped.set(group.key, { definition: group, items: [] });
-    grouped.get(group.key).items.push(item);
+    grouped.get(group.key).items.push(scored);
   }
   return GROUPS.filter((definition) => grouped.has(definition.key)).map((definition) => {
-    const groupItems = grouped.get(definition.key).items
-      .sort((a, b) => scoreNotification(b, now) - scoreNotification(a, now) || b.createdAt - a.createdAt);
-    const topScore = scoreNotification(groupItems[0], now);
+    const scoredGroupItems = grouped.get(definition.key).items
+      .sort((a, b) => b.score - a.score || b.item.createdAt - a.item.createdAt);
+    const groupItems = scoredGroupItems.map(({ item }) => item);
+    const topScore = scoredGroupItems[0].score;
     return {
       key: definition.key,
       label: definition.label,
@@ -128,13 +135,12 @@ function buildGroups(items, now = Date.now()) {
       priority: PRIORITY_BY_SCORE.find(([threshold]) => topScore >= threshold)?.[1] || "low",
       severity: highestSeverity(groupItems),
       summary: groupSummary(definition, groupItems),
-      sourceIds: groupItems.map((item) => item.id)
+      sourceIds: groupItems.map((item) => item.id),
+      topScore
     };
   }).sort((a, b) => {
-    const aTop = Math.max(...a.sourceIds.map((id) => scoreNotification(items.find((item) => item.id === id), now)));
-    const bTop = Math.max(...b.sourceIds.map((id) => scoreNotification(items.find((item) => item.id === id), now)));
-    return bTop - aTop;
-  });
+    return b.topScore - a.topScore;
+  }).map(({ topScore, ...group }) => group);
 }
 
 function localHeadline(items) {
@@ -156,6 +162,11 @@ function categoryForSource(source) {
   return groupForSource(source).key;
 }
 
+function weatherAlertColor(item = {}) {
+  const color = String(item.meta?.alertColor || "").toLowerCase();
+  return ALERT_COLORS.has(color) ? color : null;
+}
+
 function createLocalDigest(rawItems, now = Date.now()) {
   const items = dedupeNotifications(foldNotificationConversations(rawItems))
     .sort((a, b) => scoreNotification(b, now) - scoreNotification(a, now) || b.createdAt - a.createdAt);
@@ -170,6 +181,7 @@ function createLocalDigest(rawItems, now = Date.now()) {
       category: "system",
       iconKey: "bell",
       primarySource: "system",
+      alertColor: null,
       unreadCount: 0,
       groups: [],
       spokenText: "当前没有需要关注的新通知。",
@@ -189,6 +201,7 @@ function createLocalDigest(rawItems, now = Date.now()) {
     category: categoryForSource(unreadItems[0].source),
     iconKey: "bell",
     primarySource: unreadItems[0].source,
+    alertColor: weatherAlertColor(unreadItems[0]),
     unreadCount: unreadItems.length,
     groups,
     spokenText: `${headline}。${summary}`,
@@ -199,7 +212,7 @@ function createLocalDigest(rawItems, now = Date.now()) {
 function digestHash(items) {
   const value = (Array.isArray(items) ? items : []).map((item) => [
     item.id, item.source, item.type, item.title, item.body, item.level,
-    item.createdAt, item.unread, item.dedupeKey, item.meta?.lifecycle
+    item.createdAt, item.unread, item.dedupeKey, item.meta?.lifecycle, item.meta?.alertColor
   ].join("\u001f")).join("\u001e");
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -214,5 +227,6 @@ module.exports = {
   highestSeverity,
   normalizeDisplaySeverity,
   severityForNotification,
-  scoreNotification
+  scoreNotification,
+  weatherAlertColor
 };

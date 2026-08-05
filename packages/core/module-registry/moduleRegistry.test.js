@@ -28,7 +28,14 @@ test("filters disabled modules and respects configured order per view", () => {
   assert.equal(orderedModules(settings.order)[0].id, "weather");
 });
 
-test("presents the heart module as Health without changing its navigation section", () => {
-  assert.equal(getModuleMeta("heart").title, "Health");
+test("presents the heart module as 健康 without changing its navigation section", () => {
+  assert.equal(getModuleMeta("heart").title, "健康");
   assert.equal(getModuleMeta("heart").section, "Heart");
+});
+
+test("uses the requested localized labels for the main navigation modules", () => {
+  assert.deepEqual(
+    ["notifications", "mail", "weather", "heart"].map((id) => getModuleMeta(id).title),
+    ["通知", "邮件", "天气", "健康"]
+  );
 });

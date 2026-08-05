@@ -8,8 +8,38 @@
       .replaceAll("'", "&#039;");
   }
 
+  function notificationAlertColor(item = {}) {
+    const color = String(item.meta?.alertColor || "").toLowerCase();
+    if (["red", "yellow", "blue", "green"].includes(color)) return color;
+    return null;
+  }
+
+  function notificationColorClass(item = {}) {
+    const color = notificationAlertColor(item);
+    return ["red", "yellow", "blue", "green"].includes(color) ? ` alert-color-${color}` : "";
+  }
+
+  function notificationTierLabel(item = {}) {
+    const color = notificationAlertColor(item);
+    return {
+      red: "危急",
+      yellow: "预警",
+      blue: "提示",
+      green: "普通"
+    }[color] || {
+      critical: "危急",
+      danger: "危急",
+      warning: "预警",
+      info: "普通",
+      success: "普通"
+    }[item.level] || "普通";
+  }
+
   function normalizeDigest(digest = {}) {
     const severity = ["danger", "warning", "info"].includes(digest.severity) ? digest.severity : "info";
+    const alertColor = ["red", "yellow", "blue", "green"].includes(digest.alertColor)
+      ? digest.alertColor
+      : null;
     const title = String(digest.title || digest.headline || "暂无新通知");
     return {
       title,
@@ -17,6 +47,7 @@
       summary: String(digest.summary || "当前没有需要关注的新通知。"),
       priority: String(digest.priority || "none"),
       severity,
+      alertColor,
       category: String(digest.category || "system"),
       iconKey: String(digest.iconKey || "bell"),
       source: String(digest.primarySource || digest.source || "system"),
@@ -45,7 +76,7 @@
     const list = selectDigestItems(digest, items);
     if (!list.length) return '<div class="notification-drawer-empty"><strong>暂无需要处理的通知</strong></div>';
     return `<div class="notification-drawer-list">${list.map((item) => `
-      <button class="notification-drawer-item level-${escapeHtml(severityClass?.(item) || item.level || "info")}" type="button" data-notification-drawer-item="${escapeHtml(item.id)}">
+      <button class="notification-drawer-item level-${escapeHtml(severityClass?.(item) || item.level || "info")}${notificationColorClass(item)}" type="button" data-notification-drawer-item="${escapeHtml(item.id)}">
         <span><i class="notification-status-dot" aria-hidden="true"></i>${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
         <strong>${escapeHtml(item.title || "通知")}</strong>
         <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
@@ -95,10 +126,11 @@
   function renderDigestCard(digest, { compact = false } = {}) {
     const value = normalizeDigest(digest);
     const iconKey = "sparkles";
+    const alertColorClass = value.alertColor ? ` alert-color-${value.alertColor}` : "";
     return `
-      <section class="notification-digest-card severity-${escapeHtml(value.severity)} ${compact ? "compact" : ""}" aria-label="智能通知摘要" ${compact ? "" : 'role="button" tabindex="0" aria-expanded="false" aria-controls="notification-digest-drawer" data-notification-digest-open="true"'}>
+      <section class="notification-digest-card severity-${escapeHtml(value.severity)}${alertColorClass} ${compact ? "compact" : ""}" aria-label="通知摘要" ${compact ? "" : 'role="button" tabindex="0" aria-expanded="false" aria-controls="notification-digest-drawer" data-notification-digest-open="true"'}>
         <div class="notification-digest-heading">
-          <span class="notification-digest-kicker">${global.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}智能摘要</span>
+          <span class="notification-digest-kicker">${global.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(iconKey)}通知摘要</span>
           <span class="notification-digest-count">${value.unreadCount} 未读</span>
         </div>
         <h2>${escapeHtml(value.headline)}</h2>
@@ -107,17 +139,56 @@
       </section>`;
   }
 
+  /**
+   * Capsule hover preview — product-style single surface.
+   * Neutral glass card; severity only via pill + micro accent (no loud fills).
+   */
+  function renderCapsuleTooltip(digest) {
+    const value = normalizeDigest(digest);
+    const severityLabel = notificationTierLabel({
+      level: value.severity,
+      meta: { alertColor: value.alertColor }
+    });
+    const items = digestSummaryItems(value.summary).slice(0, 3);
+    const body = items.length
+      ? `<ul class="notification-capsule-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+      : `<p class="notification-capsule-empty">${escapeHtml(value.summary || "当前没有需要关注的新通知。")}</p>`;
+    const unreadLabel = value.unreadCount > 99 ? "99+" : String(value.unreadCount);
+    const alertColorClass = value.alertColor ? ` alert-color-${value.alertColor}` : "";
+    return `
+      <article class="notification-capsule-card severity-${escapeHtml(value.severity)}${alertColorClass}" role="tooltip" aria-label="通知预览">
+        <header class="notification-capsule-header">
+          <div class="notification-capsule-meta">
+            <span class="notification-capsule-pill" aria-hidden="true">
+              ${global.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("sparkles")}
+              <span>摘要</span>
+            </span>
+            <span class="notification-capsule-level">${severityLabel}</span>
+          </div>
+          ${value.unreadCount
+            ? `<span class="notification-capsule-badge" aria-label="${value.unreadCount} 条未读">${unreadLabel}</span>`
+            : `<span class="notification-capsule-badge is-clear">0</span>`}
+        </header>
+        <h2 class="notification-capsule-title">${escapeHtml(value.headline)}</h2>
+        <div class="notification-capsule-body">${body}</div>
+        <footer class="notification-capsule-footer">
+          <span>打开通知中心</span>
+          <span aria-hidden="true">→</span>
+        </footer>
+      </article>`;
+  }
+
   function renderRawNotifications(items, { expanded = false, sourceLabel, levelLabel, relativeTime, severityClass } = {}) {
     const list = Array.isArray(items) ? items : [];
     // Baseline markup remains <details class="notification-raw-section"> when collapsed.
     const rows = list.length ? `<div class="notification-page-list">${list.map((item) => `
-      <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(severityClass?.(item) || item.level || "info")} ${item.unread ? "unread" : ""}" data-notification-open="${escapeHtml(item.id)}">
+      <article class="notification-page-item source-${escapeHtml(item.source)} level-${escapeHtml(severityClass?.(item) || item.level || "info")}${notificationColorClass(item)} ${item.unread ? "unread" : ""}" data-notification-open="${escapeHtml(item.id)}">
         <div class="notification-page-main">
           <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
           <h2>${escapeHtml(item.title)}</h2>
           ${item.body || item.message ? `<p>${escapeHtml(item.body || item.message)}</p>` : ""}
           <footer>
-            <span>${escapeHtml(levelLabel?.(item) || item.level || "信息")}</span>
+            <span>${escapeHtml(levelLabel?.(item.level, item) || item.level || "信息")}</span>
             <time>${escapeHtml(relativeTime?.(item.createdAt) || "")}</time>
           </footer>
         </div>
@@ -185,7 +256,7 @@
         ${group.items.map((item) => {
           const selected = String(item.id) === String(selectedId);
           const emphasis = severityClass?.(item) || item.level || "info";
-          return `<article class="notification-timeline-entry level-${escapeHtml(emphasis)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}">
+          return `<article class="notification-timeline-entry level-${escapeHtml(emphasis)}${notificationColorClass(item)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}">
             <button class="notification-timeline-row" type="button" data-notification-select="${escapeHtml(item.id)}" aria-expanded="${selected}">
               <i class="notification-timeline-dot" aria-hidden="true"></i>
               <span class="notification-source-icon source-${escapeHtml(item.source || "system")}" aria-hidden="true">${sourceIcon?.(item.source) || ""}</span>
@@ -193,7 +264,7 @@
                 <span class="notification-timeline-title"><strong>${escapeHtml(item.title || "通知")}</strong>${Number(item.updateCount) > 1 ? `<em class="notification-update-count">${Math.max(2, Number(item.updateCount))} 条更新</em>` : ""}${item.unread ? '<em class="unread-badge">未读</em>' : ""}</span>
                 <p><span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
               </span>
-              <span class="notification-timeline-meta"><time class="notification-time-absolute">${escapeHtml(absoluteTime?.(item.createdAt) || "")}</time><time class="notification-time-relative">${escapeHtml(relativeTime?.(item.createdAt) || "")}</time><span>${escapeHtml(levelLabel?.(item) || item.level || "信息")}</span></span>
+              <span class="notification-timeline-meta"><time class="notification-time-absolute">${escapeHtml(absoluteTime?.(item.createdAt) || "")}</time><time class="notification-time-relative">${escapeHtml(relativeTime?.(item.createdAt) || "")}</time><span>${escapeHtml(levelLabel?.(item.level, item) || item.level || "信息")}</span></span>
             </button>
             ${selected ? inlineDetail(item) : ""}
           </article>`;
@@ -202,11 +273,11 @@
   }
 
   function isAcknowledgementRequired(item = {}) {
-    const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+    const meta = item.meta && typeof item.meta === "object" ? item.meta : {};
     return item.source === "qweather"
       && item.unread === true
-      && metadata.severity === "red"
-      && !["resolved", "cancelled", "ended"].includes(metadata.lifecycle);
+      && meta.alertColor === "red"
+      && !["resolved", "cancelled", "ended"].includes(meta.lifecycle);
   }
 
   function renderNotificationList(items, { selectedId = null, sourceLabel, levelLabel, relativeTime, severityClass } = {}) {
@@ -218,12 +289,12 @@
       const selected = String(item.id) === String(selectedId);
       const emphasis = severityClass?.(item) || item.level || "info";
       return `
-        <button class="notification-master-row source-${escapeHtml(item.source)} level-${escapeHtml(emphasis)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}"
+        <button class="notification-master-row source-${escapeHtml(item.source)} level-${escapeHtml(emphasis)}${notificationColorClass(item)} ${item.unread ? "unread" : ""} ${selected ? "selected" : ""}"
           type="button" aria-pressed="${selected}" data-notification-select="${escapeHtml(item.id)}">
           <span class="notification-source">${escapeHtml(sourceLabel?.(item.source) || item.source || "WinPlate")}</span>
           <strong>${escapeHtml(item.title || "通知")}</strong>
           <p>${escapeHtml(item.body || item.message || "暂无详细内容。")}</p>
-          <small>${escapeHtml(levelLabel?.(item) || item.level || "信息")} · ${escapeHtml(relativeTime?.(item.createdAt) || "")}${item.unread ? " · 未读" : ""}</small>
+          <small>${escapeHtml(levelLabel?.(item.level, item) || item.level || "信息")} · ${escapeHtml(relativeTime?.(item.createdAt) || "")}${item.unread ? " · 未读" : ""}</small>
         </button>`;
     }).join("")}</div>`;
   }
@@ -233,6 +304,7 @@
     selectDigestItems,
     renderDigestDrawerList,
     renderDigestCard,
+    renderCapsuleTooltip,
     digestSummaryItems,
     renderDigestSummary,
     renderGroups,
@@ -240,6 +312,8 @@
     filterNotificationItems,
     notificationSourceCounts,
     groupNotificationItemsByDate,
+    notificationAlertColor,
+    notificationTierLabel,
     renderNotificationTimeline,
     renderNotificationList,
     isAcknowledgementRequired

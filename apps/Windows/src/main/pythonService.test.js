@@ -3,15 +3,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const { resolveBackendLaunch } = require('./pythonService');
+const { resolveBackendLaunch, writeBackendOutput } = require('./pythonService');
 const { repositoryRoot } = require('./repositoryPaths');
 const packageManifest = require('../../package.json');
 
 test('Electron packaging copies the local API below resources', () => {
   assert.deepEqual(packageManifest.build.extraResources, [{
-    from: '../../backend/local-api',
-    to: 'backend/local-api'
+    from: '.build/backend',
+    to: 'backend/bin',
+    filter: ['winplate-backend.exe']
   }]);
+  assert.equal(packageManifest.build.appId, 'com.kiko.winplate');
+  assert.equal(packageManifest.build.nsis.perMachine, false);
+  assert.equal(packageManifest.build.nsis.include, 'build/installer.nsh');
+  assert.equal(packageManifest.build.nsis.createDesktopShortcut, true);
+  assert.equal(packageManifest.build.nsis.createStartMenuShortcut, true);
 });
 
 test('backend logging configuration is present and parseable', () => {
@@ -21,6 +27,24 @@ test('backend logging configuration is present and parseable', () => {
   assert.equal(loggingConfig.version, 1);
   assert.equal(loggingConfig.handlers.default.stream, 'ext://sys.stderr');
   assert.equal(loggingConfig.handlers.access.stream, 'ext://sys.stdout');
+});
+
+test('backend output forwarding suppresses a broken parent pipe', () => {
+  const writes = [];
+  const output = {
+    destroyed: false,
+    writableEnded: false,
+    write(message, callback) {
+      writes.push(message);
+      const error = new Error('broken pipe');
+      error.code = 'EPIPE';
+      callback(error);
+    }
+  };
+
+  assert.doesNotThrow(() => writeBackendOutput(output, '[backend] ', 'first'));
+  assert.doesNotThrow(() => writeBackendOutput(output, '[backend] ', 'second'));
+  assert.deepEqual(writes, ['[backend] first']);
 });
 
 test('development starts the importable package with the repository virtualenv', () => {

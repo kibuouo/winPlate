@@ -31,6 +31,12 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(MenuBarTemperatureFormatter.title(for: .infinity), "--°")
     }
 
+    func testOverviewDestinationsExposeDetailModules() {
+        XCTAssertEqual(WorkspaceDestination.agent.title, "Agent")
+        XCTAssertEqual(WorkspaceDestination.agent.symbol, "terminal")
+        XCTAssertTrue(WorkspaceDestination.allCases.contains(.agent))
+    }
+
     func testUsesQWeatherIconCodeOrFallbackAsset() {
         XCTAssertEqual(MenuBarWeatherIcon.filename(for: "101"), "101")
         XCTAssertEqual(MenuBarWeatherIcon.filename(for: "2204"), "2204")

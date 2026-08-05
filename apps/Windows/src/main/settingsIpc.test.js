@@ -26,7 +26,6 @@ function createHarness() {
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     ownsMainWindowSender: (sender) => sender === mainSender,
     ownsFloatingWindowSender: (sender) => sender === floatingSender,
-    userDataPath: "/user/data",
     serviceSettingsLifecycle: {
       effectiveSettings: () => ({ ...settings }),
       persist: async (patch) => {
@@ -37,7 +36,6 @@ function createHarness() {
     normalizeDeepSeekBaseUrl: normalizeBaseUrl,
     defaultDeepSeekBaseUrl: "https://api.deepseek.com",
     readDeepSeekUsage: async (options) => ({ status: "ok", apiKey: options.apiKey }),
-    readDeepSeekTokenUsage: async () => ({ total: { inputTokens: 1, outputTokens: 1 } }),
     publicServiceSettings,
     safeObject
   });

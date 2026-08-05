@@ -1,6 +1,6 @@
 # Notification Center
 
-Notification inputs are normalized into the versioned v1 contract before grouping or summarization. The contract preserves source identity, deduplication key, timestamp, unread state, metadata, and safe actions.
+Every notification source enters through `NotificationManager`. The local API manager owns persistence, import tracking, and read/clear mutations; the core manager owns the versioned v1 contract and semantic normalization. Mail, QWeather, Codex, ChatGPT, GitHub, system imports, IPC, detail views, digests, and renderer lists must not maintain source-specific write or classification paths.
 
 ## Level vs display severity
 
@@ -30,6 +30,8 @@ Windows weather cards and notification grading share the same band:
 QWeather encodes the **orange** band as `severe` (not `orange`). That must stay **warning**, never red danger. Only exact metadata `severity: red` requires acknowledgement / time-sensitive interruption.
 
 Platform clients must consume API `severity` for UI emphasis and must not invent a second grading table. `packages/core` keeps a local fallback for offline/unit paths and prefers the API value when present.
+
+The manager also persists a canonical `meta.alertColor` for source-specific color treatment: red alerts are dangerous, orange/yellow/blue alerts are warnings, and green or resolved notifications are informational. Mail uses the blue source color; routine and successful non-mail notifications use green. The renderer consumes the normalized fields and does not infer a tier from raw source payloads.
 
 The digest pipeline deduplicates by source and key, groups related unread items, and selects the highest semantic severity. AI summaries are optional. When unavailable, disabled, or invalid, the deterministic local digest is the complete fallback; notification handling must not depend on a remote model.
 

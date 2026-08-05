@@ -8,6 +8,7 @@
   const { ICON_KEYS, isSmartNotificationIconKey, normalizeSmartNotificationIconKey } = keysApi;
   const ICON_BODIES = Object.freeze({
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"></path><path d="M10 18h4"></path>',
+    "alert-triangle": '<path d="M10.3 3.6 2.4 18a2 2 0 0 0 1.75 3h15.7a2 2 0 0 0 1.75-3L13.7 3.6a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>',
     "cloud-rain-alert": '<path d="M16 13a4 4 0 0 0-1-7.9A6 6 0 0 0 3.5 8 4 4 0 0 0 4 16h10"></path><path d="m8 18-1 2"></path><path d="m12 18-1 2"></path><path d="M18 16v2"></path><path d="M18 21h.01"></path>',
     "cloud-lightning": '<path d="M17 17a5 5 0 0 0-1-9.9A7 7 0 0 0 2.7 10 4.5 4.5 0 0 0 7 17h2"></path><path d="m13 12-2 5h4l-2 5"></path>',
     wind: '<path d="M3 8h10a2 2 0 1 0-2-2"></path><path d="M3 12h15a2 2 0 1 1-2 2"></path><path d="M3 16h8"></path>',

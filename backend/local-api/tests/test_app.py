@@ -610,9 +610,17 @@ class DatabaseTests(unittest.TestCase):
                 "QWEATHER_API_HOST": "example.com",
             }.get(name, default)),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", return_value=response),
+            patch.object(main, "qweather_urlopen", return_value=response),
         ):
             self.assertEqual(main.qweather_request("/test", {}), payload)
+
+    def test_qweather_transport_bypasses_inherited_proxies(self):
+        request = main.Request("https://example.com/weather")
+        with patch.object(main, "build_opener") as build_opener:
+            main.qweather_urlopen(request, timeout=4)
+        proxy_handler = build_opener.call_args.args[0]
+        self.assertEqual(proxy_handler.proxies, {})
+        build_opener.return_value.open.assert_called_once_with(request, timeout=4)
 
     def test_qweather_request_counts_success_and_network_failure(self):
         original_path = main.DATABASE_PATH
@@ -628,9 +636,9 @@ class DatabaseTests(unittest.TestCase):
                 "QWEATHER_API_HOST": "example.com",
             }.get(name, default)
             with patch.object(main, "environment_setting", side_effect=settings):
-                with patch.object(main, "urlopen", return_value=response):
+                with patch.object(main, "qweather_urlopen", return_value=response):
                     main.qweather_request("/success", {})
-                with patch.object(main, "urlopen", side_effect=URLError("offline")):
+                with patch.object(main, "qweather_urlopen", side_effect=URLError("offline")):
                     with self.assertRaises(RuntimeError):
                         main.qweather_request("/failure", {})
             self.assertEqual(main.qweather_usage()["used"], 2)
@@ -677,7 +685,7 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", return_value=response) as mock_urlopen,
+            patch.object(main, "qweather_urlopen", return_value=response) as mock_urlopen,
         ):
             result = main.qweather_official_stats()
         request = mock_urlopen.call_args.args[0]
@@ -716,7 +724,7 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", return_value=response),
+            patch.object(main, "qweather_urlopen", return_value=response),
         ):
             result = main.qweather_official_stats()
         self.assertEqual(result["total"], 5)
@@ -758,7 +766,7 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "environment_setting", side_effect=settings),
             patch.object(main.jwt, "encode", return_value="token"),
             patch.object(main, "record_qweather_request"),
-            patch.object(main, "urlopen", side_effect=error),
+            patch.object(main, "qweather_urlopen", side_effect=error),
         ):
             with self.assertRaisesRegex(
                 RuntimeError,
@@ -783,6 +791,15 @@ class DatabaseTests(unittest.TestCase):
             patch.object(main, "github_token", return_value="token"),
             patch.object(main, "cached_github_status", return_value=None),
             patch.object(main, "github_graphql_request", return_value=payload) as request,
+            patch.object(main, "github_request", side_effect=lambda path: [{
+                    "sha": "1111111111111111111111111111111111111111",
+                    "html_url": "https://github.com/octocat/one/commit/1111111111111111111111111111111111111111",
+                    "author": {"login": "octocat"},
+                    "commit": {
+                        "message": "Improve contribution detail\n\nLong body",
+                        "author": {"name": "Octo Cat", "date": "2026-07-11T18:31:00Z"},
+                    },
+                }] if "/octocat/one/" in path else []),
         ):
             result = main.github_contribution_detail("octocat", date_text="2026-07-11")
 
@@ -790,6 +807,11 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["totalCount"], 5)
         self.assertEqual(result["repositoryCount"], 2)
         self.assertEqual(result["repositories"][0]["nameWithOwner"], "octocat/one")
+        self.assertEqual(result["repositories"][0]["commits"][0]["message"], "Improve contribution detail")
+        self.assertEqual(result["repositories"][0]["commits"][0]["author"], "octocat")
+        self.assertTrue(result["repositories"][0]["recordsAvailable"])
+        self.assertTrue(result["commitRecordsAvailable"])
+        self.assertTrue(result["commitRecordsTruncated"])
         self.assertTrue(result["detailsAvailable"])
         variables = request.call_args.args[1]
         self.assertEqual(variables["from"], "2026-07-11T00:00:00Z")
@@ -811,6 +833,7 @@ class DatabaseTests(unittest.TestCase):
 
         self.assertEqual(result["totalCount"], 5)
         self.assertEqual(result["repositories"], [])
+        self.assertFalse(result["commitRecordsAvailable"])
         self.assertFalse(result["detailsAvailable"])
         self.assertIn("Token", result["message"])
 
@@ -841,6 +864,26 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["commits"][0]["authoredAt"], "2026-07-20T08:30:00Z")
         self.assertIn("/repos/octocat/one/commits?", request.call_args.args[0])
         self.assertIn("author=octocat", request.call_args.args[0])
+
+    def test_map_github_commit_record_uses_commit_author_without_github_profile(self):
+        record = main.map_github_commit_record({
+            "sha": "abc123",
+            "html_url": "https://github.com/octocat/one/commit/abc123",
+            "author": None,
+            "commit": {
+                "message": "First line\nSecond line",
+                "author": {"name": "Local Author", "date": "2026-07-10T03:04:05Z"},
+            },
+        }, "octocat/one")
+
+        self.assertEqual(record, {
+            "sha": "abc123",
+            "message": "First line",
+            "author": "Local Author",
+            "committedAt": "2026-07-10T03:04:05Z",
+            "url": "https://github.com/octocat/one/commit/abc123",
+            "repository": "octocat/one",
+        })
 
     def test_named_metric_sum_supports_api_keyed_objects(self):
         payload = {
@@ -1210,7 +1253,7 @@ class DatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             main.DATABASE_PATH = Path(directory) / "test.db"
             main.initialize_database()
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="qweather:resolved-1",
                 source="qweather",
                 level="success",
@@ -1218,7 +1261,7 @@ class DatabaseTests(unittest.TestCase):
                 message="预警已解除，风险降低。",
                 metadata={"severity": "red", "lifecycle": "resolved", "riskDelta": "decreased", "alertId": "resolved-1"},
             )
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="qweather:orange-1",
                 source="qweather",
                 level="warning",
@@ -1226,7 +1269,7 @@ class DatabaseTests(unittest.TestCase):
                 message="注意防范。",
                 metadata={"severity": "orange", "lifecycle": "issued", "riskDelta": "active", "alertId": "orange-1"},
             )
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="qweather:severe-orange-1",
                 source="qweather",
                 level="critical",
@@ -1234,7 +1277,7 @@ class DatabaseTests(unittest.TestCase):
                 message="注意防范。",
                 metadata={"severity": "severe", "lifecycle": "issued", "riskDelta": "active", "alertId": "severe-orange-1"},
             )
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="qweather:extreme-1",
                 source="qweather",
                 level="critical",
@@ -1257,7 +1300,7 @@ class DatabaseTests(unittest.TestCase):
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
                 for index in range(55):
-                    main.upsert_notification(
+                    main.notification_manager.publish(
                         notification_id=f"codex:{index}",
                         source="codex",
                         title=f"Task {index}",
@@ -1271,33 +1314,6 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(summary["items"][-1]["id"], "codex:5")
         finally:
             main.DATABASE_PATH = original_path
-
-    def test_persist_notification_digest_record_stores_time_and_content(self):
-        original_path = main.DATABASE_PATH
-        with tempfile.TemporaryDirectory() as directory:
-            main.DATABASE_PATH = Path(directory) / "test.db"
-            main.initialize_database()
-            created = main.persist_notification_digest_record(main.NotificationDigestRecordPayload(
-                source="deepseek",
-                model="deepseek-v4-flash",
-                title="开发任务已完成",
-                summary="Codex 测试已通过。",
-                content="开发任务已完成\nCodex 测试已通过。",
-                severity="info",
-                category="development",
-                iconKey="check-circle",
-                unreadCount=1,
-                generatedAt=1780000000000,
-                sourceIds=["codex:1"],
-            ))
-            records = main.notification_digest_records()
-        main.DATABASE_PATH = original_path
-        self.assertEqual(created["model"], "deepseek-v4-flash")
-        self.assertEqual(created["generatedAt"], 1780000000000)
-        self.assertTrue(created["generatedAtIso"].startswith("2026-"))
-        self.assertEqual(created["content"], "开发任务已完成 Codex 测试已通过。")
-        self.assertEqual(created["payload"]["sourceIds"], ["codex:1"])
-        self.assertEqual(records["items"][0]["summary"], "Codex 测试已通过。")
 
     def test_clear_notifications_removes_all_items(self):
         original_path = main.DATABASE_PATH
@@ -1323,8 +1339,8 @@ class DatabaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
-                main.upsert_notification(notification_id="codex:one", source="codex", title="Task", unread=True)
-                main.upsert_notification(notification_id="chatgpt:two", source="chatgpt", title="Task", unread=True)
+                main.notification_manager.publish(notification_id="codex:one", source="codex", title="Task", unread=True)
+                main.notification_manager.publish(notification_id="chatgpt:two", source="chatgpt", title="Task", unread=True)
                 summary = main.mark_development_notifications_read(["codex:one", "chatgpt:two"])
                 self.assertEqual(summary["unreadCount"], 0)
         finally:
@@ -1336,8 +1352,8 @@ class DatabaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
-                main.upsert_notification(notification_id="codex:one", source="codex", title="Task", unread=True)
-                main.upsert_notification(notification_id="mail:one", source="mail", title="Mail", unread=True)
+                main.notification_manager.publish(notification_id="codex:one", source="codex", title="Task", unread=True)
+                main.notification_manager.publish(notification_id="mail:one", source="mail", title="Mail", unread=True)
                 with self.assertRaisesRegex(RuntimeError, "开发通知"):
                     main.mark_development_notifications_read(["codex:one", "mail:one"])
                 self.assertEqual(main.notification_summary()["unreadCount"], 2)
@@ -1350,11 +1366,11 @@ class DatabaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 main.DATABASE_PATH = Path(directory) / "test.db"
                 main.initialize_database()
-                main.upsert_notification(
+                main.notification_manager.publish(
                     notification_id="read", source="codex", title="Read",
                     unread=False, created_at=1,
                 )
-                main.upsert_notification(
+                main.notification_manager.publish(
                     notification_id="unread", source="github", title="Unread",
                     unread=True, created_at=2,
                 )
@@ -1554,7 +1570,7 @@ class DatabaseTests(unittest.TestCase):
                 "labels": ["INBOX", "UNREAD"],
                 "unread": True,
             }])
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="mail:m1",
                 source="mail",
                 title="新邮件：Launch",
@@ -1590,7 +1606,7 @@ class DatabaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             main.DATABASE_PATH = Path(directory) / "test.db"
             main.initialize_database()
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="mail:m1",
                 source="mail",
                 title="新邮件：Launch",
@@ -1653,7 +1669,7 @@ class DatabaseTests(unittest.TestCase):
                 "action": "查看",
                 "labels": ["INBOX", "UNREAD"],
             }])
-            main.upsert_notification(
+            main.notification_manager.publish(
                 notification_id="mail:m1",
                 source="mail",
                 title="新邮件：Launch",

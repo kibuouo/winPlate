@@ -8,7 +8,7 @@ const {
 } = require("./smartNotificationIcons");
 
 test("registers the complete local smart notification icon whitelist", () => {
-  assert.equal(ICON_KEYS.length, 33);
+  assert.equal(ICON_KEYS.length, 34);
   assert.deepEqual(new Set(Object.keys(SMART_NOTIFICATION_ICON_REGISTRY)), new Set(ICON_KEYS));
   for (const key of ICON_KEYS) {
     const svg = renderSmartNotificationIcon(key);
@@ -23,6 +23,7 @@ test("registers the complete local smart notification icon whitelist", () => {
   assert.match(codexSvg, /<linearGradient id="codex-icon-gradient"/);
   assert.match(codexSvg, /stop-color="#5b5ce2"/);
   assert.match(codexSvg, /stroke="#fff"/);
+  assert.match(renderSmartNotificationIcon("alert-triangle"), /data-icon-key="alert-triangle"/);
 });
 
 test("resolves content rules before AI iconKey", () => {

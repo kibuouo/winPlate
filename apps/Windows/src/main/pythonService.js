@@ -4,6 +4,34 @@ const { spawn } = require("child_process");
 const { repositoryRoot, resolveBackendPaths } = require("./repositoryPaths");
 
 let backendProcess;
+const suppressedOutputStreams = new WeakSet();
+
+function isBrokenPipe(error) {
+  return error?.code === "EPIPE";
+}
+
+function writeBackendOutput(stream, prefix, data) {
+  if (!stream || suppressedOutputStreams.has(stream) || stream.destroyed || stream.writableEnded) {
+    return;
+  }
+
+  const message = `${prefix}${data}`;
+  const handleWriteError = (error) => {
+    if (isBrokenPipe(error)) {
+      suppressedOutputStreams.add(stream);
+    }
+  };
+
+  try {
+    stream.write(message, handleWriteError);
+  } catch (error) {
+    if (isBrokenPipe(error)) {
+      suppressedOutputStreams.add(stream);
+      return;
+    }
+    throw error;
+  }
+}
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -108,8 +136,12 @@ async function startPythonService(options = {}) {
     }
   });
 
-  backendProcess.stdout.on("data", (data) => process.stdout.write(`\u001b[36m[backend]\u001b[0m ${data}`));
-  backendProcess.stderr.on("data", (data) => process.stderr.write(`\u001b[36m[backend]\u001b[0m ${data}`));
+  backendProcess.stdout.on("data", (data) => (
+    writeBackendOutput(process.stdout, "\u001b[36m[backend]\u001b[0m ", data)
+  ));
+  backendProcess.stderr.on("data", (data) => (
+    writeBackendOutput(process.stderr, "\u001b[36m[backend]\u001b[0m ", data)
+  ));
   backendProcess.on("error", (error) => console.error("Failed to start FastAPI backend:", error.message));
   backendProcess.on("exit", () => {
     backendProcess = null;
@@ -127,4 +159,10 @@ function stopPythonService() {
   backendProcess = null;
 }
 
-module.exports = { backendPythonArgs, resolveBackendLaunch, startPythonService, stopPythonService };
+module.exports = {
+  backendPythonArgs,
+  resolveBackendLaunch,
+  startPythonService,
+  stopPythonService,
+  writeBackendOutput
+};

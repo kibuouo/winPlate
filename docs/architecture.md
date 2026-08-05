@@ -12,4 +12,4 @@ apps/macOS/* ──────────┼─> packages/core + shared-types 
                        └─> backend/local-api (loopback only)
 ```
 
-`apps/ios` and `apps/watchOS` are documentation boundaries until health-data privacy, consent, retention, and synchronization are designed separately.
+`apps/iOS` and `apps/watchOS` are documentation boundaries until health-data privacy, consent, retention, and synchronization are designed separately.

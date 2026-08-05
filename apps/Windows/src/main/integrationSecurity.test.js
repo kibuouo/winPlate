@@ -56,7 +56,7 @@ test("registers the Windows settings IPC boundary once", () => {
   assert.match(main, /serviceSettingsLifecycle/);
 });
 
-test("notification AI summaries read effective DeepSeek settings instead of user environment", () => {
+test("notification summaries stay local and DeepSeek is balance-only", () => {
   const main = readMain();
   const summaryServiceStart = main.indexOf("notificationSummaryService = createNotificationSummaryService({");
   const summaryServiceEnd = main.indexOf('ipcMain.handle("notification:get-digest"', summaryServiceStart);
@@ -64,11 +64,11 @@ test("notification AI summaries read effective DeepSeek settings instead of user
 
   assert.notEqual(summaryServiceStart, -1);
   assert.notEqual(summaryServiceEnd, -1);
-  assert.match(summaryServiceBlock, /const settings = serviceSettingsLifecycle\.effectiveSettings\(\);/);
-  assert.match(summaryServiceBlock, /apiKey: settings\.deepseekApiKey/);
-  assert.match(summaryServiceBlock, /baseUrl: settings\.deepseekBaseUrl \|\| DEEPSEEK_DEFAULT_BASE_URL/);
-  assert.doesNotMatch(summaryServiceBlock, /readUserEnvironment\("DEEPSEEK_API_KEY"\)/);
-  assert.doesNotMatch(summaryServiceBlock, /readUserEnvironment\("DEEPSEEK_BASE_URL"\)/);
+  assert.match(summaryServiceBlock, /store: notificationManager/);
+  assert.match(summaryServiceBlock, /onUpdated: broadcastNotificationDigest/);
+  assert.doesNotMatch(main, /deepseekChatClient|deepseekTokenUsage|chat\/completions/);
+  assert.doesNotMatch(main, /notifications:(?:get|refresh)-smart-brief|deepseek:test-chat/);
+  assert.doesNotMatch(summaryServiceBlock, /callChat|persistDigest|deepseekApiKey|deepseekBaseUrl/);
 });
 
 test("sensitive business IPC handlers require the live main-window sender", () => {
@@ -82,14 +82,12 @@ test("sensitive business IPC handlers require the live main-window sender", () =
     "weather:refresh-official-usage",
     "mail:save-settings",
     "email:read-message",
-    "notifications:refresh-smart-brief",
     "notifications:mark-read",
     "notifications:mark-read-many",
     "notifications:mark-all-read",
     "notifications:clear",
     "notifications:clear-read",
-    "notifications:push-test",
-    "deepseek:test-chat"
+    "notifications:push-test"
   ];
 
   for (const channel of guardedChannels) {
@@ -131,6 +129,10 @@ test("floating shell IPC handlers require the live floating-window sender", () =
   );
   assert.match(
     main,
+    /ipcMain\.handle\("floating:restore-capsule",\s*\(event\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?restoreFloatingCapsule\(\);[\s\S]*?\}\);/
+  );
+  assert.match(
+    main,
     /ipcMain\.on\("tooltip:show",\s*\(event,\s*payload\)\s*=>\s*\{\s*requireFloatingWindowSender\(event\);[\s\S]*?showTooltipWindow\(payload\);[\s\S]*?\}\);/
   );
   assert.match(
@@ -146,10 +148,10 @@ test("GitHub and QQ secrets no longer persist through user environment writes", 
   assert.doesNotMatch(main, /writeUserEnvironment\("QQ_MAIL_AUTH_CODE"/);
 });
 
-test("settings save derives GitHub token state from service settings and refreshes digest when the AI toggle changes", () => {
+test("settings save derives GitHub token state without an AI summary toggle", () => {
   const main = readMain();
   const publicSettingsStart = main.indexOf("async function publicSettingsPayload");
-  const publicSettingsEnd = main.indexOf("async function recordDeepSeekTokenUsageSafely", publicSettingsStart);
+  const publicSettingsEnd = main.indexOf("const gotLock", publicSettingsStart);
   const publicSettings = main.slice(publicSettingsStart, publicSettingsEnd);
   const settingsSaveStart = main.indexOf('ipcMain.handle("settings:save"');
   const settingsSaveEnd = main.indexOf('ipcMain.handle("appearance:get-settings"', settingsSaveStart);
@@ -157,9 +159,18 @@ test("settings save derives GitHub token state from service settings and refresh
 
   assert.match(publicSettings, /const servicePublicSettings = serviceSettingsLifecycle\.publicSettings\(\);/);
   assert.match(publicSettings, /hasToken: Boolean\(servicePublicSettings\.hasGitHubToken\)/);
-  assert.match(settingsSaveHandler, /const previousDigestEnabled = currentSettings\.notificationDigest\.enabled;/);
-  assert.match(settingsSaveHandler, /if \(previousDigestEnabled !== currentSettings\.notificationDigest\.enabled\) \{/);
-  assert.match(settingsSaveHandler, /await notificationSummaryService\?\.refreshNow\(\{ force: true \}\);/);
+  assert.doesNotMatch(settingsSaveHandler, /notificationDigest|refreshNow/);
+});
+
+test("GitHub external navigation stays main-window-owned and GitHub-only", () => {
+  const main = readMain();
+
+  assert.match(main, /ipcMain\.on\("github:open-profile", \(event, url\) => \{\s*requireMainWindowSender\(event\);/);
+  assert.match(main, /target\.protocol === "https:"/);
+  assert.match(main, /target\.hostname === "github\.com"/);
+  assert.match(main, /const isCommit = segments\.length === 4/);
+  assert.match(main, /\^\[a-f0-9\]\{7,64\}\$\/i\.test\(segments\[3\]\)/);
+  assert.match(main, /\(isProfile \|\| isRepository \|\| isCommit\)/);
 });
 
 test("selects the Windows startup policy once and creates Windows-only surfaces", () => {

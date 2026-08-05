@@ -1,11 +1,12 @@
 const MAIN_SECTIONS = new Set([
-  "Dashboard", "GitHub", "Codex", "Heart", "Mail", "QWeather", "Notifications", "Settings"
+  "Dashboard", "GitHub", "Agent", "Heart", "Mail", "QWeather", "Notifications", "Settings"
 ]);
 
 function normalizeMainSection(section) {
-  return typeof section === "string" && MAIN_SECTIONS.has(section)
-    ? section
-    : "Dashboard";
+  if (typeof section !== "string") return "Dashboard";
+  // Backward-compat: older deep links used the Codex section name.
+  if (section === "Codex") return "Agent";
+  return MAIN_SECTIONS.has(section) ? section : "Dashboard";
 }
 
 function createActivationCoordinator(showMainWindow) {

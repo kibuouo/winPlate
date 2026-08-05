@@ -7,12 +7,13 @@ const {
 } = require("./activationCoordinator");
 
 test("normalizes only exact renderer sections", () => {
-  for (const section of ["Dashboard", "GitHub", "Codex", "Heart", "Mail", "QWeather", "Notifications", "Settings"]) {
+  for (const section of ["Dashboard", "GitHub", "Agent", "Heart", "Mail", "QWeather", "Notifications", "Settings"]) {
     assert.equal(normalizeMainSection(section), section);
   }
   for (const value of [undefined, null, "", "dashboard", "Unknown", {}, 12]) {
     assert.equal(normalizeMainSection(value), "Dashboard");
   }
+  assert.equal(normalizeMainSection("Codex"), "Agent");
 });
 
 test("queues early Electron activation without showing until surfaces are ready", () => {

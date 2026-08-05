@@ -6,7 +6,7 @@
   if (root) root.WinPlateSmartNotificationIconKeys = api;
 })(typeof window !== "undefined" ? window : null, function createSmartNotificationIconKeys() {
   const ICON_KEYS = Object.freeze([
-    "bell", "cloud-rain-alert", "cloud-lightning", "wind", "thermometer-sun",
+    "bell", "alert-triangle", "cloud-rain-alert", "cloud-lightning", "wind", "thermometer-sun",
     "thermometer-snowflake", "mail", "mail-unread", "mail-warning", "paperclip",
     "check-circle", "x-circle", "loader", "terminal", "codex", "chatgpt", "message-bot", "code", "bug",
     "monitor", "cpu", "memory-stick", "wifi", "download", "upload", "wallet", "plug",

@@ -26,6 +26,8 @@ npm run backend:install
 | Goal | Command |
 | --- | --- |
 | Run the Windows client | `npm run dev` |
+| Test the Windows application | `npm run windows:test` |
+| Build and install the canonical Windows application | `npm run windows:app` |
 | Run the local API in development | `npm run backend` |
 | Test the local API | `npm run backend:test` |
 | Run JavaScript and workspace checks | `npm run check` |
@@ -36,6 +38,13 @@ npm run backend:install
 `~/Applications/WinPlate.app`. The repository's
 `apps/macOS/WinPlate/.build/WinPlate.app` path is a symlink to that installed
 application and must not become a second bundle.
+
+`npm run windows:app` tests WinPlate, builds a standalone local API, creates
+an NSIS installer, and installs the canonical application at
+`%LOCALAPPDATA%\Programs\WinPlate\WinPlate.exe`. It refreshes the desktop and
+Start menu shortcuts, launches that installed application, and verifies the
+loopback API before succeeding. The installed app does not run backend files
+or Python from the repository.
 
 ## Documentation
 

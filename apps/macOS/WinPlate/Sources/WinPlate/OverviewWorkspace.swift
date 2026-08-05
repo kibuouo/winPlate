@@ -5,8 +5,13 @@ import SwiftUI
 struct OverviewWorkspace: View {
     @EnvironmentObject private var state: AppState
     @State private var now = Date()
+    let onNavigate: (WorkspaceDestination) -> Void
 
     private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+    init(onNavigate: @escaping (WorkspaceDestination) -> Void = { _ in }) {
+        self.onNavigate = onNavigate
+    }
 
     var body: some View {
         ScrollView {
@@ -82,7 +87,8 @@ struct OverviewWorkspace: View {
                 symbol: weatherSymbol,
                 tint: .cyan,
                 status: weatherStatus,
-                minHeight: 148
+                minHeight: 148,
+                action: { onNavigate(.weather) }
             ) {
                 weatherCardContent
             }
@@ -99,7 +105,8 @@ struct OverviewWorkspace: View {
                     eyebrow: "GITHUB",
                     symbol: "chevron.left.forwardslash.chevron.right",
                     tint: .primary,
-                    status: githubStatus
+                    status: githubStatus,
+                    action: { onNavigate(.github) }
                 ) {
                     if let github = state.snapshot.github, github.isAvailable {
                         Text(github.username.isEmpty ? github.name : github.username)
@@ -123,7 +130,8 @@ struct OverviewWorkspace: View {
                     eyebrow: "CODEX",
                     symbol: "terminal",
                     tint: .blue,
-                    status: codexStatus
+                    status: codexStatus,
+                    action: { onNavigate(.agent) }
                 ) {
                     let seven = state.codex.sevenDay
                     Text(seven?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%")
@@ -147,7 +155,8 @@ struct OverviewWorkspace: View {
                     eyebrow: "DEEPSEEK",
                     symbol: "sparkles",
                     tint: .purple,
-                    status: deepSeekStatus
+                    status: deepSeekStatus,
+                    action: { onNavigate(.agent) }
                 ) {
                     Text(state.deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--")
                         .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
@@ -173,7 +182,8 @@ struct OverviewWorkspace: View {
                     eyebrow: "MAIL",
                     symbol: "envelope.fill",
                     tint: .indigo,
-                    status: mailStatus
+                    status: mailStatus,
+                    action: { onNavigate(.mail) }
                 ) {
                     let unread = state.mail.unreadCount ?? state.mail.items.filter(\.unread).count
                     Text("\(unread)")
@@ -392,37 +402,63 @@ private struct OverviewCard<Content: View>: View {
     let tint: Color
     let status: OverviewCardStatus
     var minHeight: CGFloat = 188
+    let action: () -> Void
     @ViewBuilder let content: Content
 
+    init(
+        eyebrow: String,
+        symbol: String,
+        tint: Color,
+        status: OverviewCardStatus,
+        minHeight: CGFloat = 188,
+        action: @escaping () -> Void = {},
+        @ViewBuilder content: () -> Content
+    ) {
+        self.eyebrow = eyebrow
+        self.symbol = symbol
+        self.tint = tint
+        self.status = status
+        self.minHeight = minHeight
+        self.action = action
+        self.content = content()
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 30, height: 30)
-                    .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                Text(eyebrow)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .tracking(1.0)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                OverviewStatusPill(status: status)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .frame(width: 30, height: 30)
+                        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    Text(eyebrow)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .tracking(1.0)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    OverviewStatusPill(status: status)
+                }
+                content
+                Spacer(minLength: 0)
             }
-            content
-            Spacer(minLength: 0)
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06))
+            }
+            .shadow(color: .black.opacity(0.05), radius: 16, y: 6)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06))
-        }
-        .shadow(color: .black.opacity(0.05), radius: 16, y: 6)
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("打开\(eyebrow)模块")
+        .accessibilityHint("显示详细信息")
     }
 }
 
