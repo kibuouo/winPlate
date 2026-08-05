@@ -348,7 +348,7 @@ function curlGetJson(url, headers, timeoutMs = READ_TIMEOUT_MS) {
       "-H",
       "Accept: application/json",
       "-H",
-      `User-Agent: ${headers["User-Agent"] || "winplate/0.2.0"}`,
+      `User-Agent: ${headers["User-Agent"] || "winplate/0.3.0"}`,
       url
     ];
     const command = process.platform === "win32" ? "curl.exe" : "curl";
@@ -407,7 +407,7 @@ async function fetchBillingJson(token, { fetchImpl = null, now = Date.now() } = 
   const headers = {
     Accept: "application/json",
     Authorization: `Bearer ${token}`,
-    "User-Agent": "winplate/0.2.0"
+    "User-Agent": "winplate/0.3.0"
   };
   const url = resolveBillingUrl();
   const errors = [];

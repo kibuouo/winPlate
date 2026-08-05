@@ -1,7 +1,7 @@
 {
   "name": "@winplate/windows-electron",
   "productName": "WinPlate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "The Windows-native WinPlate status center built with Electron.",
   "author": "kibuouo",
@@ -65,8 +65,8 @@
     }
   },
   "dependencies": {
-    "@winplate/core": "0.2.0",
-    "@winplate/icons": "0.2.0",
+    "@winplate/core": "0.3.0",
+    "@winplate/icons": "0.3.0",
     "qweather-icons": "^1.8.0",
     "strip-ansi": "^6.0.1"
   },
