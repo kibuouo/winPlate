@@ -69,6 +69,9 @@ mkdir -p "$staging_bundle/Contents/MacOS" "$staging_bundle/Contents/Resources"
 cp "$binary" "$staging_bundle/Contents/MacOS/WinPlate"
 cp "$root/Resources/Info.plist" "$staging_bundle/Contents/Info.plist"
 cp "$root/Resources/AppIcon.icns" "$staging_bundle/Contents/Resources/AppIcon.icns"
+if [[ -d "$root/Resources/AgentIcons" ]]; then
+  cp -R "$root/Resources/AgentIcons" "$staging_bundle/Contents/Resources/AgentIcons"
+fi
 cp -R "$weather_icons" "$staging_bundle/Contents/Resources/QWeatherIcons"
 cp -R "$weather_scenes" "$staging_bundle/Contents/Resources/WeatherScenes"
 mkdir -p "$staging_bundle/Contents/Resources/LocalAPI"

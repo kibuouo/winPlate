@@ -322,59 +322,13 @@ enum CodexTokenUsageReader {
             latestByTurn[turnID] = entry
         }
 
-        guard let firstEntry = latestByTurn.values.min(by: { $0.date < $1.date }) else {
-            return .unavailable
-        }
-        let lastEntryDate = latestByTurn.values.map(\.date).max() ?? firstEntry.date
-        let lastVisibleDate = max(now, lastEntryDate)
-        let firstHour = calendar.dateInterval(of: .hour, for: firstEntry.date)?.start ?? firstEntry.date
-        let lastHour = calendar.dateInterval(of: .hour, for: lastVisibleDate)?.start ?? lastVisibleDate
-        let firstDay = calendar.startOfDay(for: firstEntry.date)
-        let lastDay = calendar.startOfDay(for: lastVisibleDate)
-        let hourStarts = bucketStarts(.hour, from: firstHour, through: lastHour, calendar: calendar)
-        let dayStarts = bucketStarts(.day, from: firstDay, through: lastDay, calendar: calendar)
-        var hourlyTotals = Dictionary(uniqueKeysWithValues: hourStarts.map { ($0, Int64(0)) })
-        var dailyTotals = Dictionary(uniqueKeysWithValues: dayStarts.map { ($0, Int64(0)) })
-
-        for entry in latestByTurn.values {
-            if entry.date >= firstHour,
-               let bucket = calendar.dateInterval(of: .hour, for: entry.date)?.start,
-               hourlyTotals[bucket] != nil
-            {
-                hourlyTotals[bucket, default: 0] += entry.tokens
-            }
-            if entry.date >= firstDay {
-                let bucket = calendar.startOfDay(for: entry.date)
-                if dailyTotals[bucket] != nil {
-                    dailyTotals[bucket, default: 0] += entry.tokens
-                }
-            }
-        }
-
-        return CodexTokenUsage(
-            hourly: hourStarts.map { .init(start: $0, tokens: hourlyTotals[$0, default: 0]) },
-            daily: dayStarts.map { .init(start: $0, tokens: dailyTotals[$0, default: 0]) },
-            updatedAt: now,
-            isAvailable: true
+        return AgentTokenUsageAggregator.aggregate(
+            entries: latestByTurn.values.map {
+                AgentTokenUsageAggregator.Entry(date: $0.date, tokens: $0.tokens)
+            },
+            now: now,
+            calendar: calendar
         )
-    }
-
-    private static func bucketStarts(
-        _ component: Calendar.Component,
-        from first: Date,
-        through last: Date,
-        calendar: Calendar
-    ) -> [Date] {
-        var result = [Date]()
-        var cursor = first
-        while cursor <= last {
-            result.append(cursor)
-            guard let next = calendar.date(byAdding: component, value: 1, to: cursor), next > cursor else {
-                break
-            }
-            cursor = next
-        }
-        return result
     }
 
     private static func value(after key: String, in body: String) -> String? {
@@ -445,6 +399,74 @@ enum CodexTokenUsageReader {
         }
         guard process.terminationStatus == 0 else { return nil }
         return String(data: outputData, encoding: .utf8)?.split(whereSeparator: \.isNewline).map(String.init) ?? []
+    }
+}
+
+/// Shared hourly/daily bucketing for agent token trend charts (Codex + SuperGrok).
+enum AgentTokenUsageAggregator {
+    struct Entry {
+        let date: Date
+        let tokens: Int64
+    }
+
+    static func aggregate(
+        entries: [Entry],
+        now: Date,
+        calendar: Calendar = .current
+    ) -> CodexTokenUsage {
+        guard let firstEntry = entries.min(by: { $0.date < $1.date }) else {
+            return .unavailable
+        }
+        let lastEntryDate = entries.map(\.date).max() ?? firstEntry.date
+        let lastVisibleDate = max(now, lastEntryDate)
+        let firstHour = calendar.dateInterval(of: .hour, for: firstEntry.date)?.start ?? firstEntry.date
+        let lastHour = calendar.dateInterval(of: .hour, for: lastVisibleDate)?.start ?? lastVisibleDate
+        let firstDay = calendar.startOfDay(for: firstEntry.date)
+        let lastDay = calendar.startOfDay(for: lastVisibleDate)
+        let hourStarts = bucketStarts(.hour, from: firstHour, through: lastHour, calendar: calendar)
+        let dayStarts = bucketStarts(.day, from: firstDay, through: lastDay, calendar: calendar)
+        var hourlyTotals = Dictionary(uniqueKeysWithValues: hourStarts.map { ($0, Int64(0)) })
+        var dailyTotals = Dictionary(uniqueKeysWithValues: dayStarts.map { ($0, Int64(0)) })
+
+        for entry in entries {
+            if entry.date >= firstHour,
+               let bucket = calendar.dateInterval(of: .hour, for: entry.date)?.start,
+               hourlyTotals[bucket] != nil
+            {
+                hourlyTotals[bucket, default: 0] += entry.tokens
+            }
+            if entry.date >= firstDay {
+                let bucket = calendar.startOfDay(for: entry.date)
+                if dailyTotals[bucket] != nil {
+                    dailyTotals[bucket, default: 0] += entry.tokens
+                }
+            }
+        }
+
+        return CodexTokenUsage(
+            hourly: hourStarts.map { .init(start: $0, tokens: hourlyTotals[$0, default: 0]) },
+            daily: dayStarts.map { .init(start: $0, tokens: dailyTotals[$0, default: 0]) },
+            updatedAt: now,
+            isAvailable: true
+        )
+    }
+
+    static func bucketStarts(
+        _ component: Calendar.Component,
+        from first: Date,
+        through last: Date,
+        calendar: Calendar
+    ) -> [Date] {
+        var result = [Date]()
+        var cursor = first
+        while cursor <= last {
+            result.append(cursor)
+            guard let next = calendar.date(byAdding: component, value: 1, to: cursor), next > cursor else {
+                break
+            }
+            cursor = next
+        }
+        return result
     }
 }
 
@@ -576,6 +598,144 @@ actor GrokUsageClient {
             return .init(value: usage, error: "SuperGrok 未登录（运行 grok login）")
         }
         return .init(value: usage, error: "SuperGrok 用量不可用")
+    }
+}
+
+actor GrokTokenUsageClient {
+    private var cached: (CodexTokenUsage, Date)?
+
+    func read(force: Bool) async -> ResultValue<CodexTokenUsage> {
+        if !force, let cached, Date().timeIntervalSince(cached.1) < 60 {
+            return .init(value: cached.0, error: nil)
+        }
+        let usage = await GrokTokenUsageReader.read()
+        if usage.isAvailable {
+            cached = (usage, Date())
+        }
+        return .init(value: usage, error: nil)
+    }
+}
+
+/// Reads SuperGrok token trends from local Grok CLI session updates.
+/// Each prompt samples rising `_meta.totalTokens`; we keep the max per `promptId`
+/// (same final-total polarity as Codex turns) then bucket hourly/daily.
+enum GrokTokenUsageReader {
+    private static let historyHorizonDays = 30
+
+    private struct PromptSample {
+        var minTokens: Int64
+        var maxTokens: Int64
+        var date: Date
+    }
+
+    static func read(now: Date = Date(), calendar: Calendar = .current) async -> CodexTokenUsage {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: readSynchronously(now: now, calendar: calendar))
+            }
+        }
+    }
+
+    private static func readSynchronously(now: Date, calendar: Calendar) -> CodexTokenUsage {
+        let files = sessionUpdateURLs()
+        guard !files.isEmpty else { return .unavailable }
+
+        let earliestDay = calendar.date(
+            byAdding: .day,
+            value: -historyHorizonDays,
+            to: calendar.startOfDay(for: now)
+        ) ?? now.addingTimeInterval(-TimeInterval(historyHorizonDays) * 86_400)
+        let cutoff = Int64(earliestDay.timeIntervalSince1970.rounded(.down))
+
+        var lines = [String]()
+        var anyReadable = false
+        for file in files {
+            guard let content = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            anyReadable = true
+            lines.append(contentsOf: content.split(whereSeparator: \.isNewline).map(String.init))
+        }
+        guard anyReadable else { return .unavailable }
+        return parse(lines: lines, cutoff: cutoff, now: now, calendar: calendar)
+    }
+
+    /// Parses ACP `session/update` JSONL lines. Keeps max `totalTokens` per `promptId`.
+    static func parse(
+        lines: [String],
+        cutoff: Int64 = 0,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> CodexTokenUsage {
+        var byPrompt = [String: PromptSample]()
+        for line in lines {
+            guard
+                let data = line.data(using: .utf8),
+                let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+
+            let timestamp = int64(root["timestamp"])
+            guard let timestamp, timestamp >= cutoff else { continue }
+
+            let meta = (root["params"] as? [String: Any])?["_meta"] as? [String: Any]
+            guard
+                let meta,
+                let promptID = meta["promptId"] as? String,
+                !promptID.isEmpty,
+                let tokens = int64(meta["totalTokens"]),
+                tokens >= 0
+            else { continue }
+
+            let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+            if var existing = byPrompt[promptID] {
+                existing.minTokens = min(existing.minTokens, tokens)
+                if tokens >= existing.maxTokens {
+                    existing.maxTokens = tokens
+                    existing.date = date
+                }
+                byPrompt[promptID] = existing
+            } else {
+                byPrompt[promptID] = PromptSample(minTokens: tokens, maxTokens: tokens, date: date)
+            }
+        }
+
+        // Prefer in-prompt growth (new context this turn); fall back to peak when only one sample.
+        let entries = byPrompt.values.map { sample -> AgentTokenUsageAggregator.Entry in
+            let grown = sample.maxTokens - sample.minTokens
+            let tokens = grown > 0 ? grown : sample.maxTokens
+            return .init(date: sample.date, tokens: tokens)
+        }
+        return AgentTokenUsageAggregator.aggregate(entries: entries, now: now, calendar: calendar)
+    }
+
+    private static func int64(_ value: Any?) -> Int64? {
+        switch value {
+        case let number as Int64: return number
+        case let number as Int: return Int64(number)
+        case let number as Double: return Int64(number.rounded())
+        case let number as NSNumber: return number.int64Value
+        case let text as String: return Int64(text)
+        default: return nil
+        }
+    }
+
+    private static func sessionUpdateURLs(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let root = home.appendingPathComponent(".grok/sessions", isDirectory: true)
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return [] }
+
+        var files = [URL]()
+        for case let url as URL in enumerator {
+            if url.lastPathComponent == "updates.jsonl" {
+                files.append(url)
+            }
+        }
+        return files.sorted { $0.path < $1.path }
     }
 }
 

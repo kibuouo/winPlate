@@ -9,6 +9,7 @@ final class AppState: ObservableObject {
     @Published private(set) var codexTokenUsage = CodexTokenUsage.unavailable
     @Published private(set) var deepSeek = UsageSnapshot.unconfigured
     @Published private(set) var superGrok = UsageSnapshot.unconfigured(source: "grok-cli")
+    @Published private(set) var superGrokTokenUsage = CodexTokenUsage.unavailable
     @Published private(set) var mail = MailOutline.empty
     @Published private(set) var notifications = NotificationSummary.empty
     @Published private(set) var selectedMail: MailMessage?
@@ -62,6 +63,7 @@ final class AppState: ObservableObject {
     private let codexTokenClient = CodexTokenUsageClient()
     private let deepSeekClient = DeepSeekUsageClient()
     private let grokClient = GrokUsageClient()
+    private let grokTokenClient = GrokTokenUsageClient()
     private let backend = LocalBackendSupervisor()
     private var refreshTask: Task<Void, Never>?
     private var notificationStartupTask: Task<Void, Never>?
@@ -293,9 +295,10 @@ final class AppState: ObservableObject {
             async let codexTokenResult = codexTokenClient.read(force: force)
             async let deepSeekResult = deepSeekClient.read(configuration: deepSeekConfiguration, force: force)
             async let grokResult = grokClient.read(force: force)
+            async let grokTokenResult = grokTokenClient.read(force: force)
 
-            let (status, codexUsage, codexTokenUsageResult, deepSeekUsage, grokUsage) = await (
-                statusResult, codexResult, codexTokenResult, deepSeekResult, grokResult
+            let (status, codexUsage, codexTokenUsageResult, deepSeekUsage, grokUsage, grokTokenUsageResult) = await (
+                statusResult, codexResult, codexTokenResult, deepSeekResult, grokResult, grokTokenResult
             )
             if let statusValue = status.value {
                 snapshot = statusValue
@@ -363,6 +366,9 @@ final class AppState: ObservableObject {
                 }
             }
             superGrokError = grokUsage.error
+            if let grokTokenUsage = grokTokenUsageResult.value {
+                superGrokTokenUsage = grokTokenUsage
+            }
             lastError = status.error
                 ?? weatherError
                 ?? codexUsage.error

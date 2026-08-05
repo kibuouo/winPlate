@@ -17,8 +17,9 @@ struct AgentWorkspace: View {
                     }
                 }
 
-                if let codexItem = agentItems.first(where: { $0.id == "chatgpt" }) {
-                    AgentQuotaCard(item: codexItem)
+                // Featured quota cards (full width + token trends): ChatGPT then SuperGrok.
+                ForEach(agentItems.filter { $0.id == "chatgpt" || $0.id == "supergrok" }) { item in
+                    AgentQuotaCard(item: item)
                 }
 
                 LazyVGrid(
@@ -28,7 +29,7 @@ struct AgentWorkspace: View {
                     ],
                     spacing: 16
                 ) {
-                    ForEach(agentItems.filter { $0.id != "chatgpt" }) { item in
+                    ForEach(agentItems.filter { $0.id != "chatgpt" && $0.id != "supergrok" }) { item in
                         AgentQuotaCard(item: item)
                     }
                 }
@@ -65,6 +66,7 @@ struct AgentWorkspace: View {
             deepSeekUpdatedAt: state.deepSeekUpdatedAt,
             superGrok: state.superGrok,
             superGrokError: state.superGrokError,
+            superGrokTokenUsage: state.superGrokTokenUsage,
             relativeTime: relativeTime
         )
     }
@@ -102,6 +104,8 @@ struct AgentUsageItem: Identifiable, Equatable {
     let id: String
     let name: String
     let symbol: String
+    /// Optional brand asset under Resources/AgentIcons (official logos).
+    let brandIconName: String?
     let via: String?
     let statusKind: StatusKind
     let statusText: String
@@ -121,6 +125,7 @@ struct AgentUsageItem: Identifiable, Equatable {
         deepSeekUpdatedAt: Date?,
         superGrok: UsageSnapshot,
         superGrokError: String?,
+        superGrokTokenUsage: CodexTokenUsage = .unavailable,
         relativeTime: (Date) -> String
     ) -> [AgentUsageItem] {
         let five = codex.fiveHour?.remainingPct
@@ -161,6 +166,7 @@ struct AgentUsageItem: Identifiable, Equatable {
                 id: "chatgpt",
                 name: "ChatGPT",
                 symbol: "bubble.left.and.bubble.right.fill",
+                brandIconName: "chatgpt-icon",
                 via: "via Codex",
                 statusKind: statusKind(codex),
                 statusText: statusText(codex),
@@ -175,6 +181,7 @@ struct AgentUsageItem: Identifiable, Equatable {
                 id: "deepseek",
                 name: "DeepSeek",
                 symbol: "sparkles",
+                brandIconName: nil,
                 via: nil,
                 statusKind: statusKind(deepSeek),
                 statusText: statusText(deepSeek),
@@ -189,6 +196,7 @@ struct AgentUsageItem: Identifiable, Equatable {
                 id: "supergrok",
                 name: "SuperGrok",
                 symbol: "bolt.fill",
+                brandIconName: "grok-icon",
                 via: "via Grok CLI",
                 statusKind: statusKind(superGrok),
                 statusText: statusText(superGrok),
@@ -197,7 +205,7 @@ struct AgentUsageItem: Identifiable, Equatable {
                 progress: grokRemaining,
                 polarity: .remaining,
                 tint: .orange,
-                tokenUsage: .unavailable
+                tokenUsage: superGrokTokenUsage
             ),
         ]
     }
@@ -219,6 +227,107 @@ struct AgentUsageItem: Identifiable, Equatable {
     }
 }
 
+// MARK: - Brand icons
+
+/// Official agent brand marks bundled under Resources/AgentIcons.
+enum AgentBrandIcons {
+    private static var cache = [String: NSImage]()
+
+    static func image(named name: String) -> NSImage? {
+        if let cached = cache[name] { return cached }
+        if let url = Bundle.main.url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "AgentIcons"
+        ), let image = NSImage(contentsOf: url) {
+            cache[name] = image
+            return image
+        }
+        // Dev fallback when running the unpackaged SwiftPM binary.
+        let candidates = [
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/AgentIcons/\(name).png"),
+            Bundle.main.bundleURL
+                .appendingPathComponent("Contents/Resources/AgentIcons/\(name).png"),
+            Bundle.main.bundleURL
+                .appendingPathComponent("AgentIcons/\(name).png"),
+        ]
+        for url in candidates {
+            if let image = NSImage(contentsOf: url) {
+                cache[name] = image
+                return image
+            }
+        }
+        return nil
+    }
+}
+
+private struct AgentBrandIconView: View {
+    let item: AgentUsageItem
+
+    var body: some View {
+        let brand = item.brandIconName.flatMap(AgentBrandIcons.image(named:))
+        Group {
+            if let brand {
+                brandImage(brand)
+            } else {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(item.tint)
+            }
+        }
+        .frame(width: 30, height: 30)
+        .background(badgeBackground, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func brandImage(_ brand: NSImage) -> some View {
+        if isFullColorBrand {
+            // Official full-color marks keep their palette (ChatGPT / Codex).
+            Image(nsImage: brand)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: glyphSize, height: glyphSize)
+        } else {
+            // Monochrome marks (Grok) follow label color in light/dark mode.
+            Image(nsImage: templateImage(from: brand))
+                .renderingMode(.template)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: glyphSize, height: glyphSize)
+                .foregroundStyle(Color.primary)
+        }
+    }
+
+    private func templateImage(from image: NSImage) -> NSImage {
+        let copy = image.copy() as? NSImage ?? image
+        copy.isTemplate = true
+        return copy
+    }
+
+    private var isFullColorBrand: Bool {
+        // chatgpt-icon / codex-icon ship with their own color treatment.
+        item.brandIconName == "chatgpt-icon" || item.brandIconName == "codex-icon"
+    }
+
+    private var glyphSize: CGFloat {
+        isFullColorBrand ? 26 : 18
+    }
+
+    private var badgeBackground: Color {
+        if isFullColorBrand {
+            return Color.primary.opacity(0.04)
+        }
+        return item.tint.opacity(0.12)
+    }
+}
+
 // MARK: - Cards
 
 private struct AgentQuotaCard: View {
@@ -227,11 +336,7 @@ private struct AgentQuotaCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: item.symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(item.tint)
-                    .frame(width: 30, height: 30)
-                    .background(item.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                AgentBrandIconView(item: item)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
@@ -255,14 +360,22 @@ private struct AgentQuotaCard: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if item.id == "chatgpt" {
-                CodexTokenUsageCharts(usage: item.tokenUsage)
+            if item.id == "chatgpt" || item.id == "supergrok" {
+                AgentTokenUsageCharts(
+                    usage: item.tokenUsage,
+                    tint: item.tint,
+                    accessibilityName: item.name
+                )
             }
 
             Spacer(minLength: 0)
         }
         .padding(18)
-        .frame(maxWidth: .infinity, minHeight: item.id == "chatgpt" ? 390 : 200, alignment: .topLeading)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: (item.id == "chatgpt" || item.id == "supergrok") ? 390 : 200,
+            alignment: .topLeading
+        )
         .background {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor).opacity(0.88))
@@ -277,13 +390,15 @@ private struct AgentQuotaCard: View {
     }
 }
 
-private struct CodexTokenUsageCharts: View {
+private struct AgentTokenUsageCharts: View {
     private enum Granularity: String {
         case hour = "按小时"
         case day = "按天"
     }
 
     let usage: CodexTokenUsage
+    let tint: Color
+    let accessibilityName: String
     @State private var selectedGranularity: Granularity = .hour
 
     var body: some View {
@@ -308,7 +423,7 @@ private struct CodexTokenUsageCharts: View {
             CodexTokenTrendChart(
                 title: selectedGranularity.rawValue,
                 buckets: selectedGranularity == .hour ? usage.hourly : usage.daily,
-                tint: selectedGranularity == .hour ? .blue : .teal,
+                tint: selectedGranularity == .hour ? tint : tint.opacity(0.85),
                 showHourLabels: selectedGranularity == .hour
             )
         }
@@ -321,8 +436,8 @@ private struct CodexTokenUsageCharts: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             usage.isAvailable
-                ? "Codex Token 用量，\(selectedGranularity.rawValue)，\(summaryText)"
-                : "Codex Token 用量暂无数据"
+                ? "\(accessibilityName) Token 用量，\(selectedGranularity.rawValue)，\(summaryText)"
+                : "\(accessibilityName) Token 用量暂无数据"
         )
     }
 

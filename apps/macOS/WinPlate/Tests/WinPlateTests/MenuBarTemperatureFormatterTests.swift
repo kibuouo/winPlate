@@ -631,6 +631,12 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
             balances: []
         )
 
+        let grokTokens = CodexTokenUsage(
+            hourly: [.init(start: Date(timeIntervalSince1970: 0), tokens: 42)],
+            daily: [.init(start: Date(timeIntervalSince1970: 0), tokens: 42)],
+            updatedAt: Date(),
+            isAvailable: true
+        )
         let items = AgentUsageItem.build(
             codex: codex,
             codexError: nil,
@@ -639,6 +645,7 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
             deepSeekUpdatedAt: nil,
             superGrok: superGrok,
             superGrokError: nil,
+            superGrokTokenUsage: grokTokens,
             relativeTime: { _ in "刚刚" }
         )
 
@@ -652,6 +659,8 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(items[2].primary, "41%")
         XCTAssertEqual(items[2].polarity, .remaining)
         XCTAssertTrue(items[2].secondary.contains("剩余"))
+        XCTAssertTrue(items[2].tokenUsage.isAvailable)
+        XCTAssertEqual(items[2].tokenUsage.totalTokens, 42)
     }
 
     func testWorkspaceDestinationIncludesAgent() {
