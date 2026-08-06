@@ -110,6 +110,19 @@ test("Agent workspace prefers 7d remaining and token trends without DeepSeek cha
   assert.equal(fs.existsSync(path.join(__dirname, "..", "main", "deepseekTokenUsage.js")), false);
 });
 
+test("GitHub uses the localized service-health label", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(appSource, /function githubStatusLabel\(status = ""\)/);
+  assert.match(appSource, /value\.toLowerCase\(\) === "live" \? "服务正常"/);
+  assert.match(appSource, /serviceHealthBadge\(dashboardServiceHealthKind\("github"\)\)/);
+  assert.match(appSource, /githubStatusLabel\(github\.status\)/);
+  assert.doesNotMatch(appSource, /github\.status \|\| "Live"/);
+  assert.doesNotMatch(appSource, /github-profile-status[\s\S]*?relativeUpdatedAt\(github\.updatedAt\)/);
+  assert.match(styles, /\.github-profile-status\s*\{[^}]*align-self:\s*start/);
+});
+
 test("DeepSeek exposes only balance configuration and balance display", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");

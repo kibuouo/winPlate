@@ -303,6 +303,11 @@ function serviceHealthBadge(kind = "live") {
   return `<span class="service-health"><i></i>服务正常</span>`;
 }
 
+function githubStatusLabel(status = "") {
+  const value = String(status || "").trim();
+  return value.toLowerCase() === "live" ? "服务正常" : (value || "读取中");
+}
+
 function normalizeMailAutoRefreshSeconds(value) {
   const seconds = Number(value);
   if (!Number.isFinite(seconds)) return DEFAULT_MAIL_AUTO_REFRESH_SECONDS;
@@ -1910,7 +1915,9 @@ function githubContent() {
             <div><dt>${github.commitsThisMonth}</dt><dd>本月</dd></div>
           </dl>
           <div class="github-profile-actions">
-            <div class="github-profile-status"><div class="github-live-note"><span></span><div><strong>${github.status || "Live"}</strong><small>${relativeUpdatedAt(github.updatedAt)}</small></div></div></div>
+            <div class="github-profile-status">
+              ${serviceHealthBadge(dashboardServiceHealthKind("github"))}
+            </div>
             <div class="github-profile-open"><button class="github-profile-button" type="button" data-open-github>打开 GitHub 主页</button></div>
           </div>
         </div>
@@ -2631,7 +2638,7 @@ function renderTooltip(data = {}) {
             <strong>${github.name}</strong>
             <span>${github.username}</span>
           </div>
-          <span class="active-pill">${github.status}</span>
+          <span class="active-pill">${githubStatusLabel(github.status)}</span>
         </header>
         <div class="github-preview-stats">
           <div><span>${previewIcons.repos} Repos</span><strong>${github.repos}</strong></div>
