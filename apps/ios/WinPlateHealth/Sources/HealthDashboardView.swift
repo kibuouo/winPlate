@@ -3,34 +3,39 @@ import SwiftUI
 struct HealthDashboardView: View {
     @EnvironmentObject private var healthStore: HealthStore
     @State private var windowsEndpointDraft = ""
+    @State private var isWindowsSetupExpanded = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 24) {
                     header
+                    healthHeroCard
+                    activitySection
+                    connectionsSection
+                    privacyCard
 
-                    if healthStore.isHealthDataAvailable {
-                        heartRateCard
-                        dailyMetrics
-                        communicationCard
-                        privacyNote
-                    } else {
+                    if !healthStore.isHealthDataAvailable {
                         unavailableCard
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.vertical, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("健康")
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await healthStore.refresh() }
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        if healthStore.isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
                     }
                     .disabled(healthStore.isLoading)
                     .accessibilityLabel("刷新健康数据")
@@ -41,109 +46,233 @@ struct HealthDashboardView: View {
             }
             .task {
                 windowsEndpointDraft = healthStore.windowsEndpoint
+                isWindowsSetupExpanded = healthStore.windowsEndpoint.isEmpty
                 await healthStore.refresh()
             }
         }
-        .tint(.pink)
+        .tint(.primary)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("WinPlate Health")
-                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("健康概览")
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
 
-            Text("把今天的身体状态，放在一个安静的概览里。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if let lastUpdated = healthStore.lastUpdated {
-                Label(
-                    "更新于 \(lastUpdated.formatted(.relative(presentation: .named)))",
-                    systemImage: "checkmark.circle.fill"
-                )
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                Text("今天，照顾好自己。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+
+            Spacer(minLength: 12)
+
+            Image("WinPlateMark")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .accessibilityHidden(true)
         }
     }
 
-    private var heartRateCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("最近心率", systemImage: "heart.fill")
-                    .font(.headline)
-                    .foregroundStyle(.pink)
+    private var healthHeroCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                Label("今日状态", systemImage: "waveform.path.ecg")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
 
                 Spacer()
 
-                Text("HealthKit")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                StatusPill(
+                    title: healthStore.lastUpdated == nil ? "等待数据" : "数据已更新",
+                    color: healthStore.lastUpdated == nil ? .white.opacity(0.55) : .green,
+                    isOnDark: true
+                )
             }
+
+            Text("最近心率")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.top, 28)
 
             HStack(alignment: .lastTextBaseline, spacing: 8) {
                 Text(HealthFormatting.heartRate(healthStore.latestHeartRate))
-                    .font(.system(size: 62, weight: .bold, design: .rounded))
+                    .font(.system(size: 64, weight: .bold, design: .rounded))
                     .contentTransition(.numericText())
+                    .minimumScaleFactor(0.7)
 
                 Text("BPM")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.65))
             }
+            .foregroundStyle(.white)
 
             Text("显示 Apple 健康中的最近一次心率记录。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.top, 2)
+
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.shield.fill")
+                Text(lastUpdatedText)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white.opacity(0.72))
+            .padding(.top, 24)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color.pink.opacity(0.18), Color.pink.opacity(0.06)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(Color.pink.opacity(0.18), lineWidth: 1)
+        .background {
+            ZStack(alignment: .bottomTrailing) {
+                LinearGradient(
+                    colors: [Color(red: 0.12, green: 0.09, blue: 0.18), Color(red: 0.34, green: 0.12, blue: 0.25)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Circle()
+                    .fill(Color.pink.opacity(0.35))
+                    .frame(width: 160, height: 160)
+                    .blur(radius: 12)
+                    .offset(x: 42, y: 50)
+            }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .pink.opacity(0.14), radius: 20, y: 12)
     }
 
-    private var dailyMetrics: some View {
+    private var activitySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("今天")
-                .font(.title3.weight(.bold))
+            SectionHeading(title: "今天的活动", subtitle: "来自 Apple 健康")
 
-            HStack(spacing: 12) {
-                MetricTile(
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12),
+                ],
+                spacing: 12
+            ) {
+                MetricCard(
                     title: "步数",
                     value: HealthFormatting.count(healthStore.stepCount),
                     unit: "步",
                     icon: "figure.walk",
-                    color: .blue
+                    tint: .blue
                 )
 
-                MetricTile(
+                MetricCard(
                     title: "活动能量",
                     value: HealthFormatting.kilocalories(healthStore.activeEnergy),
                     unit: "千卡",
                     icon: "flame.fill",
-                    color: .orange
+                    tint: .orange
                 )
             }
         }
     }
 
-    private var privacyNote: some View {
+    private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("数据留在你的设备上", systemImage: "lock.shield.fill")
-                .font(.headline)
+            SectionHeading(title: "连接设备", subtitle: "只在本地传输当前概览")
 
-            Text("WinPlate 只读取心率、步数和活动能量，不写入 HealthKit，也不上传到互联网。Mac 使用加密的近距离连接；Windows 使用你配置的局域网地址同步当前概览。")
-                .font(.subheadline)
+            VStack(spacing: 0) {
+                DeviceConnectionRow(
+                    icon: "desktopcomputer",
+                    tint: .indigo,
+                    title: "Mac",
+                    status: healthStore.syncState.title,
+                    detail: macConnectionDetail,
+                    statusColor: syncTint
+                )
+
+                Divider()
+                    .padding(.leading, 58)
+
+                Button {
+                    withAnimation(.snappy) {
+                        isWindowsSetupExpanded.toggle()
+                    }
+                } label: {
+                    DeviceConnectionRow(
+                        icon: "pc",
+                        tint: .teal,
+                        title: "Windows",
+                        status: healthStore.windowsSyncState.title,
+                        detail: windowsConnectionDetail,
+                        statusColor: windowsSyncTint,
+                        showsChevron: true,
+                        isExpanded: isWindowsSetupExpanded
+                    )
+                }
+                .buttonStyle(.plain)
+
+                if isWindowsSetupExpanded {
+                    windowsSetup
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .padding(.vertical, 4)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+    }
+
+    private var windowsSetup: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("从 Windows 健康页复制接收地址，粘贴到这里即可配对。")
+                .font(.footnote)
                 .foregroundStyle(.secondary)
+
+            TextField("192.168.1.20:8766/api/health/sync?token=...", text: $windowsEndpointDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .textFieldStyle(.roundedBorder)
+
+            Button {
+                Task { await healthStore.saveWindowsEndpoint(windowsEndpointDraft) }
+            } label: {
+                Label(windowsActionTitle, systemImage: "arrow.up.right.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.teal)
+            .disabled(windowsEndpointDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if let lastWindowsSyncSentAt = healthStore.lastWindowsSyncSentAt {
+                Text("最近发送于 \(lastWindowsSyncSentAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+    }
+
+    private var privacyCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.title3)
+                    .foregroundStyle(.pink)
+                    .frame(width: 30, height: 30)
+                    .background(Color.pink.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("数据留在你的设备上")
+                        .font(.headline)
+
+                    Text("WinPlate 只读取心率、步数和活动能量，不写入 HealthKit，也不上传到互联网。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             Button {
                 Task { await healthStore.requestAccess() }
@@ -154,8 +283,7 @@ struct HealthDashboardView: View {
                 )
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.pink)
+            .buttonStyle(.bordered)
             .disabled(healthStore.isLoading)
 
             if let message = healthStore.message {
@@ -164,84 +292,55 @@ struct HealthDashboardView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private var communicationCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("WinPlate 通信", systemImage: healthStore.syncState.symbolName)
-                    .font(.headline)
-                    .foregroundStyle(syncTint)
-
-                Spacer()
-
-                Text(healthStore.syncState.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(syncTint)
-            }
-
-            Text(healthStore.syncState.detail)
-                .font(.subheadline)
+    private var unavailableCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "heart.slash.fill")
+                .font(.title3)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.up.circle")
-                Text(
-                    healthStore.lastSyncSentAt.map {
-                        "最近发送于 \($0.formatted(date: .omitted, time: .shortened))"
-                    } ?? "尚未发送健康快照"
-                )
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            Divider()
-
-            HStack {
-                Label("Windows WinPlate", systemImage: healthStore.windowsSyncState.symbolName)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("这台设备不支持健康数据")
                     .font(.headline)
-                    .foregroundStyle(windowsSyncTint)
 
-                Spacer()
-
-                Text(healthStore.windowsSyncState.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(windowsSyncTint)
-            }
-
-            Text(healthStore.windowsSyncState.detail)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            TextField("http://192.168.1.20:8766/api/health/sync?token=...", text: $windowsEndpointDraft)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .textFieldStyle(.roundedBorder)
-
-            Button {
-                Task { await healthStore.saveWindowsEndpoint(windowsEndpointDraft) }
-            } label: {
-                Label("保存地址并测试", systemImage: "arrow.up.right.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(windowsEndpointDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            if let lastWindowsSyncSentAt = healthStore.lastWindowsSyncSentAt {
-                Text("最近发送于 \(lastWindowsSyncSentAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption)
+                Text("请在支持 HealthKit 的 iPhone 真机上运行 WinPlate Health。")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var lastUpdatedText: String {
+        guard let lastUpdated = healthStore.lastUpdated else { return "等待健康权限" }
+        return "更新于 \(lastUpdated.formatted(.relative(presentation: .named)))"
+    }
+
+    private var macConnectionDetail: String {
+        if let lastSyncSentAt = healthStore.lastSyncSentAt {
+            return "最近发送于 \(lastSyncSentAt.formatted(date: .omitted, time: .shortened))"
+        }
+        return healthStore.syncState.detail
+    }
+
+    private var windowsConnectionDetail: String {
+        if healthStore.windowsEndpoint.isEmpty {
+            return "点击配置 Windows 接收地址"
+        }
+        return healthStore.windowsSyncState.detail
+    }
+
+    private var windowsActionTitle: String {
+        let draft = windowsEndpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return draft == healthStore.windowsEndpoint && !draft.isEmpty ? "测试连接" : "保存并测试"
     }
 
     private var syncTint: Color {
@@ -261,39 +360,61 @@ struct HealthDashboardView: View {
         case .notConfigured: return .secondary
         }
     }
+}
 
-    private var unavailableCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: "heart.slash.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
+private struct SectionHeading: View {
+    let title: String
+    let subtitle: String
 
-            Text("这台设备不支持健康数据")
-                .font(.headline)
+    var body: some View {
+        HStack(alignment: .lastTextBaseline) {
+            Text(title)
+                .font(.title3.weight(.bold))
 
-            Text("请在支持 HealthKit 的 iPhone 真机上运行 WinPlate Health。")
-                .font(.subheadline)
+            Spacer()
+
+            Text(subtitle)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 
-private struct MetricTile: View {
+private struct StatusPill: View {
+    let title: String
+    let color: Color
+    var isOnDark = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+
+            Text(title)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(isOnDark ? .white.opacity(0.86) : color)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(isOnDark ? .white.opacity(0.12) : color.opacity(0.12), in: Capsule())
+    }
+}
+
+private struct MetricCard: View {
     let title: String
     let value: String
     let unit: String
     let icon: String
-    let color: Color
+    let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 13) {
             Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(color)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
 
             Text(title)
                 .font(.subheadline)
@@ -303,7 +424,7 @@ private struct MetricTile: View {
                 Text(value)
                     .font(.system(.title2, design: .rounded, weight: .bold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.65)
 
                 Text(unit)
                     .font(.caption.weight(.medium))
@@ -311,8 +432,56 @@ private struct MetricTile: View {
             }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct DeviceConnectionRow: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let status: String
+    let detail: String
+    let statusColor: Color
+    var showsChevron = false
+    var isExpanded = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.headline)
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+
+                    StatusPill(title: status, color: statusColor)
+                }
+
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+
+            Spacer(minLength: 8)
+
+            if showsChevron {
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 6)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 }
