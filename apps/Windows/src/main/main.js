@@ -40,6 +40,8 @@ const { startupPolicy } = require("./startupPolicy");
 const { createAppTray } = require("./tray");
 const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
+const { createHealthSyncServer } = require("./healthSyncServer");
+const { loadOrCreateHealthSyncToken } = require("./healthSyncToken");
 const { readCodexUsage } = require("./codexUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
 const {
@@ -107,6 +109,7 @@ let notificationSummaryService = null;
 let notificationDetailService = null;
 let currentSettings = null;
 let serviceSettingsLifecycle = null;
+let healthSyncServer = null;
 const desktopIconPath = assetPath("icon.ico");
 
 function broadcastStatusRefresh(weather = null) {
@@ -124,6 +127,12 @@ function broadcastNotificationDigest(digest) {
 function broadcastSettingsUpdated(settings) {
   BrowserWindow.getAllWindows().forEach((window) => {
     sendToWindow(window, "settings:updated", settings);
+  });
+}
+
+function broadcastHealthSyncUpdated(status) {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    sendToWindow(window, "health:refresh", status);
   });
 }
 
@@ -422,6 +431,17 @@ if (!gotLock) {
       console.error(error.message);
     }
     currentSettings = await readSettings(userDataPath);
+    try {
+      const healthSyncToken = await loadOrCreateHealthSyncToken(userDataPath);
+      healthSyncServer = createHealthSyncServer({
+        token: healthSyncToken,
+        onUpdate: broadcastHealthSyncUpdated
+      });
+      await healthSyncServer.start();
+    } catch (error) {
+      console.error("Windows health sync server failed to start:", error.message);
+      healthSyncServer = null;
+    }
     const initialTheme = currentSettings.appearance.theme === "system"
       ? (nativeTheme.shouldUseDarkColors ? "dark" : "light")
       : currentSettings.appearance.theme;
@@ -613,6 +633,14 @@ if (!gotLock) {
     ipcMain.handle("status:get", () => (
       fetchJsonCached("Status", "http://127.0.0.1:8765/api/status", STATUS_CACHE_TTL_MS)
     ));
+    ipcMain.handle("health-sync:get-status", () => healthSyncServer?.getStatus() || {
+      schemaVersion: 1,
+      state: "error",
+      error: "Windows 健康接收服务未启动",
+      snapshot: null,
+      lastReceivedAt: null,
+      connectionUrls: []
+    });
     ipcMain.handle("network:speed", () => readNetworkSpeed());
     ipcMain.handle("weather:set-location", async (event, location) => {
       requireMainWindowSender(event);
@@ -956,6 +984,9 @@ if (!gotLock) {
   app.on("before-quit", () => {
     setQuitting(true);
     stopPythonService();
+    healthSyncServer?.stop().catch((error) => {
+      console.warn("Windows health sync server stop failed:", error.message);
+    });
   });
   app.on("window-all-closed", (event) => event.preventDefault());
 }

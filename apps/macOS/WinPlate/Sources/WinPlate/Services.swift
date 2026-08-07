@@ -365,15 +365,28 @@ final class AppSettingsStore: ObservableObject {
         AppearanceTheme.apply(appearanceTheme)
     }
 
-    func loadSensitiveValues() {
-        guard !hasLoadedSensitiveValues else { return }
-        hasLoadedSensitiveValues = true
-        let context = LAContext()
-        isLoadingSensitiveValues = true
-        if let values = Keychain.readSensitiveValues(context: context) {
-            applySensitiveValues(values)
+    func loadSensitiveValues(completion: @escaping () -> Void = {}) {
+        guard !hasLoadedSensitiveValues else {
+            completion()
+            return
         }
-        isLoadingSensitiveValues = false
+        hasLoadedSensitiveValues = true
+        isLoadingSensitiveValues = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let context = LAContext()
+            let values = Keychain.readSensitiveValues(context: context)
+            DispatchQueue.main.async {
+                guard let self else {
+                    completion()
+                    return
+                }
+                if let values {
+                    self.applySensitiveValues(values)
+                }
+                self.isLoadingSensitiveValues = false
+                completion()
+            }
+        }
     }
 
     private func applySensitiveValues(_ values: SensitiveValues) {

@@ -141,10 +141,13 @@ DEFAULT_STATUS = {
         "status": "Normal",
     },
     "heart": {
-        "heartRate": 82,
+        "heartRate": None,
+        "stepCount": None,
+        "activeEnergy": None,
         "unit": "bpm",
-        "source": "Apple Watch",
-        "updatedAt": "just now",
+        "source": "waiting for iPhone",
+        "updatedAt": None,
+        "syncState": "waiting",
     },
     "weather": {
         "source": "unconfigured",

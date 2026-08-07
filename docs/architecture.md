@@ -4,12 +4,12 @@ WinPlate is a local-first monorepo. Platform lifecycle and UI belong in `apps/`;
 
 Dependencies point inward: platform apps may consume `packages/core`, `packages/shared-types`, and `packages/icons`; shared packages must not import Electron, SwiftUI, AppKit, FastAPI, SQLite, or filesystem persistence. `apps/Windows` is Windows-only. `apps/macOS/WinPlate` is an independent SwiftUI/AppKit client that uses a loopback HTTP boundary for the local API; neither platform imports the other's client code.
 
-The local API binds only to `127.0.0.1:8765`. It is not a hosted service and must not be exposed on a LAN interface. Credentials remain in privileged local processes and are never returned to renderer code. SQLite and caches remain implementation details of the local API. The installed macOS app packages the API source and its Python dependencies inside the app bundle, so it does not run the service from the source checkout.
+The local API binds only to `127.0.0.1:8765`. It is not a hosted service and must not be exposed on a LAN interface. The Windows client has a separate, narrow health-only listener on port `8766` for the iPhone HealthKit snapshot; it validates a per-installation pairing token and does not proxy the local API. Credentials remain in privileged local processes and are never returned to renderer code. SQLite and caches remain implementation details of the local API. The installed macOS app packages the API source and its Python dependencies inside the app bundle, so it does not run the service from the source checkout.
 
 ```text
 apps/Windows ──────────┐
 apps/macOS/* ──────────┼─> packages/core + shared-types + icons
-                       └─> backend/local-api (loopback only)
+                       └─> backend/local-api (loopback only) + Windows health listener (8766)
 ```
 
-`apps/ios` and `apps/watchOS` are documentation boundaries until health-data privacy, consent, retention, and synchronization are designed separately.
+`apps/watchOS` remains a documentation boundary until health-data privacy, consent, retention, and synchronization are designed separately. `apps/ios/WinPlateHealth` is deliberately independent from the backend: it reads HealthKit on iPhone and sends only the current overview to macOS over an encrypted nearby-device connection or to Windows through the narrow, token-protected health listener.

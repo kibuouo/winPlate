@@ -87,6 +87,18 @@ struct OverviewWorkspace: View {
                 weatherCardContent
             }
 
+            // Health is intentionally placed directly below weather: both are
+            // at-a-glance device signals and share the same live-status area.
+            OverviewCard(
+                eyebrow: "HEALTH",
+                symbol: "heart.text.square.fill",
+                tint: .pink,
+                status: healthStatus,
+                minHeight: 148
+            ) {
+                healthCardContent
+            }
+
             // Remaining modules in a 2-column grid
             LazyVGrid(
                 columns: [
@@ -249,6 +261,43 @@ struct OverviewWorkspace: View {
         }
     }
 
+    private var healthCardContent: some View {
+        let health = state.healthSnapshot
+        return HStack(alignment: .center, spacing: 24) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(health.heartRate.map { "\(Int($0.rounded()))" } ?? "--")
+                    .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("最近心率")
+                        .font(.title3.weight(.semibold))
+                    Text(healthSnapshotSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(minWidth: 220, alignment: .leading)
+
+            Spacer(minLength: 8)
+
+            OverviewMetricStrip(items: [
+                .init(
+                    value: health.stepCount.map { "\(Int($0.rounded()))" } ?? "--",
+                    label: "今日步数"
+                ),
+                .init(
+                    value: health.activeEnergy.map { "\(Int($0.rounded()))" } ?? "--",
+                    label: "活动千卡"
+                ),
+                .init(
+                    value: healthLastReceivedText,
+                    label: "同步"
+                )
+            ])
+            .frame(maxWidth: 420)
+        }
+    }
+
     // MARK: - Footer
 
     private var systemFooter: some View {
@@ -333,6 +382,31 @@ struct OverviewWorkspace: View {
 
     private var weatherStatus: OverviewCardStatus {
         weatherOK ? .ok("服务正常") : .muted("不可用")
+    }
+
+    private var healthStatus: OverviewCardStatus {
+        switch state.healthConnectionState {
+        case .connected:
+            return .ok(state.healthLastReceivedAt == nil ? "已连接" : "已同步")
+        case .connecting:
+            return .warn("连接中")
+        case .error:
+            return .warn("通信异常")
+        case .idle, .searching:
+            return .muted("等待 iPhone")
+        }
+    }
+
+    private var healthSnapshotSubtitle: String {
+        if let receivedAt = state.healthLastReceivedAt {
+            return "iPhone · 收到 \(relativeTime(receivedAt))"
+        }
+        return state.healthConnectionState.detail
+    }
+
+    private var healthLastReceivedText: String {
+        guard let receivedAt = state.healthLastReceivedAt else { return "--" }
+        return relativeTime(receivedAt)
     }
 
     private var mailStatus: OverviewCardStatus {

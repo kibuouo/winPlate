@@ -32,6 +32,10 @@ final class AppState: ObservableObject {
     @Published private(set) var isLoadingGitHubContributionDetail = false
     @Published private(set) var githubContributionError: String?
     @Published private(set) var selectedGitHubDateKey: String?
+    @Published private(set) var healthSnapshot = HealthSyncPayload.empty
+    @Published private(set) var healthConnectionState: HealthPeerConnectionState = .idle
+    @Published private(set) var healthLastReceivedAt: Date?
+    @Published private(set) var healthSyncError: String?
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
 
@@ -45,9 +49,28 @@ final class AppState: ObservableObject {
     private var hasStarted = false
     private var githubContributionRequestID = 0
     private var githubContributionDetailCache: [String: GitHubContributionDetail] = [:]
+    private let healthPeerLink: HealthPeerLink
 
     init() {
+        healthPeerLink = HealthPeerLink(
+            role: .browser,
+            displayName: Host.current().localizedName ?? "WinPlate"
+        )
         menuBarEnabled = settings.menuBarEnabled
+        healthPeerLink.onStateChange = { [weak self] state in
+            DispatchQueue.main.async {
+                self?.healthConnectionState = state
+                self?.healthSyncError = state.detail
+            }
+        }
+        healthPeerLink.onPayload = { [weak self] payload in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.healthSnapshot = payload
+                self.healthLastReceivedAt = Date()
+                self.healthSyncError = nil
+            }
+        }
     }
 
     func start() {
@@ -68,6 +91,7 @@ final class AppState: ObservableObject {
             overrideGitHubToken: settings.hasGitHubToken,
             githubUsername: settings.githubUsername
         )
+        healthPeerLink.start()
         refresh()
         refreshMailWhenLocalAPIReady()
         refreshTask = Task { [weak self] in
@@ -96,12 +120,18 @@ final class AppState: ObservableObject {
     }
 
     func loadSensitiveSettings() {
-        settings.loadSensitiveValues()
+        settings.loadSensitiveValues { [weak self] in
+            guard let self, self.hasStarted else { return }
+            self.restartLocalBackend()
+            self.refresh(force: true)
+            self.refreshMailWhenLocalAPIReady()
+        }
     }
 
     func stop() {
         refreshTask?.cancel()
         refreshTask = nil
+        healthPeerLink.stop()
         backend.stop()
     }
 
