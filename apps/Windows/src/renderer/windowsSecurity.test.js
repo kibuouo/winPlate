@@ -340,6 +340,44 @@ test("scheduled mail refreshes force an IMAP pull instead of rereading the outli
   assert.doesNotMatch(refreshMailData, /hydrateMail\(\{\s*force\s*\}\)/);
 });
 
+test("Windows health workspace mirrors the macOS connection, snapshot, and diagnostics structure", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const healthStart = appSource.indexOf("function healthConnectionCard()");
+  const healthEnd = appSource.indexOf("function dashboardContributionMonth", healthStart);
+  const healthSource = appSource.slice(healthStart, healthEnd);
+
+  assert.match(healthSource, /iPhone 通信/);
+  assert.match(healthSource, /健康快照/);
+  assert.match(healthSource, /通信诊断/);
+  assert.match(healthSource, /健康权限/);
+  assert.match(healthSource, /data-copy-health-url/);
+  assert.match(appSource, /Heart: healthDetailContent\(\)/);
+  assert.match(appSource, /if \(value === null \|\| value === undefined \|\| value === ""\) return "--"/);
+  assert.match(appSource, /function healthStatusBadge\(status = healthSyncStatus\)/);
+  assert.doesNotMatch(healthSource, /Health snapshot|Waiting for iPhone|Open Health on iPhone|iPhone setup URL/);
+  assert.match(styles, /\.health-metrics-grid\s*\{/);
+  assert.match(styles, /\.health-empty-state\s*\{/);
+  assert.match(styles, /\.health-diagnostic-row\s*\{/);
+});
+
+test("health display helpers preserve empty values and use Chinese sync labels", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const helperStart = appSource.indexOf("function healthTimestamp");
+  const helperEnd = appSource.indexOf("function normalizeGithub", helperStart);
+  const context = {};
+  vm.runInNewContext(`${appSource.slice(helperStart, helperEnd)}
+    this.healthMetric = healthMetric;
+    this.healthStateLabel = healthStateLabel;`, context);
+
+  assert.equal(context.healthMetric(null), "--");
+  assert.equal(context.healthMetric(undefined), "--");
+  assert.equal(context.healthMetric(4321), "4,321");
+  assert.equal(context.healthStateLabel("waiting"), "等待 iPhone");
+  assert.equal(context.healthStateLabel("live"), "已同步");
+  assert.equal(context.healthStateLabel("stale"), "数据过期");
+});
+
 test("renderer CSP allows only the intended external image capability", () => {
   const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
   assert.match(html, /img-src[^;]*https:/);

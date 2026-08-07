@@ -9,23 +9,91 @@ function healthTimestamp(value) {
 }
 
 function healthMetric(value) {
+  if (value === null || value === undefined || value === "") return "--";
   const number = Number(value);
-  return Number.isFinite(number) ? Math.round(number).toLocaleString() : "--";
+  return Number.isFinite(number) ? Math.round(number).toLocaleString("zh-CN") : "--";
 }
 
 function healthStateLabel(state) {
   return {
-    live: "Connected",
-    stale: "Stale",
-    waiting: "Waiting for iPhone",
-    error: "Unavailable"
-  }[state] || "Reading";
+    live: "已同步",
+    stale: "数据过期",
+    waiting: "等待 iPhone",
+    error: "通信异常"
+  }[state] || "读取中";
+}
+
+function healthConnectionTitle(state) {
+  return {
+    live: "已连接",
+    stale: "连接超时",
+    waiting: "搜索 iPhone",
+    error: "通信异常"
+  }[state] || "读取中";
+}
+
+function healthConnectionDetail(status = healthSyncStatus) {
+  const state = status?.state || "waiting";
+  if (state === "live") {
+    const sender = String(status?.snapshot?.sender || "").trim();
+    return sender ? `已收到 ${sender} 的最新健康快照` : "已收到最新健康快照";
+  }
+  if (state === "stale") return "最近一次健康快照已超过 2 分钟，请在 iPhone 上刷新健康数据";
+  if (state === "error") return status?.error || "Windows 健康接收服务异常";
+  return "请在 iPhone 上打开 WinPlate Health，并粘贴下方地址";
+}
+
+function healthStatusBadge(status = healthSyncStatus) {
+  const state = status?.state || "waiting";
+  const kind = {
+    live: "live",
+    stale: "cached",
+    waiting: "loading",
+    error: "error"
+  }[state] || "loading";
+  return serviceHealthBadge(kind, healthStateLabel(state));
+}
+
+function healthDateTime(value, fallback = "尚无有效健康记录") {
+  const timestamp = healthTimestamp(value);
+  if (!timestamp) return fallback;
+  return new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(timestamp));
+}
+
+function healthSnapshotSubtitle() {
+  if (healthSyncStatus.lastReceivedAt) {
+    return `iPhone · 收到 ${relativeUpdatedAt(healthSyncStatus.lastReceivedAt)}`;
+  }
+  return healthConnectionDetail();
+}
+
+function healthLastReceivedLabel() {
+  return healthSyncStatus.lastReceivedAt ? relativeUpdatedAt(healthSyncStatus.lastReceivedAt) : "--";
+}
+
+function healthMetricTile({ title, value, unit, icon, tone }) {
+  return `
+    <div class="health-metric-tile health-metric-tile-${tone}">
+      <span class="health-metric-icon" aria-hidden="true">${icon}</span>
+      <span class="health-metric-label">${title}</span>
+      <div class="health-metric-value"><strong>${healthMetric(value)}</strong><em>${unit}</em></div>
+    </div>`;
 }
 
 function applyHealthSyncStatus(payload) {
-  healthSyncStatus = payload && typeof payload === "object"
-    ? payload
-    : { state: "waiting", snapshot: null, connectionUrls: [] };
+  const incoming = payload && typeof payload === "object" ? payload : {};
+  const state = ["live", "stale", "waiting", "error"].includes(incoming.state)
+    ? incoming.state
+    : "waiting";
+  healthSyncStatus = {
+    ...incoming,
+    state,
+    snapshot: incoming.snapshot && typeof incoming.snapshot === "object" ? incoming.snapshot : null,
+    connectionUrls: Array.isArray(incoming.connectionUrls) ? incoming.connectionUrls : []
+  };
   const snapshot = healthSyncStatus.snapshot;
   const updatedAt = healthTimestamp(
     snapshot?.healthUpdatedAt || snapshot?.sentAt || healthSyncStatus.lastReceivedAt
@@ -453,17 +521,23 @@ function dashboardServiceHealthKind(moduleId) {
   return "live";
 }
 
-function serviceHealthBadge(kind = "live") {
+function serviceHealthBadge(kind = "live", label = "") {
+  const labelText = label || {
+    cached: "缓存",
+    error: "不可用",
+    loading: "读取中",
+    live: "服务正常"
+  }[kind] || "服务正常";
   if (kind === "cached") {
-    return `<span class="service-health cached"><i></i>缓存</span>`;
+    return `<span class="service-health cached"><i></i>${escapeHtml(labelText)}</span>`;
   }
   if (kind === "error") {
-    return `<span class="service-health error"><i></i>不可用</span>`;
+    return `<span class="service-health error"><i></i>${escapeHtml(labelText)}</span>`;
   }
   if (kind === "loading") {
-    return `<span class="service-health loading"><i></i>读取中</span>`;
+    return `<span class="service-health loading"><i></i>${escapeHtml(labelText)}</span>`;
   }
-  return `<span class="service-health"><i></i>服务正常</span>`;
+  return `<span class="service-health"><i></i>${escapeHtml(labelText)}</span>`;
 }
 
 function githubStatusLabel(status = "") {
@@ -2121,6 +2195,13 @@ const previewIcons = {
   star: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"></path></svg>`
 };
 
+const healthMetricIcons = {
+  heart: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"></path></svg>`,
+  steps: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="6.5" r="2.5"></circle><path d="m8 10 2.5 4.5M10.5 14.5l-2.75 5M10.5 14.5l4.25 1.25M15 15.75l2.25 4.25"></path></svg>`,
+  energy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5c.7 3.1-1.8 4.6-1.8 7.1 0 1.2.7 2 1.7 2.5-.2-2.1 1-3.3 2.4-4.7 1.5 1.6 2.7 3.5 2.7 6A6.5 6.5 0 1 1 8 9.3c.1 2 1 3.2 2.1 3.8-.5-3.8 1.1-6.8 3.4-9.6Z"></path></svg>`,
+  diagnostics: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2-6 4 12 2-6h7"></path></svg>`
+};
+
 const locationArrowIcon = `
   <svg class="location-arrow-icon" viewBox="0 0 24 24" aria-hidden="true">
     <path d="M20.2 3.8 4.7 9.7c-.9.3-.9 1.6 0 1.9l6.2 2.1 2.1 6.2c.3.9 1.6.9 1.9 0l5.9-15.5c.2-.5-.3-1-.6-.6Z"></path>
@@ -2734,9 +2815,9 @@ function renderFloating() {
   bindSystemTooltip(heartModule, {
     type: "heart",
     lines: [
-      `Current: ${statusData.heart.heartRate ?? "--"} ${statusData.heart.unit}`,
-      `Source: ${statusData.heart.source}`,
-      `Updated: ${statusData.heart.updatedAt}`
+      `当前心率：${healthMetric(statusData.heart.heartRate)} BPM`,
+      `来源：${statusData.heart.source}`,
+      `更新：${healthDateTime(statusData.heart.updatedAt, "尚未更新")}`
     ]
   });
   bindSystemTooltip(networkModule, () => ({
@@ -3004,21 +3085,120 @@ function qweatherServiceCard(official, failures, { interactive = false } = {}) {
 
 function heartCard({ interactive = false } = {}) {
   const heart = statusData.heart || mockStatus.heart;
-  const syncState = healthSyncStatus.state || "waiting";
-  const connectionUrl = healthSyncStatus.connectionUrls?.[0] || "";
   return `
-    <article class="dashboard-card heart-card" data-module-id="heart" ${interactive ? dashboardCardNavigationAttributes("heart") : ""} ${moduleHealthAttributes("heart")}>
+    <article class="dashboard-card heart-card health-overview-card" data-module-id="heart" ${interactive ? dashboardCardNavigationAttributes("heart") : ""} ${moduleHealthAttributes("heart")}>
       <div class="dashboard-card-heading">
         <div class="card-icon">♥</div>
-        ${serviceHealthBadge(dashboardServiceHealthKind("heart"))}
+        ${healthStatusBadge()}
       </div>
-      <span>Health snapshot</span>
-      <strong>${healthMetric(heart.heartRate)} <em>${heart.unit}</em></strong>
-      <div class="health-metric-row"><span>Steps <strong>${healthMetric(heart.stepCount)}</strong></span><span>Active energy <strong>${healthMetric(heart.activeEnergy)} kcal</strong></span></div>
-      <small>${escapeHtml(heart.source)} · ${escapeHtml(relativeUpdatedAt(heart.updatedAt))}</small>
-      <div class="health-sync-status"><span class="status-dot state-${escapeHtml(syncState)}"></span>${escapeHtml(healthStateLabel(syncState))}</div>
-      ${connectionUrl ? `<div class="health-pairing"><span>iPhone setup URL</span><code>${escapeHtml(connectionUrl)}</code></div>` : `<div class="health-pairing"><span>Open Health on iPhone</span><small>Copy the setup URL from this card after Windows starts the receiver.</small></div>`}
+      <div class="health-overview-primary">
+        <strong>${healthMetric(heart.heartRate)}</strong>
+        <div>
+          <span>最近心率</span>
+          <small>${escapeHtml(healthSnapshotSubtitle())}</small>
+        </div>
+      </div>
+      <div class="health-overview-metrics">
+        <div><strong>${healthMetric(heart.stepCount)}</strong><span>今日步数</span></div>
+        <div><strong>${healthMetric(heart.activeEnergy)}</strong><span>活动千卡</span></div>
+        <div><strong>${escapeHtml(healthLastReceivedLabel())}</strong><span>同步</span></div>
+      </div>
     </article>`;
+}
+
+function healthConnectionCard() {
+  const status = healthSyncStatus;
+  const urls = Array.isArray(status.connectionUrls) ? status.connectionUrls.filter(Boolean) : [];
+  const pairing = urls.length
+    ? urls.map((url, index) => `
+        <div class="health-pairing-url-row">
+          <code>${escapeHtml(url)}</code>
+          <button type="button" class="health-copy-button" data-copy-health-url="${escapeHtml(url)}">${index ? "复制" : "复制地址"}</button>
+        </div>`).join("")
+    : `<p class="health-pairing-empty">Windows 接收服务暂未提供局域网地址，请稍后刷新。</p>`;
+  return `
+    <section class="health-panel health-connection-panel">
+      <div class="health-panel-heading">
+        <div class="health-panel-title">
+          <span class="health-panel-icon health-panel-icon-pink" aria-hidden="true">♥</span>
+          <div class="health-panel-copy">
+            <h2>iPhone 通信</h2>
+            <p>${escapeHtml(healthConnectionDetail(status))}</p>
+          </div>
+        </div>
+        <div class="health-connection-state">
+          ${healthStatusBadge(status)}
+          <strong>${escapeHtml(healthConnectionTitle(status.state))}</strong>
+        </div>
+      </div>
+      <div class="health-pairing-block">
+        <div class="health-pairing-heading">
+          <strong>Windows 接收地址</strong>
+          <span>在 iPhone 的“WinPlate 通信”中粘贴此地址</span>
+        </div>
+        <div class="health-pairing-urls">${pairing}</div>
+        <small class="health-pairing-note">请让 iPhone 与这台电脑连接到同一个局域网；配对令牌仅用于本机健康同步。</small>
+      </div>
+    </section>`;
+}
+
+function healthSnapshotCard() {
+  const snapshot = healthSyncStatus.snapshot;
+  const heart = statusData.heart || mockStatus.heart;
+  const receivedAt = healthSyncStatus.lastReceivedAt;
+  const content = snapshot
+    ? `<div class="health-metrics-grid">
+        ${healthMetricTile({ title: "最近心率", value: heart.heartRate, unit: "BPM", icon: healthMetricIcons.heart, tone: "pink" })}
+        ${healthMetricTile({ title: "今日步数", value: heart.stepCount, unit: "步", icon: healthMetricIcons.steps, tone: "blue" })}
+        ${healthMetricTile({ title: "活动能量", value: heart.activeEnergy, unit: "千卡", icon: healthMetricIcons.energy, tone: "orange" })}
+      </div>`
+    : `<div class="health-empty-state">
+        <span class="health-empty-icon" aria-hidden="true">♧</span>
+        <strong>等待 iPhone 数据</strong>
+        <p>打开 iPhone 上的 WinPlate Health，允许本地网络访问后会自动同步。</p>
+      </div>`;
+  return `
+    <section class="health-panel health-snapshot-panel">
+      <div class="health-panel-heading">
+        <div class="health-panel-title">
+          <span class="health-panel-icon health-panel-icon-pink" aria-hidden="true">♥</span>
+          <div class="health-panel-copy"><h2>健康快照</h2></div>
+        </div>
+        ${receivedAt ? `<time class="health-received-time">收到 ${escapeHtml(healthDateTime(receivedAt))}</time>` : ""}
+      </div>
+      ${content}
+    </section>`;
+}
+
+function healthDiagnosticsCard() {
+  const snapshot = healthSyncStatus.snapshot;
+  const permission = snapshot
+    ? (snapshot.permissionGranted ? "已允许读取" : "未确认")
+    : "尚未收到数据";
+  const error = healthSyncStatus.error;
+  return `
+    <section class="health-panel health-diagnostics-panel">
+      <div class="health-panel-title">
+        <span class="health-panel-icon health-panel-icon-neutral" aria-hidden="true">${healthMetricIcons.diagnostics}</span>
+        <div class="health-panel-copy"><h2>通信诊断</h2></div>
+      </div>
+      <div class="health-diagnostics-grid">
+        <div class="health-diagnostic-row"><span>设备</span><strong>${escapeHtml(snapshot?.sender || "尚未识别")}</strong></div>
+        <div class="health-diagnostic-row"><span>健康权限</span><strong>${permission}</strong></div>
+        <div class="health-diagnostic-row"><span>数据时间</span><strong>${escapeHtml(healthDateTime(snapshot?.healthUpdatedAt))}</strong></div>
+        <div class="health-diagnostic-row"><span>最近接收</span><strong>${escapeHtml(healthSyncStatus.lastReceivedAt ? healthDateTime(healthSyncStatus.lastReceivedAt) : "尚未收到健康快照")}</strong></div>
+      </div>
+      ${error ? `<p class="health-diagnostic-error">${escapeHtml(error)}</p>` : ""}
+    </section>`;
+}
+
+function healthDetailContent() {
+  return `<section class="health-page">
+    ${modulePageHeader({ title: "健康", description: "从 iPhone WinPlate Health 接收 HealthKit 概览" })}
+    ${healthConnectionCard()}
+    ${healthSnapshotCard()}
+    ${healthDiagnosticsCard()}
+  </section>`;
 }
 
 function dashboardContributionMonth(github) {
@@ -3696,7 +3876,7 @@ function dashboardContent(section) {
     Codex: codexContent(),
     Mail: mailContent(),
     Notifications: notificationContent(),
-    Heart: `<section class="health-page">${modulePageHeader({ title: "Health snapshot", description: `${healthStateLabel(healthSyncStatus.state)} · ${statusData.heart.source}.` })}${heartCard()}</section>`,
+    Heart: healthDetailContent(),
     QWeather: `${modulePageHeader({ title: "天气与服务状态", description: "实时天气、未来预报与 API 配额使用情况。" })}${qweatherCards}`,
     Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1><span>管理外观、工作区模块与本地服务连接。</span></div>
       <section class="settings-section" id="settings-appearance" data-settings-section data-settings-label="外观">
@@ -4257,6 +4437,7 @@ function renderMain() {
       bindQWeatherUsageControls();
       bindMailControls();
       bindNotificationControls();
+      bindHealthControls();
       bindNotificationPreviewCards();
       mountWeatherEffects(document.querySelector("#page-content"));
     });
@@ -4326,6 +4507,7 @@ function renderMain() {
   bindQWeatherUsageControls();
   bindMailControls();
   bindNotificationControls();
+  bindHealthControls();
   bindNotificationPreviewCards();
   mountWeatherEffects(appRoot);
   document.querySelector("#window-minimize")?.addEventListener("click", () => window.winplate.minimizeWindow());
@@ -4394,6 +4576,7 @@ function updateMainStatusDom(moduleIds = null) {
       if (requested.includes("weather")) bindQWeatherUsageControls();
       if (requested.includes("mail")) bindMailControls();
       if (requested.includes("notifications")) bindNotificationControls();
+      if (requested.includes("heart")) bindHealthControls();
     }
     updateProgressBars(pageContent);
     updateModuleHealthDom(requested);
@@ -4415,6 +4598,7 @@ function updateMainStatusDom(moduleIds = null) {
     bindQWeatherUsageControls();
     bindMailControls();
     bindNotificationControls();
+    bindHealthControls();
     updateProgressBars(pageContent);
     mountWeatherEffects(pageContent);
     return;
@@ -4439,6 +4623,7 @@ function updateMainStatusDom(moduleIds = null) {
     bindQWeatherUsageControls();
     bindMailControls();
     bindNotificationControls();
+    bindHealthControls();
   }
   updateProgressBars(pageContent);
   mountWeatherEffects(pageContent);
@@ -4835,6 +5020,31 @@ async function copyTextToClipboard(text) {
   textarea.select();
   document.execCommand("copy");
   textarea.remove();
+}
+
+function bindHealthControls() {
+  document.querySelectorAll("[data-copy-health-url]").forEach((button) => {
+    button.onclick = async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const url = button.dataset.copyHealthUrl;
+      if (!url || button.disabled) return;
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      try {
+        await copyTextToClipboard(url);
+        button.textContent = "已复制";
+      } catch (error) {
+        console.warn("Failed to copy health pairing URL:", error.message);
+        button.textContent = "复制失败";
+      } finally {
+        window.setTimeout(() => {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        }, 1600);
+      }
+    };
+  });
 }
 
 async function openNotificationDetail(notificationId) {
