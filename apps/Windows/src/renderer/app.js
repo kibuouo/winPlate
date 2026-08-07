@@ -41,6 +41,119 @@ function normalizeGithub(github = {}, fallback = mockStatus.github) {
   };
 }
 
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function mergeRecord(current, incoming) {
+  return isRecord(incoming) ? { ...current, ...incoming } : current;
+}
+
+function restoreDashboardCache() {
+  if (view === "tooltip" || !window.WinPlateDashboardCache?.read) return null;
+  const snapshot = window.WinPlateDashboardCache.read();
+  const cached = snapshot?.data;
+  if (!isRecord(cached)) return null;
+  dashboardCacheRestored = true;
+
+  const cachedStatus = isRecord(cached.statusData) ? cached.statusData : {};
+  const cachedCodex = isRecord(cachedStatus.codex) ? cachedStatus.codex : {};
+  statusData = {
+    ...statusData,
+    ...cachedStatus,
+    github: normalizeGithub(cachedStatus.github, statusData.github),
+    codex: {
+      ...mockStatus.codex,
+      ...statusData.codex,
+      ...cachedCodex,
+      windows: {
+        ...mockStatus.codex.windows,
+        ...(isRecord(statusData.codex?.windows) ? statusData.codex.windows : {}),
+        ...(isRecord(cachedCodex.windows) ? cachedCodex.windows : {})
+      }
+    },
+    deepseek: mergeRecord(statusData.deepseek, cachedStatus.deepseek),
+    supergrok: mergeRecord(statusData.supergrok, cachedStatus.supergrok),
+    heart: mergeRecord({ ...mockStatus.heart, ...statusData.heart }, cachedStatus.heart),
+    weather: mergeRecord({ ...mockStatus.weather, ...statusData.weather }, cachedStatus.weather)
+  };
+
+  if (isRecord(cached.codexTokenUsage)) {
+    codexTokenUsage = {
+      ...emptyTokenUsage(),
+      ...cached.codexTokenUsage,
+      hourly: Array.isArray(cached.codexTokenUsage.hourly) ? cached.codexTokenUsage.hourly : [],
+      daily: Array.isArray(cached.codexTokenUsage.daily) ? cached.codexTokenUsage.daily : []
+    };
+  }
+  if (isRecord(cached.superGrokTokenUsage)) {
+    superGrokTokenUsage = {
+      ...emptyTokenUsage(),
+      ...cached.superGrokTokenUsage,
+      hourly: Array.isArray(cached.superGrokTokenUsage.hourly) ? cached.superGrokTokenUsage.hourly : [],
+      daily: Array.isArray(cached.superGrokTokenUsage.daily) ? cached.superGrokTokenUsage.daily : []
+    };
+  }
+  if (isRecord(cached.qweatherUsage)) qweatherUsage = { ...qweatherUsage, ...cached.qweatherUsage };
+  if (Object.prototype.hasOwnProperty.call(cached, "qweatherOfficialStats")) {
+    qweatherOfficialStats = isRecord(cached.qweatherOfficialStats) ? cached.qweatherOfficialStats : null;
+  }
+  if (typeof cached.qweatherUsageMessage === "string") qweatherUsageMessage = cached.qweatherUsageMessage;
+  if (typeof cached.qweatherOfficialStatus === "string" || cached.qweatherOfficialStatus === null) {
+    qweatherOfficialStatus = cached.qweatherOfficialStatus;
+  }
+  if (isRecord(cached.weatherAlerts)) weatherAlerts = { ...weatherAlerts, ...cached.weatherAlerts };
+  if (isRecord(cached.notificationSummary)) {
+    notificationSummary = {
+      ...notificationSummary,
+      ...cached.notificationSummary,
+      items: Array.isArray(cached.notificationSummary.items) ? cached.notificationSummary.items : []
+    };
+  }
+  if (isRecord(cached.notificationDigest)) {
+    notificationDigest = { ...notificationDigest, ...cached.notificationDigest };
+  }
+
+  ["github", "codex", "heart", "weather"].forEach((moduleId) => {
+    if (!moduleHealth?.[moduleId]) return;
+    moduleHealth[moduleId] = {
+      ...moduleHealth[moduleId],
+      state: "stale",
+      lastSuccessAt: Number(snapshot.updatedAt) || null,
+      lastAttemptAt: null,
+      error: "使用本地概览缓存"
+    };
+  });
+  return snapshot;
+}
+
+function dashboardCachePayload() {
+  return {
+    statusData: {
+      github: normalizeGithub(statusData.github),
+      codex: statusData.codex,
+      deepseek: statusData.deepseek,
+      supergrok: statusData.supergrok,
+      heart: statusData.heart,
+      weather: statusData.weather
+    },
+    codexTokenUsage,
+    superGrokTokenUsage,
+    qweatherUsage,
+    qweatherOfficialStats,
+    qweatherUsageMessage,
+    qweatherOfficialStatus,
+    weatherAlerts,
+    notificationSummary,
+    notificationDigest
+  };
+}
+
+function persistDashboardCache() {
+  if (view === "tooltip" || !window.WinPlateDashboardCache?.write) return false;
+  return window.WinPlateDashboardCache.write(dashboardCachePayload());
+}
+
 let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
@@ -139,6 +252,7 @@ let appSettings = {
   },
   integrations: { github: { username: "kibuouo", hasToken: false } }
 };
+let dashboardCacheRestored = false;
 const refreshController = window.WinPlateRefresh.createRefreshController({
   onHealthChange: (taskId, health) => {
     const affected = taskId === "status"
@@ -146,8 +260,13 @@ const refreshController = window.WinPlateRefresh.createRefreshController({
       : (taskId === "deepseek" || taskId === "supergrok")
         ? ["codex"]
         : [taskId];
+    const cachedHealth = dashboardCacheRestored
+      && !health.lastSuccessAt
+      && ["loading", "error"].includes(health.state)
+      ? { ...health, state: "stale", error: health.error || "使用本地概览缓存" }
+      : health;
     affected.forEach((id) => {
-      if (moduleHealth[id]) moduleHealth[id] = { ...health };
+      if (moduleHealth[id]) moduleHealth[id] = { ...cachedHealth };
     });
     updateModuleHealthDom(affected);
   }
@@ -5119,6 +5238,7 @@ async function hydrateNotificationDigest() {
   if (!window.winplate?.getNotificationDigest) return;
   try {
     notificationDigest = await window.winplate.getNotificationDigest();
+    persistDashboardCache();
   } catch (error) {
     console.warn("Notification digest unavailable; keeping local state:", error.message);
   }
@@ -5127,6 +5247,7 @@ async function hydrateNotificationDigest() {
 function updateCurrentViewDom(moduleIds = null) {
   if (view === "floating") updateFloatingStatusDom(moduleIds);
   else updateMainStatusDom(moduleIds);
+  persistDashboardCache();
 }
 
 function startMailAutoRefreshTimer() {
@@ -5652,6 +5773,7 @@ function applyNavigationPayload(value) {
   return payload;
 }
 
+restoreDashboardCache();
 registerRefreshTasks();
 document.addEventListener("keydown", handleNotificationDocumentKeydown);
 document.addEventListener("click", handleNotificationAcknowledgementClick);

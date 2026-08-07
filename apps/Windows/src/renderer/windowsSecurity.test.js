@@ -89,6 +89,7 @@ test("SuperGrok renders the remaining quota derived from Grok usage", () => {
 
 test("Agent workspace prefers 7d remaining and token trends without DeepSeek chat", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
 
@@ -99,6 +100,7 @@ test("Agent workspace prefers 7d remaining and token trends without DeepSeek cha
   assert.match(appSource, /7 天剩余/);
   assert.match(appSource, /ChatGPT、DeepSeek、SuperGrok 的用量与额度/);
   assert.match(appSource, /getCodexTokenUsage|refreshCodexTokenUsageData/);
+  assert.match(styles, /\.agent-token-hover-card\[hidden\]\s*\{\s*display:\s*none/);
   assert.match(preloadSource, /getCodexTokenUsage/);
   assert.match(preloadSource, /getSuperGrokTokenUsage/);
   assert.match(mainSource, /codex:token-usage/);
@@ -121,6 +123,29 @@ test("GitHub uses the localized service-health label", () => {
   assert.doesNotMatch(appSource, /github\.status \|\| "Live"/);
   assert.doesNotMatch(appSource, /github-profile-status[\s\S]*?relativeUpdatedAt\(github\.updatedAt\)/);
   assert.match(styles, /\.github-profile-status\s*\{[^}]*align-self:\s*start/);
+});
+
+test("overview health state uses one shared badge without a duplicate pseudo-element", () => {
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.doesNotMatch(styles, /\.dashboard-card\[data-module-health="stale"\]::after/);
+  assert.doesNotMatch(styles, /\.dashboard-card\[data-module-health="error"\]::after/);
+});
+
+test("overview cache stores data only and restores it through the current renderer", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const cacheSource = fs.readFileSync(path.join(__dirname, "dashboardCache.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+
+  assert.match(html, /<script src="\.\/dashboardCache\.js"><\/script>/);
+  assert.match(cacheSource, /winplate-dashboard-data-v1/);
+  assert.match(cacheSource, /CACHE_VERSION = 1/);
+  assert.match(appSource, /function restoreDashboardCache()/);
+  assert.match(appSource, /WinPlateDashboardCache\?\.read/);
+  assert.match(appSource, /function dashboardCachePayload()/);
+  assert.match(appSource, /WinPlateDashboardCache\.write\(dashboardCachePayload\(\)\)/);
+  assert.match(appSource, /restoreDashboardCache\(\);\s*registerRefreshTasks\(\);/);
+  assert.doesNotMatch(cacheSource, /innerHTML|styles\.css|<article/);
 });
 
 test("DeepSeek exposes only balance configuration and balance display", () => {

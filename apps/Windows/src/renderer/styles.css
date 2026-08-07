@@ -3131,6 +3131,7 @@ html[data-theme="light"] .notification-acknowledgement-backdrop { background: rg
   display: grid;
   gap: 2px;
 }
+.agent-token-hover-card[hidden] { display: none; }
 .agent-token-hover-card span {
   color: var(--text-muted);
   font-size: 9px;
@@ -4026,20 +4027,6 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
 [data-module-id][data-module-health="error"] { border-color: color-mix(in srgb, #ef4444 60%, var(--border)); }
 [data-module-id][data-module-health="loading"] { cursor: progress; }
 [data-module-id][hidden] { display: none !important; }
-.dashboard-card[data-module-health] { position: relative; }
-.dashboard-card[data-module-health="stale"]::after,
-.dashboard-card[data-module-health="error"]::after {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 9px;
-  font-weight: 700;
-  background: var(--surface-raised);
-}
-.dashboard-card[data-module-health="stale"]::after { content: "缓存"; color: #f59e0b; }
-.dashboard-card[data-module-health="error"]::after { content: "不可用"; color: #ef4444; }
 
 .settings-section-heading > div > small { display: block; margin-top: 6px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .product-settings-panel { display: grid; gap: 14px; }
