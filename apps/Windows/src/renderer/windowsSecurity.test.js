@@ -211,6 +211,9 @@ test("connected services use one status-led card system while preserving service
   assert.match(appSource, /settingsServiceNavButton\("weather"/);
   assert.match(appSource, /settingsServiceNavButton\("deepseek"/);
   assert.match(appSource, /settingsServiceNavButton\("mail"/);
+  assert.match(appSource, /settingsServiceNavButton\("health"/);
+  assert.match(appSource, /id="settings-health" data-settings-service data-settings-service-label="健康"/);
+  assert.match(appSource, /Object\.keys\(SETTINGS_SERVICE_PRESENTATION\)\.length/);
   assert.match(appSource, /Sensitive values stay blank and are stored encrypted for the current Windows user/);
   assert.match(appSource, /window\.winplate\.saveWeatherSettings/);
   assert.match(appSource, /window\.winplate\.saveDeepSeekSettings/);
@@ -290,6 +293,22 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.match(styles, /\.restore-capsule-icon-front\s*\{[\s\S]*?fill:\s*none/);
 });
 
+test("floating health module shows whole BPM values and opens the Health section", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const renderStart = appSource.indexOf("function renderFloating()");
+  const renderEnd = appSource.indexOf("function bindNotificationStrip", renderStart);
+  const renderSource = appSource.slice(renderStart, renderEnd);
+  const updateStart = appSource.indexOf("function updateFloatingStatusDom");
+  const updateEnd = appSource.indexOf("async function refreshNetworkSpeed", updateStart);
+  const updateSource = appSource.slice(updateStart, updateEnd);
+
+  assert.match(renderSource, /<strong class="metric">\$\{healthMetric\(statusData\.heart\.heartRate\)\}<\/strong>/);
+  assert.match(updateSource, /<strong class="metric">\$\{healthMetric\(statusData\.heart\.heartRate\)\}<\/strong>/);
+  assert.match(renderSource, /heartModule\.addEventListener\("click", \(\) => window\.winplate\.showMainWindow\("Heart"\)\)/);
+  assert.match(renderSource, /heartModule\.addEventListener\("keydown", \(event\) =>/);
+  assert.match(renderSource, /heartModule\.setAttribute\("aria-label", "Open Health section"\)/);
+});
+
 test("top-docked status derives alert color and unread mail from source-owned state", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const start = appSource.indexOf("const DOCKED_ALERT_COLOR_RANK");
@@ -340,22 +359,35 @@ test("scheduled mail refreshes force an IMAP pull instead of rereading the outli
   assert.doesNotMatch(refreshMailData, /hydrateMail\(\{\s*force\s*\}\)/);
 });
 
-test("Windows health workspace mirrors the macOS connection, snapshot, and diagnostics structure", () => {
+test("Windows health configuration lives in settings while the health workspace keeps snapshot and diagnostics", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
-  const healthStart = appSource.indexOf("function healthConnectionCard()");
-  const healthEnd = appSource.indexOf("function dashboardContributionMonth", healthStart);
-  const healthSource = appSource.slice(healthStart, healthEnd);
+  const connectionStart = appSource.indexOf("function healthConnectionCard()");
+  const connectionEnd = appSource.indexOf("function healthSnapshotCard()", connectionStart);
+  const connectionSource = appSource.slice(connectionStart, connectionEnd);
+  const detailStart = appSource.indexOf("function healthDetailContent()");
+  const detailEnd = appSource.indexOf("function dashboardContributionMonth", detailStart);
+  const detailSource = appSource.slice(detailStart, detailEnd);
+  const snapshotStart = appSource.indexOf("function healthSnapshotCard()");
+  const snapshotEnd = appSource.indexOf("function healthDiagnosticsCard()", snapshotStart);
+  const snapshotSource = appSource.slice(snapshotStart, snapshotEnd);
+  const diagnosticsStart = appSource.indexOf("function healthDiagnosticsCard()");
+  const diagnosticsEnd = appSource.indexOf("function healthDetailContent()", diagnosticsStart);
+  const diagnosticsSource = appSource.slice(diagnosticsStart, diagnosticsEnd);
 
-  assert.match(healthSource, /iPhone 通信/);
-  assert.match(healthSource, /健康快照/);
-  assert.match(healthSource, /通信诊断/);
-  assert.match(healthSource, /健康权限/);
-  assert.match(healthSource, /data-copy-health-url/);
+  assert.match(connectionSource, /iPhone 通信/);
+  assert.match(connectionSource, /Windows 接收地址/);
+  assert.match(connectionSource, /data-copy-health-url/);
+  assert.match(appSource, /id="settings-health" data-settings-service data-settings-service-label="健康"\s*>\s*\$\{healthConnectionCard\(\)\}/);
+  assert.match(detailSource, /healthSnapshotCard\(\)/);
+  assert.match(detailSource, /healthDiagnosticsCard\(\)/);
+  assert.match(snapshotSource, /健康快照/);
+  assert.match(diagnosticsSource, /通信诊断/);
+  assert.match(diagnosticsSource, /健康权限/);
+  assert.doesNotMatch(detailSource, /iPhone 通信|Windows 接收地址|data-copy-health-url/);
   assert.match(appSource, /Heart: healthDetailContent\(\)/);
   assert.match(appSource, /if \(value === null \|\| value === undefined \|\| value === ""\) return "--"/);
   assert.match(appSource, /function healthStatusBadge\(status = healthSyncStatus\)/);
-  assert.doesNotMatch(healthSource, /Health snapshot|Waiting for iPhone|Open Health on iPhone|iPhone setup URL/);
   assert.match(styles, /\.health-metrics-grid\s*\{/);
   assert.match(styles, /\.health-empty-state\s*\{/);
   assert.match(styles, /\.health-diagnostic-row\s*\{/);
@@ -372,6 +404,7 @@ test("health display helpers preserve empty values and use Chinese sync labels",
 
   assert.equal(context.healthMetric(null), "--");
   assert.equal(context.healthMetric(undefined), "--");
+  assert.equal(context.healthMetric(76.5), "77");
   assert.equal(context.healthMetric(4321), "4,321");
   assert.equal(context.healthStateLabel("waiting"), "等待 iPhone");
   assert.equal(context.healthStateLabel("live"), "已同步");

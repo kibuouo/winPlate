@@ -32,6 +32,10 @@ function healthConnectionTitle(state) {
   }[state] || "读取中";
 }
 
+function healthServiceStatusLabel(status = healthSyncStatus) {
+  return healthConnectionTitle(status?.state || "waiting");
+}
+
 function healthConnectionDetail(status = healthSyncStatus) {
   const state = status?.state || "waiting";
   if (state === "live") {
@@ -829,13 +833,14 @@ const SETTINGS_SERVICE_PRESENTATION = Object.freeze({
   github: { target: "settings-github", title: "GitHub", description: "Profile, contributions, and repositories", icon: "github" },
   weather: { target: "settings-weather", title: "QWeather", description: "Weather service and location", icon: "cloud-rain-alert" },
   deepseek: { target: "settings-deepseek", title: "DeepSeek", description: "Account balance service", icon: "sparkles" },
-  mail: { target: "settings-mail", title: "QQ Mail", description: "IMAP inbox", icon: "mail" }
+  mail: { target: "settings-mail", title: "QQ Mail", description: "IMAP inbox", icon: "mail" },
+  health: { target: "settings-health", title: "健康", description: "iPhone 健康数据同步", icon: "monitor" }
 });
 
 function settingsServiceStatusKind(text) {
-  if (/读取失败|保存失败|连接失败|不可用|failed|unavailable/i.test(text)) return "error";
+  if (/读取失败|保存失败|连接失败|通信异常|连接超时|不可用|failed|unavailable/i.test(text)) return "error";
   if (/正在|loading|saving|connecting/i.test(text)) return "pending";
-  if (/已配置|已连接|公开数据|正常|configured|connected|public data|normal/i.test(text)) return "ready";
+  if (/已配置|已连接|已同步|公开数据|正常|configured|connected|public data|normal/i.test(text)) return "ready";
   return "empty";
 }
 
@@ -2664,7 +2669,7 @@ function renderFloating() {
             <div class="system-status">
               <div class="module interactive-module heart-module no-drag" id="heart-module" data-module-id="heart" ${moduleHealthAttributes("heart")} ${moduleEnabled("heart") ? "" : "hidden"}>
                 <span class="heart-icon">♥</span>
-                <strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
+                <strong class="metric">${healthMetric(statusData.heart.heartRate)}</strong>
               </div>
               <div class="module interactive-module network-module no-drag" id="network-module" data-module-id="network" ${moduleHealthAttributes("network")} ${moduleEnabled("network") ? "" : "hidden"}>
                 <span class="network-speed">${networkSpeedMarkup()}</span>
@@ -2812,6 +2817,16 @@ function renderFloating() {
       date: fullDate
     };
   });
+  heartModule.addEventListener("click", () => window.winplate.showMainWindow("Heart"));
+  heartModule.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      window.winplate.showMainWindow("Heart");
+    }
+  });
+  heartModule.setAttribute("role", "link");
+  heartModule.setAttribute("tabindex", "0");
+  heartModule.setAttribute("aria-label", "Open Health section");
   bindSystemTooltip(heartModule, {
     type: "heart",
     lines: [
@@ -3194,8 +3209,7 @@ function healthDiagnosticsCard() {
 
 function healthDetailContent() {
   return `<section class="health-page">
-    ${modulePageHeader({ title: "健康", description: "从 iPhone WinPlate Health 接收 HealthKit 概览" })}
-    ${healthConnectionCard()}
+    ${modulePageHeader({ title: "健康", description: "从 iPhone WinPlate Health 接收 HealthKit 概览；通信配置位于设置 → 连接服务 → 健康。" })}
     ${healthSnapshotCard()}
     ${healthDiagnosticsCard()}
   </section>`;
@@ -3899,7 +3913,7 @@ function dashboardContent(section) {
           </div>
           <dl class="settings-services-summary-metrics">
             <div><dt data-settings-services-ready-count>0</dt><dd>Available</dd></div>
-            <div><dt>4</dt><dd>All services</dd></div>
+            <div><dt>${Object.keys(SETTINGS_SERVICE_PRESENTATION).length}</dt><dd>All services</dd></div>
             <div><dt>Local</dt><dd>Storage</dd></div>
             <div><dt>Encrypted</dt><dd>Credentials</dd></div>
           </dl>
@@ -3909,6 +3923,7 @@ function dashboardContent(section) {
           ${settingsServiceNavButton("weather", weatherSettings.hasApiKey ? "Configured" : "Not configured")}
           ${settingsServiceNavButton("deepseek", deepseekSettings.hasApiKey ? "Configured" : "Not configured")}
           ${settingsServiceNavButton("mail", mailSettings.connected ? "Connected" : mailSettings.configured ? "Configured" : "Not configured")}
+          ${settingsServiceNavButton("health", healthServiceStatusLabel())}
         </div>
       <div class="settings-service-panel" id="settings-github" data-settings-service data-settings-service-label="GitHub">
         ${githubSettingsPanel()}
@@ -3976,6 +3991,9 @@ function dashboardContent(section) {
             </div>
           </div>
         </form>
+      </div>
+      <div class="settings-service-panel" id="settings-health" data-settings-service data-settings-service-label="健康">
+        ${healthConnectionCard()}
       </div>
       </section></div></div>`
   };
@@ -4552,6 +4570,14 @@ function updateModuleHealthDom(moduleIds) {
   });
 }
 
+function updateHealthSettingsDom() {
+  const panel = document.querySelector("#settings-health");
+  if (!panel) return;
+  panel.innerHTML = healthConnectionCard();
+  bindHealthControls();
+  updateSettingsServiceStatus("health", healthServiceStatusLabel());
+}
+
 function updateMainStatusDom(moduleIds = null) {
   const requested = moduleIds ? (Array.isArray(moduleIds) ? moduleIds : [moduleIds]) : [];
   if (requested.includes("weather")) updateTitlebarWeather();
@@ -4560,7 +4586,10 @@ function updateMainStatusDom(moduleIds = null) {
     renderMain();
     return;
   }
-  if (currentSection === "Settings") return;
+  if (currentSection === "Settings") {
+    if (!moduleIds || requested.includes("heart")) updateHealthSettingsDom();
+    return;
+  }
   const template = document.createElement("template");
   template.innerHTML = dashboardContent(currentSection).trim();
   const desiredChildren = Array.from(template.content.childNodes);
@@ -4669,7 +4698,7 @@ function updateFloatingStatusDom(moduleIds = null) {
             </div>
             <div class="system-status">
               <div class="module interactive-module heart-module no-drag" id="heart-module" data-module-id="heart" ${moduleHealthAttributes("heart")} ${moduleEnabled("heart") ? "" : "hidden"}>
-                <span class="heart-icon">♥</span><strong class="metric">${statusData.heart.heartRate ?? "--"}</strong>
+                <span class="heart-icon">♥</span><strong class="metric">${healthMetric(statusData.heart.heartRate)}</strong>
               </div>
               <div class="module interactive-module network-module no-drag" id="network-module" data-module-id="network" ${moduleHealthAttributes("network")} ${moduleEnabled("network") ? "" : "hidden"}>
                 <span class="network-speed">${networkSpeedMarkup()}</span>
