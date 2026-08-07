@@ -1,0 +1,249 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 71;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000001 /* WinPlateHealthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* WinPlateHealthApp.swift */; };
+		100000000000000000000002 /* HealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* HealthStore.swift */; };
+		100000000000000000000003 /* HealthFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* HealthFormatting.swift */; };
+		100000000000000000000004 /* HealthDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000004 /* HealthDashboardView.swift */; };
+		100000000000000000000006 /* HealthSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* HealthSync.swift */; };
+		100000000000000000000005 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* HealthKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		200000000000000000000001 /* WinPlateHealthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WinPlateHealthApp.swift; sourceTree = "<group>"; };
+		200000000000000000000002 /* HealthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStore.swift; sourceTree = "<group>"; };
+		200000000000000000000003 /* HealthFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthFormatting.swift; sourceTree = "<group>"; };
+		200000000000000000000004 /* HealthDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDashboardView.swift; sourceTree = "<group>"; };
+		200000000000000000000005 /* WinPlate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WinPlate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		200000000000000000000007 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
+		200000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		200000000000000000000009 /* WinPlateHealth.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WinPlateHealth.entitlements; sourceTree = "<group>"; };
+		200000000000000000000010 /* HealthSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSync.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		500000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000005 /* HealthKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		300000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				300000000000000000000002 /* Sources */,
+				200000000000000000000008 /* Info.plist */,
+				200000000000000000000009 /* WinPlateHealth.entitlements */,
+				300000000000000000000003 /* Products */,
+				BE5713493025B8D500D09C28 /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+		300000000000000000000002 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000001 /* WinPlateHealthApp.swift */,
+				200000000000000000000002 /* HealthStore.swift */,
+				200000000000000000000003 /* HealthFormatting.swift */,
+				200000000000000000000004 /* HealthDashboardView.swift */,
+				200000000000000000000010 /* HealthSync.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		300000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000005 /* WinPlate.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BE5713493025B8D500D09C28 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000007 /* HealthKit.framework */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		400000000000000000000001 /* WinPlateHealth */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 600000000000000000000002 /* Build configuration list for PBXNativeTarget "WinPlateHealth" */;
+			buildPhases = (
+				500000000000000000000002 /* Sources */,
+				500000000000000000000001 /* Frameworks */,
+				500000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WinPlateHealth;
+			productName = WinPlateHealth;
+			productReference = 200000000000000000000005 /* WinPlate.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		700000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					400000000000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 600000000000000000000001 /* Build configuration list for PBXProject "WinPlateHealth" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				"zh-Hans",
+				Base,
+			);
+			mainGroup = 300000000000000000000001;
+			productRefGroup = 300000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				400000000000000000000001 /* WinPlateHealth */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		500000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		500000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000001 /* WinPlateHealthApp.swift in Sources */,
+				100000000000000000000002 /* HealthStore.swift in Sources */,
+				100000000000000000000003 /* HealthFormatting.swift in Sources */,
+				100000000000000000000004 /* HealthDashboardView.swift in Sources */,
+				100000000000000000000006 /* HealthSync.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		610000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		610000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		620000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = WinPlateHealth.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = YRRDZ8U736;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kiko.winplate.health;
+				PRODUCT_NAME = WinPlate;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		620000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = WinPlateHealth.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = YRRDZ8U736;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.kiko.winplate.health;
+				PRODUCT_NAME = WinPlate;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		600000000000000000000001 /* Build configuration list for PBXProject "WinPlateHealth" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				610000000000000000000001 /* Debug */,
+				610000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		600000000000000000000002 /* Build configuration list for PBXNativeTarget "WinPlateHealth" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				620000000000000000000001 /* Debug */,
+				620000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 700000000000000000000001 /* Project object */;
+}
