@@ -29,4 +29,21 @@ final class HealthSyncTests: XCTestCase {
         XCTAssertTrue(state.detail.contains("WinPlate Health"))
         XCTAssertFalse(state.isConnected)
     }
+
+    func testHeartRateHistoryReplacesDuplicateSampleAndDropsExpiredPoints() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let expired = HeartRateHistoryPoint(
+            date: now.addingTimeInterval(-HeartRateHistory.retention - 1),
+            bpm: 72
+        )
+        let sampleDate = now.addingTimeInterval(-60)
+        let first = HeartRateHistoryPoint(date: sampleDate, bpm: 84)
+        let replacement = HeartRateHistoryPoint(date: sampleDate, bpm: 86)
+
+        let once = HeartRateHistory.appending(expired, to: [], now: now)
+        let twice = HeartRateHistory.appending(first, to: once, now: now)
+        let result = HeartRateHistory.appending(replacement, to: twice, now: now)
+
+        XCTAssertEqual(result, [replacement])
+    }
 }

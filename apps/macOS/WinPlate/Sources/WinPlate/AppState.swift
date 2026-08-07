@@ -45,6 +45,7 @@ final class AppState: ObservableObject {
     @Published private(set) var isLoadingGitHubRepositoryCommits = false
     @Published private(set) var githubRepositoryCommitsError: String?
     @Published private(set) var healthSnapshot = HealthSyncPayload.empty
+    @Published private(set) var heartRateHistory = [HeartRateHistoryPoint]()
     @Published private(set) var healthConnectionState: HealthPeerConnectionState = .idle
     @Published private(set) var healthLastReceivedAt: Date?
     @Published private(set) var healthSyncError: String?
@@ -100,6 +101,13 @@ final class AppState: ObservableObject {
                 guard let self else { return }
                 self.healthSnapshot = payload
                 self.healthLastReceivedAt = Date()
+                if let heartRate = payload.heartRate {
+                    let date = payload.healthUpdatedAt ?? payload.sentAt
+                    self.heartRateHistory = HeartRateHistory.appending(
+                        HeartRateHistoryPoint(date: date, bpm: heartRate),
+                        to: self.heartRateHistory
+                    )
+                }
                 self.healthSyncError = nil
             }
         }

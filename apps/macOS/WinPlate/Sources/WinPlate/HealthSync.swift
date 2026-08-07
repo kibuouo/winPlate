@@ -28,6 +28,39 @@ extension HealthSyncPayload {
     )
 }
 
+struct HeartRateHistoryPoint: Equatable, Identifiable {
+    let date: Date
+    let bpm: Double
+
+    var id: Date { date }
+}
+
+enum HeartRateHistory {
+    static let retention: TimeInterval = 7 * 24 * 60 * 60
+    static let maximumPoints = 720
+
+    static func appending(
+        _ point: HeartRateHistoryPoint,
+        to history: [HeartRateHistoryPoint],
+        now: Date = Date()
+    ) -> [HeartRateHistoryPoint] {
+        let cutoff = now.addingTimeInterval(-retention)
+        var next = history.filter { $0.date >= cutoff }
+
+        if let existingIndex = next.lastIndex(where: { $0.date == point.date }) {
+            next[existingIndex] = point
+        } else {
+            next.append(point)
+        }
+
+        next.sort { $0.date < $1.date }
+        if next.count > maximumPoints {
+            next.removeFirst(next.count - maximumPoints)
+        }
+        return next
+    }
+}
+
 enum HealthPeerConnectionState: Equatable {
     case idle
     case searching
