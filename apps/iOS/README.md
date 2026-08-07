@@ -30,9 +30,11 @@
 
 ## 连接 Windows 版
 
-1. 在 Windows WinPlate 的“健康”页面复制“Windows 接收地址”。
+1. 在 Windows WinPlate 的“健康”页面复制与 iPhone 使用同一局域网的“Windows 接收地址”；如果 Windows 显示多个地址，请逐个尝试。
 2. 确认 iPhone 和 Windows 电脑连接到同一个局域网；首次启动 Windows 版时，在 Windows 防火墙提示中允许专用网络访问。
 3. 在 iPhone WinPlate Health 的 `WinPlate 通信` 卡片中粘贴地址，点击“保存地址并测试”。
 4. 测试成功后，iPhone 每次刷新 HealthKit 数据都会同步到 Windows；Windows 页面会显示连接状态、最近心率、步数和活动能量。
+
+如果 iPhone 显示无法连接，请检查 Windows 健康卡片上的同步状态：`waiting` 表示接收端未收到数据，`error` 通常表示令牌或端口问题；同时确认 Windows 防火墙允许专用网络访问 TCP `8766`。
 
 Windows 版使用的是局域网 HTTP 接收端，配对地址包含随机令牌。不要把该地址分享给不受信任的设备；后续若需要跨网或更高强度的传输保护，应升级为 TLS 或设备级加密配对。

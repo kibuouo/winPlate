@@ -89,17 +89,46 @@ enum WindowsHealthLink {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(payload)
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let configuration = URLSessionConfiguration.default
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 12
+        let session = URLSession(configuration: configuration)
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            let host = url.host ?? "Windows"
+            let detail: String
+            switch error.code {
+            case .appTransportSecurityRequiresSecureConnection:
+                detail = "iOS 阻止了局域网 HTTP，请确认 WinPlate Health 的本地网络权限已开启。"
+            case .cannotConnectToHost, .networkConnectionLost, .timedOut, .notConnectedToInternet:
+                detail = "无法连接 \(host):\(url.port ?? 80)，请确认 iPhone 与 Windows 在同一 Wi-Fi，并允许 Windows 防火墙的专用网络访问。"
+            default:
+                detail = "连接 \(host) 失败：\(error.localizedDescription)"
+            }
+            throw NSError(
+                domain: "WinPlateWindowsHealth",
+                code: error.errorCode,
+                userInfo: [NSLocalizedDescriptionKey: detail]
+            )
+        }
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let detail = statusCode == 401
+                ? "Windows 配对令牌无效，请从 Windows 健康页重新复制地址。"
+                : "Windows 返回 HTTP \(statusCode)"
             throw NSError(
                 domain: "WinPlateWindowsHealth",
                 code: statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "Windows 返回 HTTP \(statusCode)"]
+                userInfo: [NSLocalizedDescriptionKey: detail]
             )
         }
     }

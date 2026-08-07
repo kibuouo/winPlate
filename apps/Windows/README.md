@@ -7,10 +7,12 @@ notification integration.
 The Health module receives the current HealthKit snapshot from the WinPlate
 iPhone app through a dedicated LAN HTTP listener on port `8766`. The existing
 local API remains loopback-only on `127.0.0.1:8765`. Open `健康` in WinPlate,
-copy an address from `Windows 接收地址`, paste it into the iPhone app's
-`WinPlate 通信` card, and allow WinPlate through the Windows Firewall for
-private networks when prompted. The setup URL includes a persistent
-per-installation pairing token.
+copy an address from `Windows 接收地址` whose address belongs to the same LAN
+as the iPhone, paste it into the iPhone app's `WinPlate 通信` card, and allow
+WinPlate through the Windows Firewall for private networks when prompted.
+Multiple addresses can appear when Windows has Wi-Fi, Ethernet, VPN, or
+virtual adapters; try another displayed address if the iPhone cannot connect.
+The setup URL includes a persistent per-installation pairing token.
 
 macOS is implemented independently in `apps/macOS/WinPlate` with SwiftUI and
 AppKit. This workspace must not import or package macOS client code.
