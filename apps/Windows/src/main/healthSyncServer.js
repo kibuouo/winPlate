@@ -1,7 +1,8 @@
 const http = require("node:http");
 const os = require("node:os");
 
-const HEALTH_SYNC_SCHEMA_VERSION = 1;
+const HEALTH_SYNC_SCHEMA_VERSION = 2;
+const SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS = new Set([1, HEALTH_SYNC_SCHEMA_VERSION]);
 const DEFAULT_HEALTH_SYNC_PORT = 8766;
 const MAX_BODY_BYTES = 64 * 1024;
 const STALE_AFTER_MS = 2 * 60 * 1000;
@@ -47,11 +48,52 @@ function optionalNumber(value, fieldName, { minimum = 0, maximum = Number.POSITI
   return number;
 }
 
+function optionalSnapshotId(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string" || value.length > 100) throw new Error("snapshotId is invalid");
+  return value;
+}
+
+function optionalReason(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string" || value.length > 64) throw new Error("reason is invalid");
+  return value;
+}
+
+function metricFreshness(sampleAt, nowTimestamp, { freshMs, agingMs }) {
+  if (!sampleAt) return { state: "unavailable", ageMs: null };
+  const timestamp = Date.parse(sampleAt);
+  if (!Number.isFinite(timestamp)) return { state: "unavailable", ageMs: null };
+  const ageMs = Math.max(0, nowTimestamp - timestamp);
+  return {
+    state: ageMs <= freshMs ? "fresh" : ageMs <= agingMs ? "aging" : "stale",
+    ageMs
+  };
+}
+
+function buildMetricFreshness(snapshot, nowTimestamp) {
+  return {
+    heartRate: metricFreshness(snapshot?.heartRateSampleAt, nowTimestamp, {
+      freshMs: 5 * 60 * 1000,
+      agingMs: 15 * 60 * 1000
+    }),
+    stepCount: metricFreshness(snapshot?.stepCountSampleAt, nowTimestamp, {
+      freshMs: 30 * 60 * 1000,
+      agingMs: 2 * 60 * 60 * 1000
+    }),
+    activeEnergy: metricFreshness(snapshot?.activeEnergySampleAt, nowTimestamp, {
+      freshMs: 30 * 60 * 1000,
+      agingMs: 2 * 60 * 60 * 1000
+    })
+  };
+}
+
 function normalizeHealthPayload(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("health payload must be an object");
   }
-  if (Number(input.schemaVersion) !== HEALTH_SYNC_SCHEMA_VERSION) {
+  const schemaVersion = Number(input.schemaVersion);
+  if (!SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS.has(schemaVersion)) {
     throw new Error(`unsupported health schema version: ${input.schemaVersion}`);
   }
   if (typeof input.sender !== "string" || !input.sender.trim() || input.sender.length > 256) {
@@ -62,14 +104,19 @@ function normalizeHealthPayload(input) {
   }
 
   return {
-    schemaVersion: HEALTH_SYNC_SCHEMA_VERSION,
+    schemaVersion,
+    snapshotId: optionalSnapshotId(input.snapshotId),
+    reason: optionalReason(input.reason),
     sender: input.sender.trim(),
     sentAt: parseDate(input.sentAt, "sentAt", { required: true }),
     healthUpdatedAt: parseDate(input.healthUpdatedAt, "healthUpdatedAt"),
     permissionGranted: input.permissionGranted,
     heartRate: optionalNumber(input.heartRate, "heartRate", { maximum: 300 }),
     stepCount: optionalNumber(input.stepCount, "stepCount"),
-    activeEnergy: optionalNumber(input.activeEnergy, "activeEnergy")
+    activeEnergy: optionalNumber(input.activeEnergy, "activeEnergy"),
+    heartRateSampleAt: parseDate(input.heartRateSampleAt, "heartRateSampleAt"),
+    stepCountSampleAt: parseDate(input.stepCountSampleAt, "stepCountSampleAt"),
+    activeEnergySampleAt: parseDate(input.activeEnergySampleAt, "activeEnergySampleAt")
   };
 }
 
@@ -126,6 +173,7 @@ function createHealthSyncServer({
   let boundPort = Number(port);
   let snapshot = null;
   let lastReceivedAt = null;
+  let lastSnapshotId = null;
   let lastError = null;
 
   function connectionUrls() {
@@ -140,19 +188,17 @@ function createHealthSyncServer({
   }
 
   function getStatus() {
-    const receivedTimestamp = lastReceivedAt ? Date.parse(lastReceivedAt) : null;
-    const age = Number.isFinite(receivedTimestamp) ? Math.max(0, now() - receivedTimestamp) : null;
     const state = lastError
       ? "error"
       : !snapshot
         ? "waiting"
-        : age !== null && age > STALE_AFTER_MS
-          ? "stale"
-          : "live";
+        : "live";
     return {
       schemaVersion: HEALTH_SYNC_SCHEMA_VERSION,
       state,
       lastReceivedAt,
+      lastSnapshotId,
+      freshness: buildMetricFreshness(snapshot, now()),
       error: lastError,
       snapshot,
       connectionUrls: connectionUrls()
@@ -205,8 +251,32 @@ function createHealthSyncServer({
       try {
         const rawBody = await readBody(request);
         const payload = normalizeHealthPayload(JSON.parse(rawBody));
+        const currentSentAt = snapshot?.sentAt ? Date.parse(snapshot.sentAt) : null;
+        const incomingSentAt = Date.parse(payload.sentAt);
+
+        if (payload.snapshotId && payload.snapshotId === lastSnapshotId) {
+          lastError = null;
+          jsonResponse(response, 200, {
+            ok: true,
+            duplicate: true,
+            receivedAt: lastReceivedAt
+          });
+          notify();
+          return;
+        }
+
+        if (Number.isFinite(currentSentAt) && Number.isFinite(incomingSentAt) && incomingSentAt < currentSentAt) {
+          jsonResponse(response, 200, {
+            ok: true,
+            ignored: "older",
+            receivedAt: lastReceivedAt
+          });
+          return;
+        }
+
         lastError = null;
         snapshot = payload;
+        lastSnapshotId = payload.snapshotId;
         lastReceivedAt = new Date(now()).toISOString();
         jsonResponse(response, 200, { ok: true, receivedAt: lastReceivedAt });
         notify();
@@ -268,7 +338,9 @@ function createHealthSyncServer({
 module.exports = {
   DEFAULT_HEALTH_SYNC_PORT,
   HEALTH_SYNC_SCHEMA_VERSION,
+  SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS,
   STALE_AFTER_MS,
+  buildMetricFreshness,
   createHealthSyncServer,
   getLanIPv4Addresses,
   normalizeHealthPayload

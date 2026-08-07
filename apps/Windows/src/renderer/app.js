@@ -42,7 +42,7 @@ function healthConnectionDetail(status = healthSyncStatus) {
     const sender = String(status?.snapshot?.sender || "").trim();
     return sender ? `已收到 ${sender} 的最新健康快照` : "已收到最新健康快照";
   }
-  if (state === "stale") return "最近一次健康快照已超过 2 分钟，请在 iPhone 上刷新健康数据";
+  if (state === "stale") return "最近一次健康快照较早，健康指标会按各自的采样时间判断新鲜度";
   if (state === "error") return status?.error || "Windows 健康接收服务异常";
   return "请在 iPhone 上打开 WinPlate Health，并粘贴下方地址";
 }
@@ -65,6 +65,15 @@ function healthDateTime(value, fallback = "尚无有效健康记录") {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(timestamp));
+}
+
+function healthFreshnessLabel(freshness) {
+  return {
+    fresh: "新鲜",
+    aging: "较早",
+    stale: "过期",
+    unavailable: "无记录"
+  }[freshness?.state] || "未知";
 }
 
 function healthSnapshotSubtitle() {
@@ -100,7 +109,10 @@ function applyHealthSyncStatus(payload) {
   };
   const snapshot = healthSyncStatus.snapshot;
   const updatedAt = healthTimestamp(
-    snapshot?.healthUpdatedAt || snapshot?.sentAt || healthSyncStatus.lastReceivedAt
+    snapshot?.heartRateSampleAt
+      || snapshot?.healthUpdatedAt
+      || snapshot?.sentAt
+      || healthSyncStatus.lastReceivedAt
   );
   statusData.heart = {
     ...mockStatus.heart,
@@ -3199,6 +3211,7 @@ function healthDiagnosticsCard() {
     ? (snapshot.permissionGranted ? "已允许读取" : "未确认")
     : "尚未收到数据";
   const error = healthSyncStatus.error;
+  const freshness = healthSyncStatus.freshness || {};
   return `
     <section class="health-panel health-diagnostics-panel">
       <div class="health-panel-title">
@@ -3209,6 +3222,9 @@ function healthDiagnosticsCard() {
         <div class="health-diagnostic-row"><span>设备</span><strong>${escapeHtml(snapshot?.sender || "尚未识别")}</strong></div>
         <div class="health-diagnostic-row"><span>健康权限</span><strong>${permission}</strong></div>
         <div class="health-diagnostic-row"><span>数据时间</span><strong>${escapeHtml(healthDateTime(snapshot?.healthUpdatedAt))}</strong></div>
+        <div class="health-diagnostic-row"><span>心率采样</span><strong>${escapeHtml(healthFreshnessLabel(freshness.heartRate))}</strong></div>
+        <div class="health-diagnostic-row"><span>步数采样</span><strong>${escapeHtml(healthFreshnessLabel(freshness.stepCount))}</strong></div>
+        <div class="health-diagnostic-row"><span>能量采样</span><strong>${escapeHtml(healthFreshnessLabel(freshness.activeEnergy))}</strong></div>
         <div class="health-diagnostic-row"><span>最近接收</span><strong>${escapeHtml(healthSyncStatus.lastReceivedAt ? healthDateTime(healthSyncStatus.lastReceivedAt) : "尚未收到健康快照")}</strong></div>
       </div>
       ${error ? `<p class="health-diagnostic-error">${escapeHtml(error)}</p>` : ""}

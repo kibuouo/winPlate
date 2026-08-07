@@ -12,6 +12,9 @@
 		100000000000000000000003 /* HealthFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* HealthFormatting.swift */; };
 		100000000000000000000004 /* HealthDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000004 /* HealthDashboardView.swift */; };
 		100000000000000000000006 /* HealthSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* HealthSync.swift */; };
+		100000000000000000000008 /* HealthBackgroundCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000012 /* HealthBackgroundCoordinator.swift */; };
+		100000000000000000000009 /* HealthOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000013 /* HealthOutbox.swift */; };
+		100000000000000000000010 /* HealthBackgroundUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000014 /* HealthBackgroundUploader.swift */; };
 		100000000000000000000005 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* HealthKit.framework */; };
 		100000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000011 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -27,6 +30,9 @@
 		200000000000000000000009 /* WinPlateHealth.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WinPlateHealth.entitlements; sourceTree = "<group>"; };
 		200000000000000000000010 /* HealthSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSync.swift; sourceTree = "<group>"; };
 		200000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		200000000000000000000012 /* HealthBackgroundCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthBackgroundCoordinator.swift; sourceTree = "<group>"; };
+		200000000000000000000013 /* HealthOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthOutbox.swift; sourceTree = "<group>"; };
+		200000000000000000000014 /* HealthBackgroundUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthBackgroundUploader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,6 +67,9 @@
 				200000000000000000000003 /* HealthFormatting.swift */,
 				200000000000000000000004 /* HealthDashboardView.swift */,
 				200000000000000000000010 /* HealthSync.swift */,
+				200000000000000000000012 /* HealthBackgroundCoordinator.swift */,
+				200000000000000000000013 /* HealthOutbox.swift */,
+				200000000000000000000014 /* HealthBackgroundUploader.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -155,6 +164,9 @@
 				100000000000000000000003 /* HealthFormatting.swift in Sources */,
 				100000000000000000000004 /* HealthDashboardView.swift in Sources */,
 				100000000000000000000006 /* HealthSync.swift in Sources */,
+				100000000000000000000008 /* HealthBackgroundCoordinator.swift in Sources */,
+				100000000000000000000009 /* HealthOutbox.swift in Sources */,
+				100000000000000000000010 /* HealthBackgroundUploader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

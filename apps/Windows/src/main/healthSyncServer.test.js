@@ -28,6 +28,29 @@ test("normalizes Swift health payload dates and metrics", () => {
   assert.match(payload.sentAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
+test("normalizes schema 2 snapshot identity and per-metric timestamps", () => {
+  const payload = normalizeHealthPayload({
+    schemaVersion: 2,
+    snapshotId: "snapshot-123",
+    reason: "healthKitObserver",
+    sender: "iPhone",
+    sentAt: new Date().toISOString(),
+    healthUpdatedAt: new Date().toISOString(),
+    permissionGranted: true,
+    heartRate: 81,
+    heartRateSampleAt: new Date().toISOString(),
+    stepCount: 1200,
+    stepCountSampleAt: new Date().toISOString(),
+    activeEnergy: 125,
+    activeEnergySampleAt: new Date().toISOString()
+  });
+
+  assert.equal(payload.schemaVersion, 2);
+  assert.equal(payload.snapshotId, "snapshot-123");
+  assert.equal(payload.reason, "healthKitObserver");
+  assert.match(payload.heartRateSampleAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test("filters internal and duplicate IPv4 addresses", () => {
   assert.deepEqual(
     getLanIPv4Addresses({
@@ -55,13 +78,17 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
     const port = new URL(status.connectionUrls[0]).port;
     const sentAt = (Date.now() - 978307200000) / 1000;
     const payload = {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      snapshotId: "snapshot-accepted",
+      reason: "manual",
       sender: "iPhone",
       sentAt,
       healthUpdatedAt: null,
       permissionGranted: true,
       heartRate: 84,
+      heartRateSampleAt: new Date().toISOString(),
       stepCount: 363,
+      stepCountSampleAt: new Date().toISOString(),
       activeEnergy: 78
     };
 
@@ -72,7 +99,17 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
     });
     assert.equal(accepted.status, 200);
     assert.equal(service.getStatus().snapshot.heartRate, 84);
+    assert.equal(service.getStatus().lastSnapshotId, "snapshot-accepted");
+    assert.equal(service.getStatus().freshness.heartRate.state, "fresh");
     assert.equal(service.getStatus().state, "live");
+
+    const duplicate = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    assert.equal(duplicate.status, 200);
+    assert.equal((await duplicate.json()).duplicate, true);
 
     const rejected = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=wrong`, {
       method: "POST",

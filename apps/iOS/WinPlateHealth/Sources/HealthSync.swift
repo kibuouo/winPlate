@@ -2,17 +2,93 @@ import Combine
 import Foundation
 import MultipeerConnectivity
 
+enum HealthRefreshReason: String, Codable, Equatable {
+    case appLaunch
+    case foregroundTimer
+    case healthKitObserver
+    case retry
+    case manual
+}
+
 struct HealthSyncPayload: Codable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
+    let snapshotId: UUID
+    let reason: HealthRefreshReason
     let sender: String
     let sentAt: Date
     let healthUpdatedAt: Date?
     let permissionGranted: Bool
     let heartRate: Double?
+    let heartRateSampleAt: Date?
     let stepCount: Double?
+    let stepCountSampleAt: Date?
     let activeEnergy: Double?
+    let activeEnergySampleAt: Date?
+
+    init(
+        schemaVersion: Int = currentSchemaVersion,
+        snapshotId: UUID = UUID(),
+        reason: HealthRefreshReason = .manual,
+        sender: String,
+        sentAt: Date,
+        healthUpdatedAt: Date?,
+        permissionGranted: Bool,
+        heartRate: Double?,
+        heartRateSampleAt: Date? = nil,
+        stepCount: Double?,
+        stepCountSampleAt: Date? = nil,
+        activeEnergy: Double?,
+        activeEnergySampleAt: Date? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.snapshotId = snapshotId
+        self.reason = reason
+        self.sender = sender
+        self.sentAt = sentAt
+        self.healthUpdatedAt = healthUpdatedAt
+        self.permissionGranted = permissionGranted
+        self.heartRate = heartRate
+        self.heartRateSampleAt = heartRateSampleAt
+        self.stepCount = stepCount
+        self.stepCountSampleAt = stepCountSampleAt
+        self.activeEnergy = activeEnergy
+        self.activeEnergySampleAt = activeEnergySampleAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case snapshotId
+        case reason
+        case sender
+        case sentAt
+        case healthUpdatedAt
+        case permissionGranted
+        case heartRate
+        case heartRateSampleAt
+        case stepCount
+        case stepCountSampleAt
+        case activeEnergy
+        case activeEnergySampleAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        snapshotId = try container.decodeIfPresent(UUID.self, forKey: .snapshotId) ?? UUID()
+        reason = try container.decodeIfPresent(HealthRefreshReason.self, forKey: .reason) ?? .manual
+        sender = try container.decode(String.self, forKey: .sender)
+        sentAt = try container.decode(Date.self, forKey: .sentAt)
+        healthUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .healthUpdatedAt)
+        permissionGranted = try container.decode(Bool.self, forKey: .permissionGranted)
+        heartRate = try container.decodeIfPresent(Double.self, forKey: .heartRate)
+        heartRateSampleAt = try container.decodeIfPresent(Date.self, forKey: .heartRateSampleAt)
+        stepCount = try container.decodeIfPresent(Double.self, forKey: .stepCount)
+        stepCountSampleAt = try container.decodeIfPresent(Date.self, forKey: .stepCountSampleAt)
+        activeEnergy = try container.decodeIfPresent(Double.self, forKey: .activeEnergy)
+        activeEnergySampleAt = try container.decodeIfPresent(Date.self, forKey: .activeEnergySampleAt)
+    }
 }
 
 enum WindowsHealthSyncState: Equatable {
@@ -137,6 +213,8 @@ enum WindowsHealthLink {
 extension HealthSyncPayload {
     static let empty = HealthSyncPayload(
         schemaVersion: currentSchemaVersion,
+        snapshotId: UUID(),
+        reason: .appLaunch,
         sender: "",
         sentAt: .distantPast,
         healthUpdatedAt: nil,

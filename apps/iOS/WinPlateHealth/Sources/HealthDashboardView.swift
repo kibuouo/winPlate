@@ -13,6 +13,7 @@ struct HealthDashboardView: View {
                     healthHeroCard
                     activitySection
                     connectionsSection
+                    backgroundSyncCard
                     privacyCard
 
                     if !healthStore.isHealthDataAvailable {
@@ -296,6 +297,45 @@ struct HealthDashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var backgroundSyncCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeading(title: "后台同步", subtitle: "由 iOS 系统调度")
+
+            VStack(alignment: .leading, spacing: 8) {
+                diagnosticRow(
+                    title: "HealthKit 后台通知",
+                    value: healthStore.isHealthKitBackgroundSyncEnabled ? "已注册" : "未注册"
+                )
+                diagnosticRow(
+                    title: "最近唤醒",
+                    value: healthStore.lastHealthKitObserverWakeAt?.formatted(date: .omitted, time: .shortened) ?? "尚未唤醒"
+                )
+                diagnosticRow(
+                    title: "待发送快照",
+                    value: "\(healthStore.pendingWindowsSnapshotCount) 条"
+                )
+                Text("后台同步不是固定 30 秒轮询；系统会在 HealthKit 有新数据时尽量唤醒应用。强制关闭 App 后不保证恢复。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
+    private func diagnosticRow(title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.footnote.weight(.medium))
+        }
     }
 
     private var unavailableCard: some View {
