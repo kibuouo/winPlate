@@ -24,5 +24,11 @@
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>WinPlate 需要通过本地网络接收 iPhone 健康概览。</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_winplate-health._tcp</string>
+    </array>
 </dict>
 </plist>

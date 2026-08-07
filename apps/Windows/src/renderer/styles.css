@@ -1319,6 +1319,16 @@ html[data-theme="light"] .qweather-card .large-track > span {
   background: linear-gradient(90deg, #6b7280, #3f3f46);
 }
 .heart-card .card-icon { color: #fb7185; }
+.health-metric-row { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 10px; color: var(--text-muted); font-size: 12px; }
+.health-metric-row span { display: inline-flex; align-items: baseline; gap: 5px; }
+.health-metric-row strong { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
+.health-sync-status { display: flex; align-items: center; gap: 6px; margin-top: auto; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.health-sync-status .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; }
+.health-sync-status .status-dot.state-live { background: #22c55e; }
+.health-sync-status .status-dot.state-error { background: #ef4444; }
+.health-pairing { display: grid; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 10px; }
+.health-pairing code { overflow-wrap: anywhere; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; line-height: 1.4; user-select: text; }
+.health-pairing small { color: var(--text-muted); line-height: 1.4; }
 .qweather-card .card-icon { color: #60a5fa; }
 .qweather-card .large-track { margin-top: 18px; }
 .weather-dashboard-card {

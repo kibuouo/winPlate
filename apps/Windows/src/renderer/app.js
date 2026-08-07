@@ -1,3 +1,46 @@
+function healthTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value < 10_000_000_000 ? value * 1000 : value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function healthMetric(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number).toLocaleString() : "--";
+}
+
+function healthStateLabel(state) {
+  return {
+    live: "Connected",
+    stale: "Stale",
+    waiting: "Waiting for iPhone",
+    error: "Unavailable"
+  }[state] || "Reading";
+}
+
+function applyHealthSyncStatus(payload) {
+  healthSyncStatus = payload && typeof payload === "object"
+    ? payload
+    : { state: "waiting", snapshot: null, connectionUrls: [] };
+  const snapshot = healthSyncStatus.snapshot;
+  const updatedAt = healthTimestamp(
+    snapshot?.healthUpdatedAt || snapshot?.sentAt || healthSyncStatus.lastReceivedAt
+  );
+  statusData.heart = {
+    ...mockStatus.heart,
+    heartRate: snapshot?.heartRate ?? null,
+    stepCount: snapshot?.stepCount ?? null,
+    activeEnergy: snapshot?.activeEnergy ?? null,
+    source: snapshot ? `iPhone · ${snapshot.sender || "HealthKit"}` : mockStatus.heart.source,
+    updatedAt,
+    syncState: healthSyncStatus.state || "waiting"
+  };
+}
+
 function normalizeGithub(github = {}, fallback = mockStatus.github) {
   const definedEntries = (value) => Object.fromEntries(
     Object.entries(value || {}).filter(([, entry]) => entry !== undefined && entry !== null)
@@ -154,6 +197,7 @@ function persistDashboardCache() {
   return window.WinPlateDashboardCache.write(dashboardCachePayload());
 }
 
+let healthSyncStatus = { state: "waiting", snapshot: null, connectionUrls: [] };
 let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
@@ -2959,15 +3003,21 @@ function qweatherServiceCard(official, failures, { interactive = false } = {}) {
 }
 
 function heartCard({ interactive = false } = {}) {
+  const heart = statusData.heart || mockStatus.heart;
+  const syncState = healthSyncStatus.state || "waiting";
+  const connectionUrl = healthSyncStatus.connectionUrls?.[0] || "";
   return `
     <article class="dashboard-card heart-card" data-module-id="heart" ${interactive ? dashboardCardNavigationAttributes("heart") : ""} ${moduleHealthAttributes("heart")}>
       <div class="dashboard-card-heading">
         <div class="card-icon">♥</div>
         ${serviceHealthBadge(dashboardServiceHealthKind("heart"))}
       </div>
-      <span>Heart Rate</span>
-      <strong>${statusData.heart.heartRate} <em>${statusData.heart.unit}</em></strong>
-      <small>${statusData.heart.source} · ${statusData.heart.updatedAt}</small>
+      <span>Health snapshot</span>
+      <strong>${healthMetric(heart.heartRate)} <em>${heart.unit}</em></strong>
+      <div class="health-metric-row"><span>Steps <strong>${healthMetric(heart.stepCount)}</strong></span><span>Active energy <strong>${healthMetric(heart.activeEnergy)} kcal</strong></span></div>
+      <small>${escapeHtml(heart.source)} · ${escapeHtml(relativeUpdatedAt(heart.updatedAt))}</small>
+      <div class="health-sync-status"><span class="status-dot state-${escapeHtml(syncState)}"></span>${escapeHtml(healthStateLabel(syncState))}</div>
+      ${connectionUrl ? `<div class="health-pairing"><span>iPhone setup URL</span><code>${escapeHtml(connectionUrl)}</code></div>` : `<div class="health-pairing"><span>Open Health on iPhone</span><small>Copy the setup URL from this card after Windows starts the receiver.</small></div>`}
     </article>`;
 }
 
@@ -3646,7 +3696,7 @@ function dashboardContent(section) {
     Codex: codexContent(),
     Mail: mailContent(),
     Notifications: notificationContent(),
-    Heart: `<section class="health-page">${modulePageHeader({ title: "Health snapshot", description: `Recent reading from ${statusData.heart.source}.` })}${heartCard()}</section>`,
+    Heart: `<section class="health-page">${modulePageHeader({ title: "Health snapshot", description: `${healthStateLabel(healthSyncStatus.state)} · ${statusData.heart.source}.` })}${heartCard()}</section>`,
     QWeather: `${modulePageHeader({ title: "天气与服务状态", description: "实时天气、未来预报与 API 配额使用情况。" })}${qweatherCards}`,
     Settings: `<div class="settings-page"><div class="settings-content"><div class="page-heading"><h1>设置</h1><span>管理外观、工作区模块与本地服务连接。</span></div>
       <section class="settings-section" id="settings-appearance" data-settings-section data-settings-label="外观">
@@ -3754,7 +3804,9 @@ function dashboardContent(section) {
 
 function relativeUpdatedAt(timestamp) {
   if (!timestamp) return "尚未更新";
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  const normalizedTimestamp = healthTimestamp(timestamp);
+  if (!normalizedTimestamp) return "尚未更新";
+  const minutes = Math.max(0, Math.floor((Date.now() - normalizedTimestamp) / 60_000));
   if (minutes < 1) return "刚刚";
   if (minutes < 60) return `${minutes}分钟前`;
   const hours = Math.floor(minutes / 60);
@@ -5399,14 +5451,20 @@ async function refreshBackendStatus({ force = false } = {}) {
       console.warn("Forced weather refresh failed; falling back to status:", error.message);
     }
   }
-  const incomingStatus = await window.winplate.getStatus({ force });
+  const [incomingStatus, incomingHealth] = await Promise.all([
+    window.winplate.getStatus({ force }),
+    window.winplate.getHealthSyncStatus
+      ? window.winplate.getHealthSyncStatus().catch(() => null)
+      : Promise.resolve(null)
+  ]);
+  if (incomingHealth) applyHealthSyncStatus(incomingHealth);
   const incomingWeather = forcedWeather
     || (weatherVersionAtRequest === weatherUpdateVersion
       ? incomingStatus.weather
       : statusData.weather);
   statusData = {
     ...statusData,
-    heart: { ...mockStatus.heart, ...statusData.heart, ...incomingStatus.heart },
+    heart: { ...mockStatus.heart, ...incomingStatus.heart, ...statusData.heart },
     weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
   };
   if (force && moduleEnabled("weather")) {
@@ -5806,6 +5864,10 @@ if (view !== "tooltip") {
       return;
     }
     refreshStatus().catch(() => {});
+  });
+  window.winplate?.onHealthSyncUpdated?.((payload) => {
+    applyHealthSyncStatus(payload);
+    updateCurrentViewDom("heart");
   });
   window.winplate?.onSettingsUpdated?.((settings) => {
     const nextAccent = ACCENT_COLORS[settings.appearance?.accent]

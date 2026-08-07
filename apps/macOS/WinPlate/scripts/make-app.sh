@@ -23,6 +23,7 @@ binary="$bin_path/WinPlate"
 weather_icons="$root/../../Windows/assets/qweather-icons/icons"
 weather_scenes="$root/../../Windows/assets/weather-scenes"
 local_api_source="$root/../../../backend/local-api/winplate_local_api"
+shared_types_source="$root/../../../packages/shared-types"
 python_runtime="$root/../../../.venv"
 
 if [[ ! -x "$binary" ]]; then
@@ -42,6 +43,11 @@ fi
 
 if [[ ! -d "$local_api_source" ]]; then
   print -u2 "Local API source not found at $local_api_source"
+  exit 1
+fi
+
+if [[ ! -f "$shared_types_source/notification-taxonomy.v1.json" ]]; then
+  print -u2 "Shared notification taxonomy not found at $shared_types_source/notification-taxonomy.v1.json"
   exit 1
 fi
 
@@ -77,6 +83,8 @@ cp -R "$weather_scenes" "$staging_bundle/Contents/Resources/WeatherScenes"
 mkdir -p "$staging_bundle/Contents/Resources/LocalAPI"
 cp -R "$local_api_source" "$staging_bundle/Contents/Resources/LocalAPI/winplate_local_api"
 cp -R "$python_packages" "$staging_bundle/Contents/Resources/PythonPackages"
+mkdir -p "$staging_bundle/Contents/packages"
+cp -R "$shared_types_source" "$staging_bundle/Contents/packages/shared-types"
 
 if ! cmp -s "$binary" "$staging_bundle/Contents/MacOS/WinPlate"; then
   print -u2 "Packaged executable does not match the SwiftPM debug build"

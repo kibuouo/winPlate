@@ -51,3 +51,14 @@ producing another app bundle.
 - Every stored sensitive field must remain blank while showing
   "已配置，重新填写可覆盖" (or the equivalent private-key message). Never
   reveal the stored secret in the form.
+
+## Git Commit and Push Requirements
+
+- For the Windows health-data synchronization change, use the commit message
+  `update:完善Windows版健康数据同步`.
+- Publish this change directly to `main` after validation; do not open a pull
+  request unless the user explicitly asks for one.
+- Preserve unrelated changes already present on the remote `main` when
+  rebasing or resolving conflicts.
+- Before pushing, run the relevant Windows, iOS, and macOS checks and verify
+  that the working tree and the final commit are the intended ones.

@@ -44,6 +44,10 @@ final class AppState: ObservableObject {
     @Published private(set) var githubRepositoryCommits = GitHubRepositoryCommits.empty
     @Published private(set) var isLoadingGitHubRepositoryCommits = false
     @Published private(set) var githubRepositoryCommitsError: String?
+    @Published private(set) var healthSnapshot = HealthSyncPayload.empty
+    @Published private(set) var healthConnectionState: HealthPeerConnectionState = .idle
+    @Published private(set) var healthLastReceivedAt: Date?
+    @Published private(set) var healthSyncError: String?
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
     @Published var selectedWorkspace: WorkspaceDestination? = .overview
@@ -74,12 +78,31 @@ final class AppState: ObservableObject {
     private var githubRepositoryCommitsRequestID = 0
     private var githubRepositoryCommitsCache: [String: GitHubRepositoryCommits] = [:]
     private var dismissedAcknowledgementIDs: Set<String> = []
+    private let healthPeerLink: HealthPeerLink
 
     init() {
+        healthPeerLink = HealthPeerLink(
+            role: .browser,
+            displayName: Host.current().localizedName ?? "WinPlate"
+        )
         menuBarEnabled = settings.menuBarEnabled
         isMainSidebarVisible = UserDefaults.standard.object(
             forKey: SidebarPresentation.visibilityDefaultsKey
         ) as? Bool ?? true
+        healthPeerLink.onStateChange = { [weak self] state in
+            DispatchQueue.main.async {
+                self?.healthConnectionState = state
+                self?.healthSyncError = state.detail
+            }
+        }
+        healthPeerLink.onPayload = { [weak self] payload in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.healthSnapshot = payload
+                self.healthLastReceivedAt = Date()
+                self.healthSyncError = nil
+            }
+        }
     }
 
     func toggleMainSidebar() {
@@ -104,6 +127,7 @@ final class AppState: ObservableObject {
             overrideGitHubToken: settings.hasGitHubToken,
             githubUsername: settings.githubUsername
         )
+        healthPeerLink.start()
         refresh()
         refreshWhenLocalAPIReady()
         refreshMailWhenLocalAPIReady()
@@ -151,6 +175,7 @@ final class AppState: ObservableObject {
         refreshTask = nil
         notificationStartupTask?.cancel()
         notificationStartupTask = nil
+        healthPeerLink.stop()
         backend.stop()
     }
 

@@ -52,10 +52,13 @@ const mockStatus = {
     raw: ""
   },
   heart: {
-    heartRate: 82,
+    heartRate: null,
+    stepCount: null,
+    activeEnergy: null,
     unit: "bpm",
-    source: "Apple Watch",
-    updatedAt: "just now"
+    source: "等待 iPhone",
+    updatedAt: null,
+    syncState: "waiting"
   },
   weather: {
     source: "unconfigured",

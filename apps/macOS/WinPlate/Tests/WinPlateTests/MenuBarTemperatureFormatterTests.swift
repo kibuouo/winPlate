@@ -33,7 +33,7 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
 
     func testOverviewDestinationsExposeDetailModules() {
         XCTAssertEqual(WorkspaceDestination.agent.title, "Agent")
-        XCTAssertEqual(WorkspaceDestination.agent.symbol, "terminal")
+        XCTAssertEqual(WorkspaceDestination.agent.symbol, "cpu")
         XCTAssertTrue(WorkspaceDestination.allCases.contains(.agent))
     }
 
