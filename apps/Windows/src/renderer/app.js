@@ -2583,7 +2583,7 @@ function renderDockedFloating() {
   const weatherAlertColorClass = weatherAlert?.color ? ` alert-color-${weatherAlert.color}` : "";
   const unreadMailCount = dockedUnreadMailCount();
   const unreadMailLabel = unreadMailCount > 99 ? "99+" : String(unreadMailCount);
-  const heartRateLabel = `当前心率：${heartRate} BPM`;
+  const heartRateLabel = `当前心率：${heartRate}`;
   document.body.className = "floating-body floating-body-docked";
   document.onmousemove = null;
   document.onmouseleave = null;
@@ -2610,7 +2610,6 @@ function renderDockedFloating() {
           <div class="docked-module docked-heart-rate" aria-label="${heartRateLabel}" title="${heartRateLabel}">
             <span class="heart-icon" aria-hidden="true">♥</span>
             <strong class="metric">${heartRate}</strong>
-            <span class="docked-heart-rate-unit" aria-hidden="true">BPM</span>
           </div>
           <span class="docked-divider" aria-hidden="true"></span>
           <span class="docked-mail-status" aria-label="${unreadMailCount ? `${unreadMailCount} 封未读邮件` : "无未读邮件"}">

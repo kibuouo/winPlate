@@ -268,7 +268,7 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.match(dockedRenderer, /docked-usage/);
   assert.match(dockedRenderer, /docked-heart-rate/);
   assert.match(dockedRenderer, /healthMetric\(heart\.heartRate\)/);
-  assert.match(dockedRenderer, /docked-heart-rate-unit/);
+  assert.doesNotMatch(dockedRenderer, /docked-heart-rate-unit|>BPM</);
   assert.match(dockedRenderer, /docked-mail-status/);
   assert.match(dockedRenderer, /docked-mail-unread-badge/);
   assert.match(dockedRenderer, /unreadMailCount > 99 \? "99\+"/);
@@ -290,9 +290,10 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.match(styles, /\.docked-status-line\s*\{[\s\S]*?display:\s*flex/);
   assert.match(styles, /\.docked-alert-slot\.is-empty\s*\{[\s\S]*?visibility:\s*hidden/);
   assert.match(styles, /\.docked-mail-status\s*\{[\s\S]*?background:\s*transparent/);
-  assert.match(styles, /\.docked-heart-rate\s*\{[\s\S]*?flex:\s*0 0 64px/);
+  assert.match(styles, /\.docked-heart-rate\s*\{[\s\S]*?flex:\s*0 0 44px/);
   assert.match(styles, /\.docked-weather\s*\{[\s\S]*?flex:\s*0 1 84px/);
-  assert.match(styles, /\.docked-usage\s*\{[\s\S]*?flex:\s*0 1 108px/);
+  assert.match(styles, /\.docked-usage\s*\{[\s\S]*?flex:\s*1 1 108px/);
+  assert.match(styles, /\.docked-usage \.usage-track\s*\{[\s\S]*?max-width:\s*58px/);
   assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?height:\s*44px/);
   assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?background:\s*rgba\(20,\s*27,\s*36,\s*\.34\)/);
   assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?backdrop-filter:\s*blur\(26px\)\s+saturate\(135%\)/);

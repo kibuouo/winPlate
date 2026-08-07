@@ -221,7 +221,7 @@ html[data-theme="light"] .docked-capsule::after {
 .docked-alert-slot.alert-color-green { color: #4ade80; }
 
 .docked-usage {
-  flex: 0 1 108px;
+  flex: 1 1 108px;
   justify-content: flex-start;
   padding-left: 3px;
   padding-right: 3px;
@@ -237,7 +237,7 @@ html[data-theme="light"] .docked-capsule::after {
 .docked-usage .usage-track {
   flex: 1 1 46px;
   min-width: 24px;
-  max-width: 42px;
+  max-width: 58px;
   height: 3px;
 }
 
@@ -255,9 +255,9 @@ html[data-theme="light"] .docked-capsule::after {
 }
 
 .docked-heart-rate {
-  flex: 0 0 64px;
-  width: 64px;
-  padding: 0 3px;
+  flex: 0 0 44px;
+  width: 44px;
+  padding: 0 2px;
   gap: 3px;
   color: var(--capsule-text-soft);
 }
@@ -271,13 +271,6 @@ html[data-theme="light"] .docked-capsule::after {
   min-width: 0;
   font-size: 11px;
   font-weight: 680;
-}
-
-.docked-heart-rate-unit {
-  color: var(--capsule-text-muted);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: .02em;
 }
 
 .docked-mail-status {
