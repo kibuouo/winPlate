@@ -2577,10 +2577,13 @@ function dockedUnreadMailCount(outline = mailOutline) {
 
 function renderDockedFloating() {
   const weather = statusData.weather || mockStatus.weather;
+  const heart = statusData.heart || mockStatus.heart;
+  const heartRate = healthMetric(heart.heartRate);
   const weatherAlert = dockedWeatherAlertState();
   const weatherAlertColorClass = weatherAlert?.color ? ` alert-color-${weatherAlert.color}` : "";
   const unreadMailCount = dockedUnreadMailCount();
   const unreadMailLabel = unreadMailCount > 99 ? "99+" : String(unreadMailCount);
+  const heartRateLabel = `当前心率：${heartRate} BPM`;
   document.body.className = "floating-body floating-body-docked";
   document.onmousemove = null;
   document.onmouseleave = null;
@@ -2602,6 +2605,12 @@ function renderDockedFloating() {
             <span class="docked-usage-label">Usage</span>
             ${progressBar(statusData.codex.remainingPct, "usage-track")}
             <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
+          </div>
+          <span class="docked-divider" aria-hidden="true"></span>
+          <div class="docked-module docked-heart-rate" aria-label="${heartRateLabel}" title="${heartRateLabel}">
+            <span class="heart-icon" aria-hidden="true">♥</span>
+            <strong class="metric">${heartRate}</strong>
+            <span class="docked-heart-rate-unit" aria-hidden="true">BPM</span>
           </div>
           <span class="docked-divider" aria-hidden="true"></span>
           <span class="docked-mail-status" aria-label="${unreadMailCount ? `${unreadMailCount} 封未读邮件` : "无未读邮件"}">

@@ -266,6 +266,9 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.match(dockedRenderer, /docked-alert-slot/);
   assert.match(dockedRenderer, /renderSmartNotificationIcon\("alert-triangle"\)/);
   assert.match(dockedRenderer, /docked-usage/);
+  assert.match(dockedRenderer, /docked-heart-rate/);
+  assert.match(dockedRenderer, /healthMetric\(heart\.heartRate\)/);
+  assert.match(dockedRenderer, /docked-heart-rate-unit/);
   assert.match(dockedRenderer, /docked-mail-status/);
   assert.match(dockedRenderer, /docked-mail-unread-badge/);
   assert.match(dockedRenderer, /unreadMailCount > 99 \? "99\+"/);
@@ -279,13 +282,17 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.equal((dockedRenderer.match(/<button\b/g) || []).length, 1);
   assert.ok(dockedRenderer.indexOf("docked-weather") < dockedRenderer.indexOf("docked-alert-slot"));
   assert.ok(dockedRenderer.indexOf("docked-alert-slot") < dockedRenderer.indexOf("docked-usage"));
-  assert.ok(dockedRenderer.indexOf("docked-usage") < dockedRenderer.indexOf("docked-mail-status"));
+  assert.ok(dockedRenderer.indexOf("docked-usage") < dockedRenderer.indexOf("docked-heart-rate"));
+  assert.ok(dockedRenderer.indexOf("docked-heart-rate") < dockedRenderer.indexOf("docked-mail-status"));
   assert.ok(dockedRenderer.indexOf("docked-mail-status") < dockedRenderer.indexOf("restore-capsule-button"));
   assert.match(appSource, /function dockedWeatherAlertState[\s\S]*?notificationAlertColor\(item\)/);
   assert.match(appSource, /function dockedUnreadMailCount[\s\S]*?labels\.includes\("UNREAD"\)/);
   assert.match(styles, /\.docked-status-line\s*\{[\s\S]*?display:\s*flex/);
   assert.match(styles, /\.docked-alert-slot\.is-empty\s*\{[\s\S]*?visibility:\s*hidden/);
   assert.match(styles, /\.docked-mail-status\s*\{[\s\S]*?background:\s*transparent/);
+  assert.match(styles, /\.docked-heart-rate\s*\{[\s\S]*?flex:\s*0 0 64px/);
+  assert.match(styles, /\.docked-weather\s*\{[\s\S]*?flex:\s*0 1 84px/);
+  assert.match(styles, /\.docked-usage\s*\{[\s\S]*?flex:\s*0 1 108px/);
   assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?height:\s*44px/);
   assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?background:\s*rgba\(20,\s*27,\s*36,\s*\.34\)/);
   assert.match(styles, /\.docked-capsule\s*\{[\s\S]*?backdrop-filter:\s*blur\(26px\)\s+saturate\(135%\)/);
