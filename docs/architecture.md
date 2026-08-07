@@ -12,4 +12,4 @@ apps/macOS/* ──────────┼─> packages/core + shared-types 
                        └─> backend/local-api (loopback only) + Windows health listener (8766)
 ```
 
-`apps/iOS` and `apps/watchOS` remain documentation boundaries until health-data privacy, consent, retention, and synchronization are designed separately. `apps/ios/WinPlateHealth` is deliberately independent from the backend: it reads HealthKit on iPhone and sends only the current overview to macOS over an encrypted nearby-device connection or to Windows through the narrow, token-protected health listener.
+`apps/iOS` and `apps/watchOS` remain documentation boundaries until health-data privacy, consent, retention, and synchronization are designed separately. `apps/iOS/WinPlateHealth` is deliberately independent from the backend: it reads HealthKit on iPhone and sends only the current overview to macOS over an encrypted nearby-device connection or to Windows through the narrow, token-protected health listener.
