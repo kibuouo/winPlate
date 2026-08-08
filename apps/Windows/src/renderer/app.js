@@ -96,30 +96,62 @@ function healthMetricTile({ title, value, unit, icon, tone }) {
     </div>`;
 }
 
+function normalizeHealthRateHistory(points) {
+  const bySampleTimestamp = new Map();
+  for (const point of Array.isArray(points) ? points : []) {
+    const sampleTimestamp = healthTimestamp(point?.sampleAt ?? point?.heartRateSampleAt);
+    const heartRate = Number(point?.heartRate ?? point?.value);
+    if (
+      !Number.isFinite(sampleTimestamp)
+      || !Number.isFinite(heartRate)
+      || heartRate < 0
+      || heartRate > 300
+    ) {
+      continue;
+    }
+    bySampleTimestamp.set(sampleTimestamp, {
+      sampleAt: new Date(sampleTimestamp).toISOString(),
+      heartRate
+    });
+  }
+  return [...bySampleTimestamp.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, point]) => point)
+    .slice(-2048);
+}
+
 function applyHealthSyncStatus(payload) {
   const incoming = payload && typeof payload === "object" ? payload : {};
   const state = ["live", "stale", "waiting", "error"].includes(incoming.state)
     ? incoming.state
     : "waiting";
+  const heartRateHistory = normalizeHealthRateHistory(incoming.heartRateHistory);
   healthSyncStatus = {
     ...incoming,
     state,
     snapshot: incoming.snapshot && typeof incoming.snapshot === "object" ? incoming.snapshot : null,
+    heartRateHistory,
     connectionUrls: Array.isArray(incoming.connectionUrls) ? incoming.connectionUrls : []
   };
   const snapshot = healthSyncStatus.snapshot;
+  const latestHistoryPoint = heartRateHistory.at(-1);
   const updatedAt = healthTimestamp(
     snapshot?.heartRateSampleAt
       || snapshot?.healthUpdatedAt
       || snapshot?.sentAt
+      || latestHistoryPoint?.sampleAt
       || healthSyncStatus.lastReceivedAt
   );
   statusData.heart = {
     ...mockStatus.heart,
-    heartRate: snapshot?.heartRate ?? null,
+    heartRate: snapshot?.heartRate ?? latestHistoryPoint?.heartRate ?? null,
     stepCount: snapshot?.stepCount ?? null,
     activeEnergy: snapshot?.activeEnergy ?? null,
-    source: snapshot ? `iPhone · ${snapshot.sender || "HealthKit"}` : mockStatus.heart.source,
+    source: snapshot
+      ? `iPhone · ${snapshot.sender || "HealthKit"}`
+      : latestHistoryPoint
+        ? "Windows 本地历史"
+        : mockStatus.heart.source,
     updatedAt,
     syncState: healthSyncStatus.state || "waiting"
   };
@@ -281,7 +313,7 @@ function persistDashboardCache() {
   return window.WinPlateDashboardCache.write(dashboardCachePayload());
 }
 
-let healthSyncStatus = { state: "waiting", snapshot: null, connectionUrls: [] };
+let healthSyncStatus = { state: "waiting", snapshot: null, heartRateHistory: [], connectionUrls: [] };
 let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
@@ -314,6 +346,7 @@ const emptyTokenUsage = () => ({
 let codexTokenUsage = emptyTokenUsage();
 let superGrokTokenUsage = emptyTokenUsage();
 const agentChartGranularity = { chatgpt: "hour", supergrok: "hour" };
+let healthChartRange = "day";
 let locationWeatherPromise = null;
 let weatherSettings = { hasApiKey: false, apiHost: "devapi.qweather.com" };
 let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" };
@@ -3231,10 +3264,196 @@ function healthDiagnosticsCard() {
     </section>`;
 }
 
+function healthHeartRateRange(range = healthChartRange) {
+  if (range === "week") {
+    return { key: "week", label: "7 天", windowMs: 7 * 24 * 60 * 60 * 1000 };
+  }
+  return { key: "day", label: "24 小时", windowMs: 24 * 60 * 60 * 1000 };
+}
+
+function healthHeartRateSamples(range = healthChartRange, nowTimestamp = Date.now()) {
+  const rangeConfig = healthHeartRateRange(range);
+  const nowMs = Number.isFinite(Number(nowTimestamp)) ? Number(nowTimestamp) : Date.now();
+  const start = nowMs - rangeConfig.windowMs;
+  return normalizeHealthRateHistory(healthSyncStatus.heartRateHistory)
+    .filter((point) => {
+      const timestamp = Date.parse(point.sampleAt);
+      return timestamp >= start && timestamp <= nowMs + 60 * 1000;
+    });
+}
+
+function healthHeartRateStats(samples) {
+  const values = (Array.isArray(samples) ? samples : [])
+    .map((point) => Number(point?.heartRate))
+    .filter((value) => Number.isFinite(value));
+  if (!values.length) return null;
+  return {
+    count: values.length,
+    average: values.reduce((sum, value) => sum + value, 0) / values.length,
+    minimum: Math.min(...values),
+    maximum: Math.max(...values)
+  };
+}
+
+function healthHeartRateAxisBounds(samples) {
+  const stats = healthHeartRateStats(samples);
+  if (!stats) return { minimum: 60, maximum: 100 };
+  let minimum = Math.max(0, Math.floor((stats.minimum - 10) / 10) * 10);
+  let maximum = Math.ceil((stats.maximum + 10) / 10) * 10;
+  if (maximum - minimum < 20) {
+    const midpoint = (minimum + maximum) / 2;
+    minimum = Math.max(0, Math.floor((midpoint - 10) / 10) * 10);
+    maximum = Math.ceil((midpoint + 10) / 10) * 10;
+  }
+  return { minimum, maximum };
+}
+
+function healthHeartRateAxisLabel(value, range) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  if (range === "week") return `${date.getMonth() + 1}/${date.getDate()}`;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function healthHeartRateChartPoints(
+  samples,
+  {
+    range = healthChartRange,
+    nowTimestamp = Date.now(),
+    plotOriginX = 42,
+    plotWidth = 514,
+    plotHeight = 132,
+    minimum = 60,
+    maximum = 100
+  } = {}
+) {
+  const rangeConfig = healthHeartRateRange(range);
+  const nowMs = Number.isFinite(Number(nowTimestamp)) ? Number(nowTimestamp) : Date.now();
+  const start = nowMs - rangeConfig.windowMs;
+  const valueRange = Math.max(1, maximum - minimum);
+  return (Array.isArray(samples) ? samples : []).map((sample) => {
+    const timestamp = Date.parse(sample.sampleAt);
+    const timeRatio = Math.min(1, Math.max(0, (timestamp - start) / rangeConfig.windowMs));
+    const value = Number(sample.heartRate);
+    const valueRatio = Math.min(1, Math.max(0, (value - minimum) / valueRange));
+    return {
+      x: plotOriginX + plotWidth * timeRatio,
+      y: plotHeight * (1 - valueRatio),
+      heartRate: value,
+      sampleAt: sample.sampleAt,
+      label: `${healthHeartRateAxisLabel(sample.sampleAt, range)} · ${healthMetric(value)} BPM`
+    };
+  });
+}
+
+function healthHeartRateChartSvg(samples, range = healthChartRange) {
+  const width = 560;
+  const chartHeight = 132;
+  const verticalAxisWidth = 42;
+  const horizontalInset = 4;
+  const bottomLabelSpace = 28;
+  const height = chartHeight + bottomLabelSpace;
+  const plotOriginX = verticalAxisWidth + horizontalInset;
+  const plotWidth = width - plotOriginX - horizontalInset;
+  const bounds = healthHeartRateAxisBounds(samples);
+  const points = healthHeartRateChartPoints(samples, {
+    range,
+    plotOriginX,
+    plotWidth,
+    plotHeight: chartHeight,
+    minimum: bounds.minimum,
+    maximum: bounds.maximum
+  });
+  if (!points.length) return "";
+
+  const polyline = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const firstPoint = points[0];
+  const lastPoint = points.at(-1);
+  const area = `M ${firstPoint.x.toFixed(1)} ${chartHeight} L ${polyline} L ${lastPoint.x.toFixed(1)} ${chartHeight} Z`;
+  const yTicks = [0, 0.5, 1].map((fraction) => ({
+    y: chartHeight * fraction,
+    value: bounds.maximum - (bounds.maximum - bounds.minimum) * fraction
+  }));
+  const rangeConfig = healthHeartRateRange(range);
+  const nowMs = Date.now();
+  const xLabels = [0, 0.5, 1].map((fraction) => ({
+    x: plotOriginX + plotWidth * fraction,
+    label: healthHeartRateAxisLabel(
+      new Date(nowMs - rangeConfig.windowMs + rangeConfig.windowMs * fraction),
+      range
+    )
+  }));
+  const payload = encodeURIComponent(JSON.stringify(points));
+
+  return `
+    <div class="health-heart-rate-chart" data-health-heart-rate-chart data-health-heart-rate-points="${escapeHtml(payload)}" data-health-chart-width="${width}" data-health-chart-plot-origin-x="${plotOriginX}" data-health-chart-plot-width="${plotWidth}">
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="心率趋势图" preserveAspectRatio="xMidYMid meet">
+        ${yTicks.map((tick, index) => `
+          <line x1="${plotOriginX}" y1="${tick.y.toFixed(1)}" x2="${plotOriginX + plotWidth}" y2="${tick.y.toFixed(1)}" class="health-heart-rate-grid ${index === yTicks.length - 1 ? "solid" : ""}"></line>
+          <text x="${(verticalAxisWidth / 2).toFixed(1)}" y="${(tick.y + 3).toFixed(1)}" class="health-heart-rate-y-label" text-anchor="middle">${healthMetric(Math.round(tick.value))}</text>
+        `).join("")}
+        <path d="${area}" class="health-heart-rate-area"></path>
+        <polyline fill="none" points="${polyline}" class="health-heart-rate-line"></polyline>
+        <circle cx="${lastPoint.x.toFixed(1)}" cy="${lastPoint.y.toFixed(1)}" r="3.5" class="health-heart-rate-last-point"></circle>
+        ${xLabels.map((item) => `
+          <text x="${item.x.toFixed(1)}" y="${(chartHeight + 18).toFixed(1)}" class="health-heart-rate-x-label" text-anchor="middle">${escapeHtml(item.label)}</text>
+        `).join("")}
+        <line class="health-heart-rate-hover-guide" x1="${plotOriginX}" y1="0" x2="${plotOriginX}" y2="${chartHeight}" visibility="hidden"></line>
+        <circle class="health-heart-rate-hover-dot" cx="${plotOriginX}" cy="0" r="4" visibility="hidden"></circle>
+      </svg>
+      <div class="health-heart-rate-hover-card" hidden>
+        <span data-health-heart-rate-hover-time></span>
+        <strong data-health-heart-rate-hover-value>-- BPM</strong>
+      </div>
+    </div>`;
+}
+
+function healthHeartRateCard() {
+  const range = healthHeartRateRange();
+  const history = normalizeHealthRateHistory(healthSyncStatus.heartRateHistory);
+  const samples = healthHeartRateSamples();
+  const stats = healthHeartRateStats(samples);
+  const emptyMessage = history.length
+    ? `${range.label}内暂无心率采样`
+    : "同步心率数据后，这里会显示最近的心率变化";
+  return `
+    <section class="health-panel health-heart-rate-panel">
+      <div class="health-panel-heading">
+        <div class="health-panel-title">
+          <span class="health-panel-icon health-panel-icon-pink" aria-hidden="true">♥</span>
+          <div class="health-panel-copy">
+            <h2>心率趋势</h2>
+            <p>来自 iPhone HealthKit 的本地心率采样</p>
+          </div>
+        </div>
+        <div class="health-chart-range" role="group" aria-label="心率统计范围">
+          ${["day", "week"].map((key) => `
+            <button type="button" data-health-chart-range="${key}" class="${healthChartRange === key ? "active" : ""}" aria-pressed="${healthChartRange === key}">${healthHeartRateRange(key).label}</button>
+          `).join("")}
+        </div>
+      </div>
+      ${stats
+        ? `<div class="health-heart-rate-summary" aria-label="心率统计摘要">
+            <div><strong>${healthMetric(stats.average)}</strong><span>平均 BPM</span></div>
+            <div><strong>${healthMetric(stats.maximum)}</strong><span>最高 BPM</span></div>
+            <div><strong>${healthMetric(stats.minimum)}</strong><span>最低 BPM</span></div>
+            <small>${stats.count} 次采样</small>
+          </div>
+          ${healthHeartRateChartSvg(samples)}
+          <p class="health-heart-rate-note">图表按心率采样时间绘制；同步快照不会重复计入同一条采样。</p>`
+        : `<div class="health-chart-empty">
+            <span class="health-empty-icon" aria-hidden="true">⌁</span>
+            <strong>${emptyMessage}</strong>
+            <p>保持 iPhone 上的 WinPlate Health 开启并允许健康数据读取。</p>
+          </div>`}
+    </section>`;
+}
+
 function healthDetailContent() {
-  return `<section class="health-page">
+  return `<section class="health-page" data-module-id="heart">
     ${modulePageHeader({ title: "健康", description: "从 iPhone WinPlate Health 接收 HealthKit 概览；通信配置位于设置 → 连接服务 → 健康。" })}
     ${healthSnapshotCard()}
+    ${healthHeartRateCard()}
     ${healthDiagnosticsCard()}
   </section>`;
 }
@@ -5075,6 +5294,72 @@ async function copyTextToClipboard(text) {
   textarea.remove();
 }
 
+function bindHealthHeartRateChartHover(chartRoot) {
+  if (!chartRoot || chartRoot.dataset.hoverBound === "true") return;
+  const payloadRaw = chartRoot.dataset.healthHeartRatePoints;
+  if (!payloadRaw) return;
+  const readPoints = () => {
+    try {
+      const points = JSON.parse(decodeURIComponent(chartRoot.dataset.healthHeartRatePoints || ""));
+      return Array.isArray(points) ? points : [];
+    } catch {
+      return [];
+    }
+  };
+  if (!readPoints().length) return;
+
+  const svg = chartRoot.querySelector("svg");
+  const guide = chartRoot.querySelector(".health-heart-rate-hover-guide");
+  const dot = chartRoot.querySelector(".health-heart-rate-hover-dot");
+  const card = chartRoot.querySelector(".health-heart-rate-hover-card");
+  const valueEl = chartRoot.querySelector("[data-health-heart-rate-hover-value]");
+  const timeEl = chartRoot.querySelector("[data-health-heart-rate-hover-time]");
+  if (!svg || !guide || !dot || !card || !valueEl || !timeEl) return;
+
+  const chartWidth = Number(chartRoot.dataset.healthChartWidth) || 560;
+  const nearestPoint = (clientX, points) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return points[0];
+    const x = ((clientX - rect.left) / rect.width) * chartWidth;
+    return points.reduce((nearest, point) => (
+      Math.abs(point.x - x) < Math.abs(nearest.x - x) ? point : nearest
+    ), points[0]);
+  };
+
+  const showPoint = (point) => {
+    if (!point) return;
+    guide.setAttribute("x1", String(point.x));
+    guide.setAttribute("x2", String(point.x));
+    guide.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", String(point.x));
+    dot.setAttribute("cy", String(point.y));
+    dot.setAttribute("visibility", "visible");
+    timeEl.textContent = point.label || "";
+    valueEl.textContent = `${healthMetric(point.heartRate)} BPM`;
+    card.hidden = false;
+    const rootRect = chartRoot.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const scaleX = svgRect.width / chartWidth;
+    const localX = point.x * scaleX;
+    const halfWidth = 82;
+    card.style.left = `${Math.min(Math.max(localX, halfWidth + 4), rootRect.width - halfWidth - 4)}px`;
+  };
+
+  const hidePoint = () => {
+    guide.setAttribute("visibility", "hidden");
+    dot.setAttribute("visibility", "hidden");
+    card.hidden = true;
+  };
+
+  chartRoot.dataset.hoverBound = "true";
+  chartRoot.addEventListener("pointermove", (event) => {
+    const points = readPoints();
+    if (points.length) showPoint(nearestPoint(event.clientX, points));
+  });
+  chartRoot.addEventListener("pointerleave", hidePoint);
+  chartRoot.addEventListener("pointercancel", hidePoint);
+}
+
 function bindHealthControls() {
   document.querySelectorAll("[data-copy-health-url]").forEach((button) => {
     button.onclick = async (event) => {
@@ -5098,6 +5383,17 @@ function bindHealthControls() {
       }
     };
   });
+  document.querySelectorAll("[data-health-chart-range]").forEach((button) => {
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const nextRange = button.dataset.healthChartRange;
+      if (!["day", "week"].includes(nextRange) || nextRange === healthChartRange) return;
+      healthChartRange = nextRange;
+      updateMainStatusDom("heart");
+    };
+  });
+  document.querySelectorAll("[data-health-heart-rate-chart]").forEach(bindHealthHeartRateChartHover);
 }
 
 async function openNotificationDetail(notificationId) {

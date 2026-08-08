@@ -14,6 +14,13 @@ Multiple addresses can appear when Windows has Wi-Fi, Ethernet, VPN, or
 virtual adapters; try another displayed address if the iPhone cannot connect.
 The setup URL includes a persistent per-installation pairing token.
 
+The Health detail page keeps a bounded, de-duplicated history of synchronized
+heart-rate samples in the Electron user-data directory. It retains up to seven
+days (and at most 2,048 points) of normalized sample time/value pairs, never
+the original HealthKit objects. The `心率趋势` card shows the last 24 hours or
+seven days with average, high, low, and hover details; the rest of the page
+continues to show the latest snapshot, freshness, and communication diagnostics.
+
 macOS is implemented independently in `apps/macOS/WinPlate` with SwiftUI and
 AppKit. This workspace must not import or package macOS client code.
 

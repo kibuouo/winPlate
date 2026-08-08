@@ -1,11 +1,16 @@
 const http = require("node:http");
 const os = require("node:os");
+const fs = require("node:fs/promises");
+const path = require("node:path");
 
 const HEALTH_SYNC_SCHEMA_VERSION = 2;
 const SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS = new Set([1, HEALTH_SYNC_SCHEMA_VERSION]);
 const DEFAULT_HEALTH_SYNC_PORT = 8766;
 const MAX_BODY_BYTES = 64 * 1024;
 const STALE_AFTER_MS = 2 * 60 * 1000;
+const HEART_RATE_HISTORY_FILE_NAME = "health-heart-rate-history.json";
+const HEART_RATE_HISTORY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_HEART_RATE_HISTORY_POINTS = 2048;
 
 function getLanIPv4Addresses(networkInterfaces = os.networkInterfaces()) {
   const addresses = [];
@@ -58,6 +63,58 @@ function optionalReason(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "string" || value.length > 64) throw new Error("reason is invalid");
   return value;
+}
+
+function normalizeHeartRateHistory(points, nowTimestamp = Date.now()) {
+  const nowMs = Number.isFinite(Number(nowTimestamp)) ? Number(nowTimestamp) : Date.now();
+  const cutoff = nowMs - HEART_RATE_HISTORY_WINDOW_MS;
+  const bySampleTimestamp = new Map();
+
+  for (const point of Array.isArray(points) ? points : []) {
+    const rawSampleAt = point?.sampleAt ?? point?.heartRateSampleAt;
+    let sampleAt;
+    try {
+      sampleAt = parseDate(rawSampleAt, "sampleAt");
+    } catch {
+      continue;
+    }
+    const sampleTimestamp = Date.parse(sampleAt);
+    const heartRate = Number(point?.heartRate ?? point?.value);
+    if (
+      !Number.isFinite(sampleTimestamp)
+      || sampleTimestamp < cutoff
+      || !Number.isFinite(heartRate)
+      || heartRate < 0
+      || heartRate > 300
+    ) {
+      continue;
+    }
+    bySampleTimestamp.set(sampleTimestamp, {
+      sampleAt: new Date(sampleTimestamp).toISOString(),
+      heartRate
+    });
+  }
+
+  return [...bySampleTimestamp.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, point]) => point)
+    .slice(-MAX_HEART_RATE_HISTORY_POINTS);
+}
+
+function mergeHeartRateHistory(history, snapshot, nowTimestamp = Date.now()) {
+  if (snapshot?.heartRate === null || snapshot?.heartRate === undefined) {
+    return normalizeHeartRateHistory(history, nowTimestamp);
+  }
+  return normalizeHeartRateHistory(
+    [
+      ...(Array.isArray(history) ? history : []),
+      {
+        sampleAt: snapshot.heartRateSampleAt || snapshot.healthUpdatedAt || snapshot.sentAt,
+        heartRate: snapshot.heartRate
+      }
+    ],
+    nowTimestamp
+  );
 }
 
 function metricFreshness(sampleAt, nowTimestamp, { freshMs, agingMs }) {
@@ -163,6 +220,7 @@ function createHealthSyncServer({
   token,
   networkInterfaces,
   now = () => Date.now(),
+  historyFilePath = null,
   onUpdate
 } = {}) {
   if (typeof token !== "string" || token.trim().length < 16) {
@@ -175,6 +233,37 @@ function createHealthSyncServer({
   let lastReceivedAt = null;
   let lastSnapshotId = null;
   let lastError = null;
+  let heartRateHistory = [];
+  let historyLoaded = false;
+  let historyWrite = Promise.resolve();
+
+  async function loadHeartRateHistory() {
+    if (historyLoaded) return;
+    historyLoaded = true;
+    if (!historyFilePath) return;
+
+    try {
+      const stored = JSON.parse(await fs.readFile(historyFilePath, "utf8"));
+      const points = Array.isArray(stored) ? stored : stored?.points || stored?.heartRateHistory;
+      heartRateHistory = normalizeHeartRateHistory(points, now());
+    } catch (error) {
+      if (error.code !== "ENOENT") heartRateHistory = [];
+    }
+  }
+
+  function persistHeartRateHistory() {
+    if (!historyFilePath) return;
+    const payload = JSON.stringify({
+      version: 1,
+      points: heartRateHistory
+    });
+    historyWrite = historyWrite
+      .catch(() => {})
+      .then(async () => {
+        await fs.mkdir(path.dirname(historyFilePath), { recursive: true });
+        await fs.writeFile(historyFilePath, payload, "utf8");
+      });
+  }
 
   function connectionUrls() {
     const availableInterfaces = typeof networkInterfaces === "function"
@@ -188,6 +277,11 @@ function createHealthSyncServer({
   }
 
   function getStatus() {
+    const normalizedHistory = normalizeHeartRateHistory(heartRateHistory, now());
+    if (normalizedHistory.length !== heartRateHistory.length) {
+      heartRateHistory = normalizedHistory;
+      persistHeartRateHistory();
+    }
     const state = lastError
       ? "error"
       : !snapshot
@@ -199,6 +293,7 @@ function createHealthSyncServer({
       lastReceivedAt,
       lastSnapshotId,
       freshness: buildMetricFreshness(snapshot, now()),
+      heartRateHistory: heartRateHistory.map((point) => ({ ...point })),
       error: lastError,
       snapshot,
       connectionUrls: connectionUrls()
@@ -278,6 +373,11 @@ function createHealthSyncServer({
         snapshot = payload;
         lastSnapshotId = payload.snapshotId;
         lastReceivedAt = new Date(now()).toISOString();
+        const nextHeartRateHistory = mergeHeartRateHistory(heartRateHistory, payload, now());
+        if (JSON.stringify(nextHeartRateHistory) !== JSON.stringify(heartRateHistory)) {
+          heartRateHistory = nextHeartRateHistory;
+          persistHeartRateHistory();
+        }
         jsonResponse(response, 200, { ok: true, receivedAt: lastReceivedAt });
         notify();
       } catch (error) {
@@ -293,6 +393,7 @@ function createHealthSyncServer({
 
   async function start() {
     if (server) return getStatus();
+    await loadHeartRateHistory();
     server = http.createServer((request, response) => {
       handleRequest(request, response).catch((error) => {
         lastError = error.message;
@@ -321,10 +422,12 @@ function createHealthSyncServer({
   }
 
   async function stop() {
-    if (!server) return;
-    const currentServer = server;
-    server = null;
-    await new Promise((resolve) => currentServer.close(() => resolve()));
+    if (server) {
+      const currentServer = server;
+      server = null;
+      await new Promise((resolve) => currentServer.close(() => resolve()));
+    }
+    await historyWrite.catch(() => {});
   }
 
   return {
@@ -337,11 +440,16 @@ function createHealthSyncServer({
 
 module.exports = {
   DEFAULT_HEALTH_SYNC_PORT,
+  HEART_RATE_HISTORY_FILE_NAME,
+  HEART_RATE_HISTORY_WINDOW_MS,
+  MAX_HEART_RATE_HISTORY_POINTS,
   HEALTH_SYNC_SCHEMA_VERSION,
   SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS,
   STALE_AFTER_MS,
   buildMetricFreshness,
   createHealthSyncServer,
   getLanIPv4Addresses,
+  mergeHeartRateHistory,
+  normalizeHeartRateHistory,
   normalizeHealthPayload
 };

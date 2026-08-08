@@ -41,7 +41,10 @@ const { startupPolicy } = require("./startupPolicy");
 const { createAppTray } = require("./tray");
 const { registerWindowsDesktopApp } = require("./desktopAppRegistration");
 const { startPythonService, stopPythonService } = require("./pythonService");
-const { createHealthSyncServer } = require("./healthSyncServer");
+const {
+  createHealthSyncServer,
+  HEART_RATE_HISTORY_FILE_NAME
+} = require("./healthSyncServer");
 const { loadOrCreateHealthSyncToken } = require("./healthSyncToken");
 const { readCodexUsage } = require("./codexUsage");
 const { readCodexTokenUsage } = require("./codexTokenUsage");
@@ -427,6 +430,7 @@ if (!gotLock) {
       const healthSyncToken = await loadOrCreateHealthSyncToken(userDataPath);
       healthSyncServer = createHealthSyncServer({
         token: healthSyncToken,
+        historyFilePath: path.join(userDataPath, HEART_RATE_HISTORY_FILE_NAME),
         onUpdate: broadcastHealthSyncUpdated
       });
       await healthSyncServer.start();
@@ -654,11 +658,12 @@ if (!gotLock) {
       );
     });
     ipcMain.handle("health-sync:get-status", () => healthSyncServer?.getStatus() || {
-      schemaVersion: 1,
+      schemaVersion: 2,
       state: "error",
       error: "Windows 健康接收服务未启动",
       snapshot: null,
       lastReceivedAt: null,
+      heartRateHistory: [],
       connectionUrls: []
     });
     ipcMain.handle("network:speed", () => readNetworkSpeed());

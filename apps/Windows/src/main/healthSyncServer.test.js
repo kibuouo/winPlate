@@ -1,13 +1,44 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
   createHealthSyncServer,
   getLanIPv4Addresses,
+  mergeHeartRateHistory,
+  normalizeHeartRateHistory,
   normalizeHealthPayload
 } = require("./healthSyncServer");
 
 const TOKEN = "test-health-sync-token-123456";
+
+test("deduplicates, sorts, and prunes local heart-rate history", () => {
+  const now = Date.parse("2026-08-08T00:00:00.000Z");
+  const history = normalizeHeartRateHistory([
+    { sampleAt: "2026-08-07T00:00:00.000Z", heartRate: 76 },
+    { sampleAt: "2026-08-07T01:00:00.000Z", heartRate: 82 },
+    { sampleAt: "2026-08-07T01:00:00.000Z", heartRate: 84 },
+    { sampleAt: "2026-07-30T00:00:00.000Z", heartRate: 60 }
+  ], now);
+
+  assert.deepEqual(history, [
+    { sampleAt: "2026-08-07T00:00:00.000Z", heartRate: 76 },
+    { sampleAt: "2026-08-07T01:00:00.000Z", heartRate: 84 }
+  ]);
+  assert.deepEqual(
+    mergeHeartRateHistory(history, {
+      heartRate: 88,
+      heartRateSampleAt: "2026-08-07T02:00:00.000Z"
+    }, now),
+    [
+      { sampleAt: "2026-08-07T00:00:00.000Z", heartRate: 76 },
+      { sampleAt: "2026-08-07T01:00:00.000Z", heartRate: 84 },
+      { sampleAt: "2026-08-07T02:00:00.000Z", heartRate: 88 }
+    ]
+  );
+});
 
 test("normalizes Swift health payload dates and metrics", () => {
   const sentAt = (Date.now() - 978307200000) / 1000;
@@ -100,6 +131,9 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
     assert.equal(accepted.status, 200);
     assert.equal(service.getStatus().snapshot.heartRate, 84);
     assert.equal(service.getStatus().lastSnapshotId, "snapshot-accepted");
+    assert.deepEqual(service.getStatus().heartRateHistory, [
+      { sampleAt: payload.heartRateSampleAt, heartRate: 84 }
+    ]);
     assert.equal(service.getStatus().freshness.heartRate.state, "fresh");
     assert.equal(service.getStatus().state, "live");
 
@@ -111,6 +145,21 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
     assert.equal(duplicate.status, 200);
     assert.equal((await duplicate.json()).duplicate, true);
 
+    const nextPayload = {
+      ...payload,
+      snapshotId: "snapshot-next",
+      sentAt: new Date(Date.now() + 1_000).toISOString(),
+      heartRate: 88,
+      heartRateSampleAt: new Date(Date.now() + 1_000).toISOString()
+    };
+    const next = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextPayload)
+    });
+    assert.equal(next.status, 200);
+    assert.equal(service.getStatus().heartRateHistory.length, 2);
+
     const rejected = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=wrong`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -119,5 +168,50 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
     assert.equal(rejected.status, 401);
   } finally {
     await service.stop();
+  }
+});
+
+test("persists heart-rate history across health sync server restarts", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "winplate-health-"));
+  const historyFilePath = path.join(directory, "health-heart-rate-history.json");
+  const create = () => createHealthSyncServer({
+    host: "127.0.0.1",
+    port: 0,
+    token: TOKEN,
+    historyFilePath,
+    networkInterfaces: { WiFi: [{ address: "192.168.1.20", family: "IPv4", internal: false }] }
+  });
+
+  let service = create();
+  await service.start();
+  const port = new URL(service.getStatus().connectionUrls[0]).port;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: 2,
+        snapshotId: "snapshot-persisted",
+        sender: "iPhone",
+        sentAt: new Date().toISOString(),
+        healthUpdatedAt: new Date().toISOString(),
+        permissionGranted: true,
+        heartRate: 79,
+        heartRateSampleAt: new Date().toISOString()
+      })
+    });
+    assert.equal(response.status, 200);
+  } finally {
+    await service.stop();
+  }
+
+  service = create();
+  await service.start();
+  try {
+    assert.deepEqual(service.getStatus().heartRateHistory.map((point) => point.heartRate), [79]);
+    assert.equal(JSON.parse(await fs.readFile(historyFilePath, "utf8")).points[0].heartRate, 79);
+  } finally {
+    await service.stop();
+    await fs.rm(directory, { recursive: true, force: true });
   }
 });

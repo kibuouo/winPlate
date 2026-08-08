@@ -388,7 +388,9 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(connectionSource, /data-copy-health-url/);
   assert.match(appSource, /id="settings-health" data-settings-service data-settings-service-label="健康"\s*>\s*\$\{healthConnectionCard\(\)\}/);
   assert.match(detailSource, /healthSnapshotCard\(\)/);
+  assert.match(detailSource, /healthHeartRateCard\(\)/);
   assert.match(detailSource, /healthDiagnosticsCard\(\)/);
+  assert.match(detailSource, /data-module-id="heart"/);
   assert.match(snapshotSource, /健康快照/);
   assert.match(diagnosticsSource, /通信诊断/);
   assert.match(diagnosticsSource, /健康权限/);
@@ -396,19 +398,28 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(appSource, /Heart: healthDetailContent\(\)/);
   assert.match(appSource, /if \(value === null \|\| value === undefined \|\| value === ""\) return "--"/);
   assert.match(appSource, /function healthStatusBadge\(status = healthSyncStatus\)/);
+  assert.match(appSource, /function healthHeartRateCard\(\)/);
+  assert.match(appSource, /data-health-chart-range/);
+  assert.match(appSource, /data-health-heart-rate-chart/);
   assert.match(styles, /\.health-metrics-grid\s*\{/);
   assert.match(styles, /\.health-empty-state\s*\{/);
   assert.match(styles, /\.health-diagnostic-row\s*\{/);
+  assert.match(styles, /\.health-heart-rate-chart\s*\{/);
+  assert.match(styles, /\.health-heart-rate-summary\s*\{/);
 });
 
 test("health display helpers preserve empty values and use Chinese sync labels", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const helperStart = appSource.indexOf("function healthTimestamp");
   const helperEnd = appSource.indexOf("function normalizeGithub", helperStart);
+  const statsStart = appSource.indexOf("function healthHeartRateStats");
+  const statsEnd = appSource.indexOf("function healthHeartRateAxisBounds", statsStart);
   const context = {};
   vm.runInNewContext(`${appSource.slice(helperStart, helperEnd)}
+    ${appSource.slice(statsStart, statsEnd)}
     this.healthMetric = healthMetric;
-    this.healthStateLabel = healthStateLabel;`, context);
+    this.healthStateLabel = healthStateLabel;
+    this.healthHeartRateStats = healthHeartRateStats;`, context);
 
   assert.equal(context.healthMetric(null), "--");
   assert.equal(context.healthMetric(undefined), "--");
@@ -417,6 +428,15 @@ test("health display helpers preserve empty values and use Chinese sync labels",
   assert.equal(context.healthStateLabel("waiting"), "等待 iPhone");
   assert.equal(context.healthStateLabel("live"), "已同步");
   assert.equal(context.healthStateLabel("stale"), "数据过期");
+  const stats = context.healthHeartRateStats([
+    { heartRate: 72 },
+    { heartRate: 84 },
+    { heartRate: 78 }
+  ]);
+  assert.equal(stats.count, 3);
+  assert.equal(stats.average, 78);
+  assert.equal(stats.minimum, 72);
+  assert.equal(stats.maximum, 84);
 });
 
 test("renderer CSP allows only the intended external image capability", () => {

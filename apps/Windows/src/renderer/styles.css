@@ -1159,6 +1159,35 @@ html[data-theme="light"] .main-body.platform-win32 .main-window-shell { --shell-
 .health-diagnostic-row span { color: var(--text-muted); }
 .health-diagnostic-row strong { overflow: hidden; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; font-weight: 600; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .health-diagnostic-error { margin: 16px 0 0; padding: 10px 12px; color: #f59e0b; border-radius: 10px; background: rgba(245, 158, 11, .1); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.health-chart-range { display: inline-flex; flex: 0 0 auto; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
+.health-chart-range button { padding: 5px 9px; color: var(--text-muted); border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.health-chart-range button:hover { color: var(--text); }
+.health-chart-range button.active { color: var(--text); background: var(--surface-card); box-shadow: 0 2px 8px var(--shadow); }
+.health-chart-range button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.health-heart-rate-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 14px; margin-top: 20px; }
+.health-heart-rate-summary > div { min-width: 0; display: grid; gap: 5px; }
+.health-heart-rate-summary strong { color: var(--text); font-size: 22px; line-height: 1; font-variant-numeric: tabular-nums; }
+.health-heart-rate-summary span { color: var(--text-muted); font-size: 11px; }
+.health-heart-rate-summary small { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+.health-heart-rate-chart { position: relative; min-width: 0; margin-top: 12px; touch-action: none; }
+.health-heart-rate-chart svg { display: block; width: 100%; height: auto; min-height: 156px; overflow: visible; }
+.health-heart-rate-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+.health-heart-rate-grid.solid { stroke-dasharray: none; stroke: var(--border-strong); }
+.health-heart-rate-y-label,
+.health-heart-rate-x-label { fill: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9px; }
+.health-heart-rate-area { fill: rgba(251, 113, 133, .12); }
+.health-heart-rate-line { stroke: #fb7185; stroke-opacity: .94; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+.health-heart-rate-last-point { fill: #fb7185; }
+.health-heart-rate-hover-guide { stroke: #fb7185; stroke-opacity: .45; stroke-dasharray: 3 3; }
+.health-heart-rate-hover-dot { fill: #fb7185; stroke: var(--surface-card); stroke-width: 2; }
+.health-heart-rate-hover-card { position: absolute; top: 8px; z-index: 1; display: grid; min-width: 132px; gap: 4px; padding: 8px 10px; transform: translateX(-50%); border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface-card); box-shadow: 0 10px 24px var(--shadow); pointer-events: none; }
+.health-heart-rate-hover-card[hidden] { display: none; }
+.health-heart-rate-hover-card span { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+.health-heart-rate-hover-card strong { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+.health-heart-rate-note { margin: 2px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.health-chart-empty { min-height: 190px; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 22px; text-align: center; }
+.health-chart-empty strong { color: var(--text); font-size: 13px; }
+.health-chart-empty p { max-width: 460px; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
 .dashboard-card { min-height: 220px; padding: 22px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-card); box-shadow: 0 18px 40px var(--shadow); }
 .dashboard-card:hover { border-color: var(--border-strong); transform: translateY(-2px); transition: 160ms ease; }
@@ -4275,6 +4304,8 @@ html[data-density="compact"] .settings-section { margin-top: 14px; }
   .health-panel-heading { flex-direction: column; }
   .health-connection-state { justify-items: start; grid-template-columns: auto auto; align-items: center; }
   .health-metrics-grid { grid-template-columns: 1fr; }
+  .health-heart-rate-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .health-heart-rate-summary small { grid-column: 1 / -1; }
   .health-pairing-url-row { grid-template-columns: 1fr; }
   .health-copy-button { justify-self: start; }
   .health-diagnostic-row { align-items: flex-start; flex-direction: column; gap: 4px; }
