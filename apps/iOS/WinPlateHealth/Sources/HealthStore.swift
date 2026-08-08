@@ -148,6 +148,10 @@ final class HealthStore: ObservableObject {
         await refresh(reason: .manual)
     }
 
+    func reconnectPeerIfNeeded() {
+        peerLink.restartIfNeeded()
+    }
+
     func refresh(reason: HealthRefreshReason) async {
         guard isHealthDataAvailable else {
             message = "当前设备不支持 Apple 健康数据。"

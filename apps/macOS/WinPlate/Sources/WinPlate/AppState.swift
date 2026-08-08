@@ -117,6 +117,11 @@ final class AppState: ObservableObject {
         isMainSidebarVisible.toggle()
     }
 
+    func reconnectHealthPeerIfNeeded() {
+        guard hasStarted else { return }
+        healthPeerLink.restartIfNeeded()
+    }
+
     func start() {
         guard !hasStarted else { return }
         hasStarted = true

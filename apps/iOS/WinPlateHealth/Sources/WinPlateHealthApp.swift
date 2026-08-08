@@ -19,11 +19,16 @@ final class WinPlateHealthAppDelegate: NSObject, UIApplicationDelegate {
 struct WinPlateHealthApp: App {
     @UIApplicationDelegateAdaptor(WinPlateHealthAppDelegate.self) private var appDelegate
     @StateObject private var healthStore = HealthStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             HealthDashboardView()
                 .environmentObject(healthStore)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            healthStore.reconnectPeerIfNeeded()
         }
     }
 }

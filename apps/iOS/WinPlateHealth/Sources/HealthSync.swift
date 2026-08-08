@@ -331,10 +331,19 @@ final class HealthPeerLink: NSObject, ObservableObject {
         publish(.idle)
     }
 
+    func restartIfNeeded() {
+        guard session.connectedPeers.isEmpty else { return }
+        if advertiser != nil || browser != nil {
+            stop()
+        }
+        start()
+    }
+
     func send(_ payload: HealthSyncPayload) {
         let peers = session.connectedPeers
         guard !peers.isEmpty else {
             publish(.searching)
+            restartIfNeeded()
             return
         }
 
@@ -422,6 +431,9 @@ extension HealthPeerLink: MCNearbyServiceAdvertiserDelegate {
         didNotStartAdvertisingPeer error: Error
     ) {
         publish(.error("无法广播健康服务：\(error.localizedDescription)"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.restartIfNeeded()
+        }
     }
 }
 
@@ -436,6 +448,7 @@ extension HealthPeerLink: MCNearbyServiceBrowserDelegate {
     }
 
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+        guard session.connectedPeers.isEmpty else { return }
         publish(.searching)
     }
 
@@ -444,5 +457,8 @@ extension HealthPeerLink: MCNearbyServiceBrowserDelegate {
         didNotStartBrowsingForPeers error: Error
     ) {
         publish(.error("无法搜索 iPhone 健康服务：\(error.localizedDescription)"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.restartIfNeeded()
+        }
     }
 }

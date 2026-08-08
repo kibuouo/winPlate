@@ -74,7 +74,12 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { activateMainWindow() }
+        state.reconnectHealthPeerIfNeeded()
         return true
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        state.reconnectHealthPeerIfNeeded()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
