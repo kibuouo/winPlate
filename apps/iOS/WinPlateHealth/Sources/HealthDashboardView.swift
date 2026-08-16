@@ -10,6 +10,7 @@ struct HealthDashboardView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
                     header
+                    desktopStatusSection
                     healthHeroCard
                     activitySection
                     connectionsSection
@@ -73,6 +74,75 @@ struct HealthDashboardView: View {
                 .frame(width: 48, height: 48)
                 .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                 .accessibilityHidden(true)
+        }
+    }
+
+    private var desktopStatusSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeading(title: "桌面状态", subtitle: desktopStatusSubtitle)
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: desktopWeatherSymbol)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .frame(width: 38, height: 38)
+                        .background(Color.orange.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(healthStore.desktopStatus.weather?.location ?? "等待桌面数据")
+                            .font(.subheadline.weight(.semibold))
+                        Text(healthStore.desktopStatus.weather?.condition ?? "打开 Mac 或 Windows 版 WinPlate 后同步")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Text(desktopTemperature)
+                        .font(.system(.title2, design: .rounded, weight: .bold))
+                }
+
+                Divider()
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8),
+                    ],
+                    spacing: 8
+                ) {
+                    DesktopQuotaCard(
+                        title: "Codex",
+                        value: quotaText(healthStore.desktopStatus.codex?.remainingPct),
+                        detail: healthStore.desktopStatus.codex?.resetText ?? "额度",
+                        tint: .blue
+                    )
+                    DesktopQuotaCard(
+                        title: "Grok",
+                        value: quotaText(healthStore.desktopStatus.superGrok?.remainingPct),
+                        detail: healthStore.desktopStatus.superGrok?.resetText ?? "额度",
+                        tint: .orange
+                    )
+                    DesktopQuotaCard(
+                        title: "DeepSeek",
+                        value: desktopBalanceText,
+                        detail: healthStore.desktopStatus.deepSeek?.status == "Normal" ? "余额" : "未配置",
+                        tint: .purple
+                    )
+                }
+
+                if let error = healthStore.desktopStatusError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
     }
 
@@ -269,7 +339,7 @@ struct HealthDashboardView: View {
                     Text("数据留在你的设备上")
                         .font(.headline)
 
-                    Text("WinPlate 只读取心率、步数和活动能量，不写入 HealthKit，也不上传到互联网。")
+                    Text("WinPlate 只读取心率、步数和活动能量；桌面状态通过本地连接同步，不写入 HealthKit，也不上传到互联网。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -362,6 +432,35 @@ struct HealthDashboardView: View {
     private var lastUpdatedText: String {
         guard let lastUpdated = healthStore.lastUpdated else { return "等待健康权限" }
         return "更新于 \(lastUpdated.formatted(.relative(presentation: .named)))"
+    }
+
+    private var desktopStatusSubtitle: String {
+        guard let date = healthStore.lastDesktopStatusAt else { return "等待 Mac / Windows" }
+        return "更新于 \(date.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var desktopTemperature: String {
+        guard let temperature = healthStore.desktopStatus.weather?.temperature else { return "--°" }
+        return "\(Int(temperature.rounded()))°"
+    }
+
+    private var desktopBalanceText: String {
+        guard let balance = healthStore.desktopStatus.deepSeek?.balance, !balance.isEmpty else { return "--" }
+        let currency = healthStore.desktopStatus.deepSeek?.currency?.uppercased() == "CNY" ? "¥" : ""
+        return "\(currency)\(balance)"
+    }
+
+    private var desktopWeatherSymbol: String {
+        let condition = healthStore.desktopStatus.weather?.condition ?? ""
+        if condition.localizedCaseInsensitiveContains("雨") { return "cloud.rain.fill" }
+        if condition.localizedCaseInsensitiveContains("雪") { return "cloud.snow.fill" }
+        if condition.localizedCaseInsensitiveContains("晴") { return "sun.max.fill" }
+        return healthStore.desktopStatus.weather?.temperature == nil ? "cloud.slash.fill" : "cloud.sun.fill"
+    }
+
+    private func quotaText(_ value: Double?) -> String {
+        guard let value else { return "--%" }
+        return "\(Int(value.rounded()))%"
     }
 
     private var macConnectionDetail: String {
@@ -475,6 +574,33 @@ private struct MetricCard: View {
         .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct DesktopQuotaCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.title3, design: .rounded, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

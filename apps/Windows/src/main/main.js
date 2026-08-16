@@ -662,9 +662,15 @@ if (!gotLock) {
       state: "error",
       error: "Windows 健康接收服务未启动",
       snapshot: null,
+      desktopStatus: null,
       lastReceivedAt: null,
       heartRateHistory: [],
       connectionUrls: []
+    });
+    ipcMain.handle("health-sync:publish-desktop-status", (event, payload) => {
+      requireMainWindowSender(event);
+      if (!healthSyncServer) throw new Error("Windows 健康接收服务未启动");
+      return healthSyncServer.setDesktopStatusSnapshot(payload);
     });
     ipcMain.handle("network:speed", () => readNetworkSpeed());
     ipcMain.handle("weather:refresh", async () => {

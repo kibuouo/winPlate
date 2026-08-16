@@ -26,6 +26,7 @@ struct HealthSyncPayload: Codable, Equatable {
     let stepCountSampleAt: Date?
     let activeEnergy: Double?
     let activeEnergySampleAt: Date?
+    let desktopStatus: DesktopStatusSnapshot?
 
     init(
         schemaVersion: Int = currentSchemaVersion,
@@ -40,7 +41,8 @@ struct HealthSyncPayload: Codable, Equatable {
         stepCount: Double?,
         stepCountSampleAt: Date? = nil,
         activeEnergy: Double?,
-        activeEnergySampleAt: Date? = nil
+        activeEnergySampleAt: Date? = nil,
+        desktopStatus: DesktopStatusSnapshot? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.snapshotId = snapshotId
@@ -55,6 +57,7 @@ struct HealthSyncPayload: Codable, Equatable {
         self.stepCountSampleAt = stepCountSampleAt
         self.activeEnergy = activeEnergy
         self.activeEnergySampleAt = activeEnergySampleAt
+        self.desktopStatus = desktopStatus
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -71,6 +74,7 @@ struct HealthSyncPayload: Codable, Equatable {
         case stepCountSampleAt
         case activeEnergy
         case activeEnergySampleAt
+        case desktopStatus
     }
 
     init(from decoder: Decoder) throws {
@@ -88,7 +92,84 @@ struct HealthSyncPayload: Codable, Equatable {
         stepCountSampleAt = try container.decodeIfPresent(Date.self, forKey: .stepCountSampleAt)
         activeEnergy = try container.decodeIfPresent(Double.self, forKey: .activeEnergy)
         activeEnergySampleAt = try container.decodeIfPresent(Date.self, forKey: .activeEnergySampleAt)
+        desktopStatus = try container.decodeIfPresent(DesktopStatusSnapshot.self, forKey: .desktopStatus)
     }
+}
+
+struct DesktopStatusSnapshot: Codable, Equatable {
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
+    let sender: String
+    let sentAt: String
+    let weather: DesktopWeatherSnapshot?
+    let codex: DesktopQuotaSnapshot?
+    let superGrok: DesktopQuotaSnapshot?
+    let deepSeek: DesktopBalanceSnapshot?
+
+    static let empty = DesktopStatusSnapshot(
+        sender: "",
+        sentAt: "",
+        weather: nil,
+        codex: nil,
+        superGrok: nil,
+        deepSeek: nil
+    )
+
+    init(
+        schemaVersion: Int = currentSchemaVersion,
+        sender: String,
+        sentAt: String,
+        weather: DesktopWeatherSnapshot?,
+        codex: DesktopQuotaSnapshot?,
+        superGrok: DesktopQuotaSnapshot?,
+        deepSeek: DesktopBalanceSnapshot?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sender = sender
+        self.sentAt = sentAt
+        self.weather = weather
+        self.codex = codex
+        self.superGrok = superGrok
+        self.deepSeek = deepSeek
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, sender, sentAt, weather, codex, superGrok, deepSeek
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? Self.currentSchemaVersion
+        sender = try container.decodeIfPresent(String.self, forKey: .sender) ?? ""
+        sentAt = try container.decodeIfPresent(String.self, forKey: .sentAt) ?? ""
+        weather = try container.decodeIfPresent(DesktopWeatherSnapshot.self, forKey: .weather)
+        codex = try container.decodeIfPresent(DesktopQuotaSnapshot.self, forKey: .codex)
+        superGrok = try container.decodeIfPresent(DesktopQuotaSnapshot.self, forKey: .superGrok)
+        deepSeek = try container.decodeIfPresent(DesktopBalanceSnapshot.self, forKey: .deepSeek)
+    }
+}
+
+struct DesktopWeatherSnapshot: Codable, Equatable {
+    let source: String
+    let location: String
+    let condition: String
+    let temperature: Double?
+    let feelsLike: Double?
+    let humidity: Int?
+    let icon: String?
+}
+
+struct DesktopQuotaSnapshot: Codable, Equatable {
+    let status: String
+    let remainingPct: Double?
+    let resetText: String?
+}
+
+struct DesktopBalanceSnapshot: Codable, Equatable {
+    let status: String
+    let currency: String?
+    let balance: String?
 }
 
 enum WindowsHealthSyncState: Equatable {
@@ -125,6 +206,10 @@ enum WindowsHealthSyncState: Equatable {
     }
 }
 
+private struct WindowsHealthStatusResponse: Decodable {
+    let desktopStatus: DesktopStatusSnapshot?
+}
+
 enum WindowsHealthLink {
     private static let endpointKey = "winplate.windowsHealthEndpoint"
 
@@ -155,6 +240,63 @@ enum WindowsHealthLink {
         guard let endpoint = normalizeEndpoint(value) else { return nil }
         UserDefaults.standard.set(endpoint, forKey: endpointKey)
         return endpoint
+    }
+
+    static func fetchDesktopStatus(from endpoint: String) async throws -> DesktopStatusSnapshot? {
+        guard var components = URLComponents(string: endpoint),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host?.isEmpty == false else {
+            throw URLError(.badURL)
+        }
+        components.path = "/api/health/status"
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.httpShouldHandleCookies = false
+
+        let configuration = URLSessionConfiguration.default
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 12
+        let session = URLSession(configuration: configuration)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            let host = url.host ?? "Windows"
+            let detail: String
+            switch error.code {
+            case .cannotConnectToHost, .networkConnectionLost, .timedOut, .notConnectedToInternet:
+                detail = "无法读取 \(host):\(url.port ?? 80) 的桌面状态，请确认 Windows 正在运行并允许局域网访问。"
+            default:
+                detail = "读取 \(host) 桌面状态失败：\(error.localizedDescription)"
+            }
+            throw NSError(
+                domain: "WinPlateWindowsStatus",
+                code: error.errorCode,
+                userInfo: [NSLocalizedDescriptionKey: detail]
+            )
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let detail = statusCode == 401
+                ? "Windows 配对令牌无效，请从 Windows 健康页重新复制地址。"
+                : "Windows 返回 HTTP \(statusCode)"
+            throw NSError(
+                domain: "WinPlateWindowsStatus",
+                code: statusCode,
+                userInfo: [NSLocalizedDescriptionKey: detail]
+            )
+        }
+
+        return try JSONDecoder().decode(WindowsHealthStatusResponse.self, from: data).desktopStatus
     }
 
     static func send(_ payload: HealthSyncPayload, to endpoint: String) async throws {

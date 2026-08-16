@@ -22,6 +22,44 @@ final class HealthSyncTests: XCTestCase {
         XCTAssertEqual(decoded, payload)
     }
 
+    func testDesktopStatusRoundTripsAcrossThePeerLink() throws {
+        let status = DesktopStatusSnapshot(
+            sender: "MacBook Pro",
+            sentAt: "2026-08-16T10:00:00Z",
+            weather: DesktopWeatherSnapshot(
+                source: "qweather",
+                location: "上海",
+                condition: "晴",
+                temperature: 28,
+                feelsLike: 30,
+                humidity: 65,
+                icon: "100"
+            ),
+            codex: DesktopQuotaSnapshot(status: "Normal", remainingPct: 84, resetText: "6d 20h"),
+            superGrok: DesktopQuotaSnapshot(status: "Unavailable", remainingPct: nil, resetText: nil),
+            deepSeek: DesktopBalanceSnapshot(status: "Normal", currency: "CNY", balance: "12.34")
+        )
+        let payload = HealthSyncPayload(
+            schemaVersion: HealthSyncPayload.currentSchemaVersion,
+            sender: "MacBook Pro",
+            sentAt: Date(timeIntervalSince1970: 1_755_000_000),
+            healthUpdatedAt: nil,
+            permissionGranted: false,
+            heartRate: nil,
+            stepCount: nil,
+            activeEnergy: nil,
+            desktopStatus: status
+        )
+
+        let decoded = try JSONDecoder().decode(
+            HealthSyncPayload.self,
+            from: JSONEncoder().encode(payload)
+        )
+
+        XCTAssertEqual(decoded, payload)
+        XCTAssertEqual(decoded.desktopStatus?.weather?.location, "上海")
+    }
+
     func testSearchingStateExplainsHowToReconnect() {
         let state = HealthPeerConnectionState.searching
 

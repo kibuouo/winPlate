@@ -22,6 +22,9 @@ final class HealthStore: ObservableObject {
     @Published private(set) var windowsEndpoint = WindowsHealthLink.savedEndpoint
     @Published private(set) var windowsSyncState: WindowsHealthSyncState = .notConfigured
     @Published private(set) var lastWindowsSyncSentAt: Date?
+    @Published private(set) var desktopStatus = DesktopStatusSnapshot.empty
+    @Published private(set) var lastDesktopStatusAt: Date?
+    @Published private(set) var desktopStatusError: String?
     @Published private(set) var lastHealthKitObserverWakeAt: Date?
     @Published private(set) var pendingWindowsSnapshotCount = 0
     @Published private(set) var isHealthKitBackgroundSyncEnabled = false
@@ -34,6 +37,7 @@ final class HealthStore: ObservableObject {
     private var lastStepCountSampleAt: Date?
     private var lastActiveEnergySampleAt: Date?
     private var syncTask: Task<Void, Never>?
+    private var desktopStatusTask: Task<Void, Never>?
 
     init() {
         peerLink = HealthPeerLink(
@@ -55,6 +59,12 @@ final class HealthStore: ObservableObject {
             DispatchQueue.main.async {
                 self?.lastSyncSentAt = date
                 self?.syncError = nil
+            }
+        }
+        peerLink.onPayload = { [weak self] payload in
+            guard let status = payload.desktopStatus else { return }
+            DispatchQueue.main.async {
+                self?.applyDesktopStatus(status)
             }
         }
 
@@ -86,6 +96,7 @@ final class HealthStore: ObservableObject {
         isHealthKitBackgroundSyncEnabled = backgroundCoordinator.isRunning
         if !windowsEndpoint.isEmpty {
             backgroundUploader.resumePending(to: windowsEndpoint)
+            startDesktopStatusPolling()
         }
 
         syncTask = Task { [weak self] in
@@ -99,6 +110,7 @@ final class HealthStore: ObservableObject {
 
     deinit {
         syncTask?.cancel()
+        desktopStatusTask?.cancel()
         peerLink.stop()
     }
 
@@ -195,6 +207,7 @@ final class HealthStore: ObservableObject {
             isLoading = false
         }
         sendCurrentSnapshot(reason: reason, heartRate: heartRate, steps: steps, energy: energy)
+        await pollDesktopStatus()
     }
 
     func saveWindowsEndpoint(_ value: String) async {
@@ -205,6 +218,36 @@ final class HealthStore: ObservableObject {
         windowsEndpoint = endpoint
         windowsSyncState = .sending
         await sendWindowsSnapshot(currentPayload(reason: .manual), to: endpoint)
+        startDesktopStatusPolling()
+        await pollDesktopStatus()
+    }
+
+    private func startDesktopStatusPolling() {
+        guard desktopStatusTask == nil else { return }
+        desktopStatusTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                await self?.pollDesktopStatus()
+            }
+        }
+    }
+
+    private func pollDesktopStatus() async {
+        guard !windowsEndpoint.isEmpty else { return }
+        do {
+            if let status = try await WindowsHealthLink.fetchDesktopStatus(from: windowsEndpoint) {
+                applyDesktopStatus(status)
+            }
+        } catch {
+            desktopStatusError = error.localizedDescription
+        }
+    }
+
+    private func applyDesktopStatus(_ status: DesktopStatusSnapshot) {
+        desktopStatus = status
+        lastDesktopStatusAt = ISO8601DateFormatter().date(from: status.sentAt) ?? Date()
+        desktopStatusError = nil
     }
 
     private func currentPayload(

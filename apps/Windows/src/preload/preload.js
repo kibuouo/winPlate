@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("winplate", {
   getGithubContributions: (range) => ipcRenderer.invoke("github:get-contributions", range),
   getStatus: (options = {}) => ipcRenderer.invoke("status:get", options),
   getHealthSyncStatus: () => ipcRenderer.invoke("health-sync:get-status"),
+  publishDesktopStatus: (payload) => ipcRenderer.invoke("health-sync:publish-desktop-status", payload),
   getNetworkSpeed: () => ipcRenderer.invoke("network:speed"),
   setWeatherLocation: (location) => ipcRenderer.invoke("weather:set-location", location),
   searchWeatherLocations: (query) => ipcRenderer.invoke("weather:search-locations", query),

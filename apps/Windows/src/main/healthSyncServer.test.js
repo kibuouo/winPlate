@@ -9,7 +9,8 @@ const {
   getLanIPv4Addresses,
   mergeHeartRateHistory,
   normalizeHeartRateHistory,
-  normalizeHealthPayload
+  normalizeHealthPayload,
+  normalizeDesktopStatusSnapshot
 } = require("./healthSyncServer");
 
 const TOKEN = "test-health-sync-token-123456";
@@ -93,6 +94,35 @@ test("filters internal and duplicate IPv4 addresses", () => {
     }),
     ["192.168.1.20"]
   );
+});
+
+test("normalizes and stores desktop status without sensitive configuration", () => {
+  const snapshot = normalizeDesktopStatusSnapshot({
+    schemaVersion: 1,
+    sender: "Windows WinPlate",
+    sentAt: new Date().toISOString(),
+    weather: {
+      source: "qweather",
+      location: "上海",
+      condition: "晴",
+      temperature: 28,
+      feelsLike: 30,
+      humidity: 65,
+      icon: "100"
+    },
+    codex: { status: "Normal", remainingPct: 84, resetText: "6d 20h" },
+    superGrok: { status: "Unavailable", remainingPct: null, resetText: null },
+    deepSeek: { status: "Normal", currency: "CNY", balance: "12.34" }
+  });
+
+  assert.equal(snapshot.weather.temperature, 28);
+  assert.equal(snapshot.codex.remainingPct, 84);
+  assert.equal(snapshot.deepSeek.balance, "12.34");
+  assert.equal(Object.hasOwn(snapshot, "apiKey"), false);
+
+  const service = createHealthSyncServer({ token: TOKEN });
+  service.setDesktopStatusSnapshot(snapshot);
+  assert.deepEqual(service.getStatus().desktopStatus, snapshot);
 });
 
 test("accepts authenticated health snapshots and rejects invalid tokens", async () => {

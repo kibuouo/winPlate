@@ -13,6 +13,81 @@ struct HealthSyncPayload: Codable, Equatable {
     let heartRate: Double?
     let stepCount: Double?
     let activeEnergy: Double?
+    let desktopStatus: DesktopStatusSnapshot?
+
+    init(
+        schemaVersion: Int,
+        sender: String,
+        sentAt: Date,
+        healthUpdatedAt: Date?,
+        permissionGranted: Bool,
+        heartRate: Double?,
+        stepCount: Double?,
+        activeEnergy: Double?,
+        desktopStatus: DesktopStatusSnapshot? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sender = sender
+        self.sentAt = sentAt
+        self.healthUpdatedAt = healthUpdatedAt
+        self.permissionGranted = permissionGranted
+        self.heartRate = heartRate
+        self.stepCount = stepCount
+        self.activeEnergy = activeEnergy
+        self.desktopStatus = desktopStatus
+    }
+}
+
+struct DesktopStatusSnapshot: Codable, Equatable {
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
+    let sender: String
+    let sentAt: String
+    let weather: DesktopWeatherSnapshot?
+    let codex: DesktopQuotaSnapshot?
+    let superGrok: DesktopQuotaSnapshot?
+    let deepSeek: DesktopBalanceSnapshot?
+
+    init(
+        schemaVersion: Int = currentSchemaVersion,
+        sender: String,
+        sentAt: String,
+        weather: DesktopWeatherSnapshot?,
+        codex: DesktopQuotaSnapshot?,
+        superGrok: DesktopQuotaSnapshot?,
+        deepSeek: DesktopBalanceSnapshot?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sender = sender
+        self.sentAt = sentAt
+        self.weather = weather
+        self.codex = codex
+        self.superGrok = superGrok
+        self.deepSeek = deepSeek
+    }
+}
+
+struct DesktopWeatherSnapshot: Codable, Equatable {
+    let source: String
+    let location: String
+    let condition: String
+    let temperature: Double?
+    let feelsLike: Double?
+    let humidity: Int?
+    let icon: String?
+}
+
+struct DesktopQuotaSnapshot: Codable, Equatable {
+    let status: String
+    let remainingPct: Double?
+    let resetText: String?
+}
+
+struct DesktopBalanceSnapshot: Codable, Equatable {
+    let status: String
+    let currency: String?
+    let balance: String?
 }
 
 extension HealthSyncPayload {

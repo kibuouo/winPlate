@@ -177,6 +177,60 @@ function normalizeHealthPayload(input) {
   };
 }
 
+function optionalStatusText(value, fieldName, maxLength = 256) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value !== "string" || value.length > maxLength) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return value.trim();
+}
+
+function normalizeDesktopStatusSnapshot(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("desktop status must be an object");
+  }
+  const schemaVersion = Number(input.schemaVersion);
+  if (schemaVersion !== 1) {
+    throw new Error(`unsupported desktop status schema version: ${input.schemaVersion}`);
+  }
+  const sender = optionalStatusText(input.sender, "sender");
+  const sentAt = parseDate(input.sentAt, "sentAt", { required: true });
+  const weather = input.weather && typeof input.weather === "object"
+    ? {
+        source: optionalStatusText(input.weather.source, "weather.source"),
+        location: optionalStatusText(input.weather.location, "weather.location"),
+        condition: optionalStatusText(input.weather.condition, "weather.condition"),
+        temperature: optionalNumber(input.weather.temperature, "weather.temperature", { minimum: -100, maximum: 100 }),
+        feelsLike: optionalNumber(input.weather.feelsLike, "weather.feelsLike", { minimum: -100, maximum: 100 }),
+        humidity: optionalNumber(input.weather.humidity, "weather.humidity", { maximum: 100 }),
+        icon: optionalStatusText(input.weather.icon, "weather.icon", 32)
+      }
+    : null;
+  const normalizeQuota = (value, fieldName) => value && typeof value === "object"
+    ? {
+        status: optionalStatusText(value.status, `${fieldName}.status`),
+        remainingPct: optionalNumber(value.remainingPct, `${fieldName}.remainingPct`, { maximum: 100 }),
+        resetText: optionalStatusText(value.resetText, `${fieldName}.resetText`, 128)
+      }
+    : null;
+  const deepSeek = input.deepSeek && typeof input.deepSeek === "object"
+    ? {
+        status: optionalStatusText(input.deepSeek.status, "deepSeek.status"),
+        currency: optionalStatusText(input.deepSeek.currency, "deepSeek.currency", 16),
+        balance: optionalStatusText(input.deepSeek.balance, "deepSeek.balance", 64)
+      }
+    : null;
+  return {
+    schemaVersion,
+    sender,
+    sentAt,
+    weather,
+    codex: normalizeQuota(input.codex, "codex"),
+    superGrok: normalizeQuota(input.superGrok, "superGrok"),
+    deepSeek
+  };
+}
+
 function jsonResponse(response, statusCode, payload) {
   const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
@@ -264,6 +318,7 @@ function createHealthSyncServer({
         await fs.writeFile(historyFilePath, payload, "utf8");
       });
   }
+  let desktopStatus = null;
 
   function connectionUrls() {
     const availableInterfaces = typeof networkInterfaces === "function"
@@ -296,12 +351,19 @@ function createHealthSyncServer({
       heartRateHistory: heartRateHistory.map((point) => ({ ...point })),
       error: lastError,
       snapshot,
+      desktopStatus,
       connectionUrls: connectionUrls()
     };
   }
 
   function notify() {
     onUpdate?.(getStatus());
+  }
+
+  function setDesktopStatusSnapshot(input) {
+    desktopStatus = normalizeDesktopStatusSnapshot(input);
+    notify();
+    return desktopStatus;
   }
 
   function authorized(url, request) {
@@ -434,7 +496,8 @@ function createHealthSyncServer({
     start,
     stop,
     getStatus,
-    normalizeHealthPayload
+    normalizeHealthPayload,
+    setDesktopStatusSnapshot
   };
 }
 
@@ -451,5 +514,6 @@ module.exports = {
   getLanIPv4Addresses,
   mergeHeartRateHistory,
   normalizeHeartRateHistory,
-  normalizeHealthPayload
+  normalizeHealthPayload,
+  normalizeDesktopStatusSnapshot
 };

@@ -157,6 +157,62 @@ function applyHealthSyncStatus(payload) {
   };
 }
 
+function buildDesktopStatusSnapshot() {
+  const optionalNumber = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+  const weather = statusData.weather || mockStatus.weather;
+  const codex = statusData.codex || mockStatus.codex;
+  const codexQuota = codex.windows?.sevenDay || codex;
+  const superGrok = statusData.supergrok || mockStatus.supergrok;
+  const deepSeek = statusData.deepseek || mockStatus.deepseek;
+  const balances = Array.isArray(deepSeek.balances) ? deepSeek.balances : [];
+  const balance = balances.find((item) => String(item?.currency || "").toUpperCase() === "CNY")
+    || balances[0]
+    || null;
+  return {
+    schemaVersion: 1,
+    sender: "Windows WinPlate",
+    sentAt: new Date().toISOString(),
+    weather: {
+      source: String(weather.source || "unavailable"),
+      location: String(weather.location || "--"),
+      condition: String(weather.condition || "不可用"),
+      temperature: optionalNumber(weather.temperature),
+      feelsLike: optionalNumber(weather.feelsLike),
+      humidity: optionalNumber(weather.humidity),
+      icon: weather.icon ? String(weather.icon) : null
+    },
+    codex: {
+      status: String(codex.status || "Unavailable"),
+      remainingPct: optionalNumber(codexQuota.remainingPct),
+      resetText: codexQuota.resetText || codex.resetClock || null
+    },
+    superGrok: {
+      status: String(superGrok.status || "Unavailable"),
+      remainingPct: optionalNumber(superGrok.remainingPct),
+      resetText: superGrok.resetText || superGrok.resetClock || null
+    },
+    deepSeek: {
+      status: String(deepSeek.status || "Unavailable"),
+      currency: balance?.currency ? String(balance.currency) : null,
+      balance: balance?.totalBalance == null ? null : String(balance.totalBalance)
+    }
+  };
+}
+
+function scheduleDesktopStatusPublish() {
+  if (!window.winplate?.publishDesktopStatus) return;
+  clearTimeout(desktopStatusPublishTimer);
+  desktopStatusPublishTimer = setTimeout(() => {
+    window.winplate.publishDesktopStatus(buildDesktopStatusSnapshot()).catch((error) => {
+      console.warn("Desktop status publish failed:", error.message);
+    });
+  }, 150);
+}
+
 function normalizeGithub(github = {}, fallback = mockStatus.github) {
   const definedEntries = (value) => Object.fromEntries(
     Object.entries(value || {}).filter(([, entry]) => entry !== undefined && entry !== null)
@@ -323,6 +379,7 @@ let currentSection = "Dashboard";
 let floatingPinned = false;
 let floatingDocked = false;
 let systemClockTimer = null;
+let desktopStatusPublishTimer = null;
 let tooltipHideTimer = null;
 let mainWindowMaximized = false;
 let sidebarCollapsed = false;
@@ -6062,6 +6119,7 @@ async function refreshBackendStatus({ force = false } = {}) {
   }
   await hydrateQWeatherUsage();
   updateCurrentViewDom(["weather", "heart"]);
+  scheduleDesktopStatusPublish();
   if (moduleEnabled("weather") && statusData.weather?.source === "unavailable") {
     throw new Error(statusData.weather.error || "天气服务不可用");
   }
@@ -6131,6 +6189,7 @@ async function refreshCodexData({ force = false } = {}) {
   };
   await refreshCodexTokenUsageData({ force });
   updateCurrentViewDom("codex");
+  scheduleDesktopStatusPublish();
   if (statusData.codex.status === "Unavailable") {
     throw new Error(statusData.codex.error || "Codex 用量不可用");
   }
@@ -6144,6 +6203,7 @@ async function refreshDeepSeekData({ force = false } = {}) {
     ...await window.winplate.getDeepSeekUsage({ force })
   };
   updateCurrentViewDom("codex");
+  scheduleDesktopStatusPublish();
   return statusData.deepseek;
 }
 
@@ -6156,6 +6216,7 @@ async function refreshSuperGrokData({ force = false } = {}) {
     };
     await refreshSuperGrokTokenUsageData({ force });
     updateCurrentViewDom("codex");
+    scheduleDesktopStatusPublish();
     return statusData.supergrok;
   }
   statusData.supergrok = {
@@ -6165,6 +6226,7 @@ async function refreshSuperGrokData({ force = false } = {}) {
   };
   await refreshSuperGrokTokenUsageData({ force });
   updateCurrentViewDom("codex");
+  scheduleDesktopStatusPublish();
   if (statusData.supergrok.status === "Unavailable") {
     throw new Error(statusData.supergrok.raw || "Grok Build 用量不可用");
   }
@@ -6262,6 +6324,7 @@ async function refreshStatus(options = {}) {
   } else {
     updateMainStatusDom();
   }
+  scheduleDesktopStatusPublish();
   return results;
 }
 
@@ -6449,6 +6512,7 @@ if (view !== "tooltip") {
       weatherUpdateVersion += 1;
       statusData.weather = { ...mockStatus.weather, ...statusData.weather, ...payload.weather };
       updateCurrentViewDom("weather");
+      scheduleDesktopStatusPublish();
       return;
     }
     refreshStatus().catch(() => {});

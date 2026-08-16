@@ -94,6 +94,9 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async {
                 self?.healthConnectionState = state
                 self?.healthSyncError = state.detail
+                if state.isConnected {
+                    self?.sendDesktopStatusSnapshot()
+                }
             }
         }
         healthPeerLink.onPayload = { [weak self] payload in
@@ -120,6 +123,53 @@ final class AppState: ObservableObject {
     func reconnectHealthPeerIfNeeded() {
         guard hasStarted else { return }
         healthPeerLink.restartIfNeeded()
+    }
+
+    private func sendDesktopStatusSnapshot() {
+        let formatter = ISO8601DateFormatter()
+        let balance = deepSeek.balances.first(where: {
+            $0.currency.uppercased() == "CNY"
+        }) ?? deepSeek.balances.first
+        let desktopStatus = DesktopStatusSnapshot(
+            sender: Host.current().localizedName ?? "WinPlate",
+            sentAt: formatter.string(from: Date()),
+            weather: DesktopWeatherSnapshot(
+                source: snapshot.weather.source,
+                location: snapshot.weather.location,
+                condition: snapshot.weather.condition,
+                temperature: snapshot.weather.temperature,
+                feelsLike: snapshot.weather.feelsLike,
+                humidity: snapshot.weather.humidity,
+                icon: snapshot.weather.icon
+            ),
+            codex: DesktopQuotaSnapshot(
+                status: codex.status,
+                remainingPct: codex.sevenDay?.remainingPct ?? codex.remainingPct,
+                resetText: codex.sevenDay?.resetText ?? codex.resetText
+            ),
+            superGrok: DesktopQuotaSnapshot(
+                status: superGrok.status,
+                remainingPct: superGrok.remainingPct,
+                resetText: superGrok.resetText
+            ),
+            deepSeek: DesktopBalanceSnapshot(
+                status: deepSeek.status,
+                currency: balance?.currency,
+                balance: balance?.totalBalance
+            )
+        )
+        let payload = HealthSyncPayload(
+            schemaVersion: HealthSyncPayload.currentSchemaVersion,
+            sender: Host.current().localizedName ?? "WinPlate",
+            sentAt: Date(),
+            healthUpdatedAt: nil,
+            permissionGranted: false,
+            heartRate: nil,
+            stepCount: nil,
+            activeEnergy: nil,
+            desktopStatus: desktopStatus
+        )
+        healthPeerLink.send(payload)
     }
 
     func start() {
@@ -499,6 +549,7 @@ final class AppState: ObservableObject {
                 ?? deepSeekUsage.error
                 ?? grokUsage.error
                 ?? weatherAlertError
+            sendDesktopStatusSnapshot()
         }
     }
 
@@ -515,6 +566,7 @@ final class AppState: ObservableObject {
                     await loadGitHubContributionDetail(month: monthKey)
                 }
             }
+            sendDesktopStatusSnapshot()
             lastError = result.error
             isRefreshingGitHub = false
         }
@@ -999,6 +1051,7 @@ final class AppState: ObservableObject {
                 if weather.isAvailable {
                     _ = await refreshWeatherAlerts()
                 }
+                sendDesktopStatusSnapshot()
             }
             weatherError = result.error
             lastError = result.error ?? weatherAlertError
