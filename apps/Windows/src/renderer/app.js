@@ -3426,10 +3426,15 @@ function healthHeartRateCard() {
             <p>来自 iPhone HealthKit 的本地心率采样</p>
           </div>
         </div>
-        <div class="health-chart-range" role="group" aria-label="心率统计范围">
-          ${["day", "week"].map((key) => `
-            <button type="button" data-health-chart-range="${key}" class="${healthChartRange === key ? "active" : ""}" aria-pressed="${healthChartRange === key}">${healthHeartRateRange(key).label}</button>
-          `).join("")}
+        <div class="health-panel-actions">
+          <div class="health-chart-range" role="group" aria-label="心率统计范围">
+            ${["day", "week"].map((key) => `
+              <button type="button" data-health-chart-range="${key}" class="${healthChartRange === key ? "active" : ""}" aria-pressed="${healthChartRange === key}">${healthHeartRateRange(key).label}</button>
+            `).join("")}
+          </div>
+          ${stats
+            ? `<button type="button" class="health-copy-button" data-health-export-csv="${healthChartRange}" aria-label="导出当前范围的心率 CSV">导出 CSV</button>`
+            : ""}
         </div>
       </div>
       ${stats
@@ -5391,6 +5396,30 @@ function bindHealthControls() {
       if (!["day", "week"].includes(nextRange) || nextRange === healthChartRange) return;
       healthChartRange = nextRange;
       updateMainStatusDom("heart");
+    };
+  });
+  document.querySelectorAll("[data-health-export-csv]").forEach((button) => {
+    button.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      const exportApi = window.WinPlateHealthHeartRateExport;
+      if (!exportApi) return;
+      const rangeKey = button.dataset.healthExportCsv || healthChartRange;
+      const range = healthHeartRateRange(rangeKey);
+      const samples = healthHeartRateSamples(rangeKey);
+      if (!samples.length) return;
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      const exported = exportApi.downloadTextFile({
+        content: exportApi.buildHeartRateCsv(samples, { rangeLabel: range.label }),
+        filename: exportApi.buildHeartRateExportFilename(rangeKey)
+      });
+      button.textContent = exported ? "已导出" : "导出失败";
+      window.setTimeout(() => {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }, 1600);
     };
   });
   document.querySelectorAll("[data-health-heart-rate-chart]").forEach(bindHealthHeartRateChartHover);

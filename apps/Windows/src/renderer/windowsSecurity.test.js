@@ -400,6 +400,8 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(appSource, /function healthStatusBadge\(status = healthSyncStatus\)/);
   assert.match(appSource, /function healthHeartRateCard\(\)/);
   assert.match(appSource, /data-health-chart-range/);
+  assert.match(appSource, /data-health-export-csv/);
+  assert.match(appSource, /WinPlateHealthHeartRateExport/);
   assert.match(appSource, /data-health-heart-rate-chart/);
   assert.match(styles, /\.health-metrics-grid\s*\{/);
   assert.match(styles, /\.health-empty-state\s*\{/);
