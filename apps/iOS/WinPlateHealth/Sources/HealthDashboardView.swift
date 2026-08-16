@@ -8,14 +8,12 @@ struct HealthDashboardView: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 16) {
                     header
                     desktopStatusSection
-                    healthHeroCard
-                    activitySection
+                    healthOverviewSection
                     connectionsSection
-                    backgroundSyncCard
-                    privacyCard
+                    systemPrivacyCard
 
                     if !healthStore.isHealthDataAvailable {
                         unavailableCard
@@ -78,8 +76,13 @@ struct HealthDashboardView: View {
     }
 
     private var desktopStatusSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeading(title: "桌面状态", subtitle: desktopStatusSubtitle)
+        VStack(alignment: .leading, spacing: 14) {
+            DashboardModuleHeader(
+                icon: "desktopcomputer",
+                tint: .indigo,
+                title: "桌面状态",
+                subtitle: desktopStatusSubtitle
+            )
 
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 12) {
@@ -139,87 +142,23 @@ struct HealthDashboardView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
-    }
-
-    private var healthHeroCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center) {
-                Label("今日状态", systemImage: "waveform.path.ecg")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-
-                Spacer()
-
-                StatusPill(
-                    title: healthStore.lastUpdated == nil ? "等待数据" : "数据已更新",
-                    color: healthStore.lastUpdated == nil ? .white.opacity(0.55) : .green,
-                    isOnDark: true
-                )
-            }
-
-            Text("最近心率")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.65))
-                .padding(.top, 28)
-
-            HStack(alignment: .lastTextBaseline, spacing: 8) {
-                Text(HealthFormatting.heartRate(healthStore.latestHeartRate))
-                    .font(.system(size: 64, weight: .bold, design: .rounded))
-                    .contentTransition(.numericText())
-                    .minimumScaleFactor(0.7)
-
-                Text("BPM")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.65))
-            }
-            .foregroundStyle(.white)
-
-            Text("显示 Apple 健康中的最近一次心率记录。")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.65))
-                .padding(.top, 2)
-
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.shield.fill")
-                Text(lastUpdatedText)
-            }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.72))
-            .padding(.top, 24)
-        }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            ZStack(alignment: .bottomTrailing) {
-                LinearGradient(
-                    colors: [Color(red: 0.12, green: 0.09, blue: 0.18), Color(red: 0.34, green: 0.12, blue: 0.25)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                Circle()
-                    .fill(Color.pink.opacity(0.35))
-                    .frame(width: 160, height: 160)
-                    .blur(radius: 12)
-                    .offset(x: 42, y: 50)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        }
-        .shadow(color: .pink.opacity(0.14), radius: 20, y: 12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private var activitySection: some View {
+    private var healthOverviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeading(title: "今天的活动", subtitle: "来自 Apple 健康")
+            DashboardModuleHeader(
+                icon: "heart.fill",
+                tint: .pink,
+                title: "健康数据",
+                subtitle: "Apple 健康"
+            )
+
+            healthHeroCard
 
             LazyVGrid(
                 columns: [
@@ -247,9 +186,76 @@ struct HealthDashboardView: View {
         }
     }
 
+    private var healthHeroCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                Label("最近心率", systemImage: "waveform.path.ecg")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+
+                Spacer()
+
+                StatusPill(
+                    title: healthStore.lastUpdated == nil ? "等待数据" : "数据已更新",
+                    color: healthStore.lastUpdated == nil ? .white.opacity(0.55) : .green,
+                    isOnDark: true
+                )
+            }
+
+            HStack(alignment: .lastTextBaseline, spacing: 8) {
+                Text(HealthFormatting.heartRate(healthStore.latestHeartRate))
+                    .font(.system(size: 60, weight: .bold, design: .rounded))
+                    .contentTransition(.numericText())
+                    .minimumScaleFactor(0.7)
+
+                Text("BPM")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            .foregroundStyle(.white)
+            .padding(.top, 22)
+
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.shield.fill")
+                Text(lastUpdatedText)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white.opacity(0.72))
+            .padding(.top, 16)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            ZStack(alignment: .bottomTrailing) {
+                LinearGradient(
+                    colors: [Color(red: 0.12, green: 0.09, blue: 0.18), Color(red: 0.34, green: 0.12, blue: 0.25)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Circle()
+                    .fill(Color.pink.opacity(0.35))
+                    .frame(width: 150, height: 150)
+                    .blur(radius: 12)
+                    .offset(x: 42, y: 50)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .pink.opacity(0.12), radius: 16, y: 8)
+    }
+
     private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeading(title: "连接设备", subtitle: "只在本地传输当前概览")
+            DashboardModuleHeader(
+                icon: "arrow.triangle.2.circlepath",
+                tint: .teal,
+                title: "设备连接",
+                subtitle: "本地传输"
+            )
 
             VStack(spacing: 0) {
                 DeviceConnectionRow(
@@ -287,10 +293,10 @@ struct HealthDashboardView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .padding(.vertical, 4)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var windowsSetup: some View {
@@ -326,8 +332,8 @@ struct HealthDashboardView: View {
         .padding(.bottom, 14)
     }
 
-    private var privacyCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var systemPrivacyCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "lock.shield.fill")
                     .font(.title3)
@@ -336,14 +342,35 @@ struct HealthDashboardView: View {
                     .background(Color.pink.opacity(0.12), in: Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("数据留在你的设备上")
+                    Text("系统与隐私")
                         .font(.headline)
 
-                    Text("WinPlate 只读取心率、步数和活动能量；桌面状态通过本地连接同步，不写入 HealthKit，也不上传到互联网。")
+                    Text("iOS 按需唤醒后台同步；数据只在本机处理。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                diagnosticRow(
+                    title: "后台通知",
+                    value: healthStore.isHealthKitBackgroundSyncEnabled ? "已注册" : "未注册"
+                )
+                diagnosticRow(
+                    title: "最近唤醒",
+                    value: healthStore.lastHealthKitObserverWakeAt?.formatted(date: .omitted, time: .shortened) ?? "尚未唤醒"
+                )
+                diagnosticRow(
+                    title: "待发送快照",
+                    value: "\(healthStore.pendingWindowsSnapshotCount) 条"
+                )
+            }
+
+            Text("系统会在 HealthKit 有新数据时尽量唤醒；强制关闭 App 后不保证恢复。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Button {
                 Task { await healthStore.requestAccess() }
@@ -367,34 +394,6 @@ struct HealthDashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var backgroundSyncCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeading(title: "后台同步", subtitle: "由 iOS 系统调度")
-
-            VStack(alignment: .leading, spacing: 8) {
-                diagnosticRow(
-                    title: "HealthKit 后台通知",
-                    value: healthStore.isHealthKitBackgroundSyncEnabled ? "已注册" : "未注册"
-                )
-                diagnosticRow(
-                    title: "最近唤醒",
-                    value: healthStore.lastHealthKitObserverWakeAt?.formatted(date: .omitted, time: .shortened) ?? "尚未唤醒"
-                )
-                diagnosticRow(
-                    title: "待发送快照",
-                    value: "\(healthStore.pendingWindowsSnapshotCount) 条"
-                )
-                Text("后台同步不是固定 30 秒轮询；系统会在 HealthKit 有新数据时尽量唤醒应用。强制关闭 App 后不保证恢复。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
     }
 
     private func diagnosticRow(title: String, value: String) -> some View {
@@ -501,20 +500,29 @@ struct HealthDashboardView: View {
     }
 }
 
-private struct SectionHeading: View {
+private struct DashboardModuleHeader: View {
+    let icon: String
+    let tint: Color
     let title: String
     let subtitle: String
 
     var body: some View {
-        HStack(alignment: .lastTextBaseline) {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
             Text(title)
-                .font(.title3.weight(.bold))
+                .font(.headline.weight(.semibold))
 
             Spacer()
 
             Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 }
