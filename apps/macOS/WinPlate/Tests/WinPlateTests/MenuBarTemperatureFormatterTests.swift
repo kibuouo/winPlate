@@ -608,6 +608,46 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertEqual(under.remainingPct, 100)
     }
 
+    func testGrokBillingTreatsFreshPeriodWithoutUsageAsZeroUsed() {
+        let usage = ProcessGrokUsageReader.parseBilling("""
+        {
+          "config": {
+            "historyLen": 0,
+            "currentPeriod": {
+              "start": "2026-08-11T04:55:52.954563+00:00",
+              "end": "2099-08-18T04:55:52.954563+00:00"
+            }
+          }
+        }
+        """.data(using: .utf8)!)
+
+        XCTAssertEqual(usage.status, "Normal")
+        XCTAssertEqual(usage.remainingPct, 100)
+        XCTAssertNotNil(usage.resetText)
+    }
+
+    func testGrokBillingFallsBackToLatestCLILog() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("winplate-grok-log-\\(UUID().uuidString)", isDirectory: true)
+        let logDirectory = root.appendingPathComponent(".grok/logs", isDirectory: true)
+        try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let line = """
+        {"ts":"2099-08-16T00:00:00Z","msg":"billing: fetched credits config","ctx":{"config":{"historyLen":0,"currentPeriod":{"end":"2099-08-18T00:00:00Z"}},"subscriptionTier":"SuperGrok"}}
+        """
+        try line.data(using: .utf8)!.write(to: logDirectory.appendingPathComponent("unified.jsonl"))
+
+        let usage = ProcessGrokUsageReader.readUsageFromGrokLogs(
+            home: root,
+            now: Date(timeIntervalSince1970: 4_084_560_000)
+        )
+
+        XCTAssertEqual(usage?.status, "Normal")
+        XCTAssertEqual(usage?.remainingPct, 100)
+        XCTAssertEqual(usage?.source, "grok-cli-log")
+    }
+
     func testAgentUsageItemsMapChatGPTFromCodexAndSuperGrokRemaining() {
         let codex = UsageSnapshot(
             source: "codex-app-server",

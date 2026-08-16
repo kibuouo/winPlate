@@ -875,12 +875,14 @@ enum GrokTokenUsageReader {
 
 /// Reads SuperGrok quota using the same local login as Grok CLI.
 /// Upstream `creditUsagePercent` is **used**; we invert to **remaining** for UI parity with Codex.
+/// A fresh billing period may omit `creditUsagePercent` while reporting `historyLen: 0`;
+/// that shape means zero usage and therefore 100% remaining.
 enum ProcessGrokUsageReader {
     static let source = "grok-cli"
     static let billingURL = URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!
 
     static func read() async -> UsageSnapshot {
-        await withTaskGroup(of: UsageSnapshot.self) { group in
+        let live = await withTaskGroup(of: UsageSnapshot.self) { group in
             group.addTask { await query() }
             group.addTask {
                 try? await Task.sleep(for: .seconds(8))
@@ -890,6 +892,15 @@ enum ProcessGrokUsageReader {
             group.cancelAll()
             return first
         }
+        if live.isAvailable { return live }
+
+        // Grok CLI records the last successful billing response locally. This keeps
+        // the dashboard useful during a transient proxy/DNS outage and matches the
+        // fallback already used by the Windows client.
+        if let fromLog = readUsageFromGrokLogs(), fromLog.isAvailable {
+            return fromLog
+        }
+        return live
     }
 
     private static func query() async -> UsageSnapshot {
@@ -941,10 +952,47 @@ enum ProcessGrokUsageReader {
             return .unavailable(source: source)
         }
         let config = (root["config"] as? [String: Any]) ?? root
+        return parseBillingConfig(config)
+    }
+
+    static func readUsageFromGrokLogs(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        now: Date = Date()
+    ) -> UsageSnapshot? {
+        let path = home.appendingPathComponent(".grok/logs/unified.jsonl")
+        guard let text = try? String(contentsOf: path, encoding: .utf8) else { return nil }
+
+        for line in text.split(whereSeparator: \.isNewline).reversed() {
+            guard line.contains("billing: fetched credits config"),
+                  let data = String(line).data(using: .utf8),
+                  let entry = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let context = entry["ctx"] as? [String: Any],
+                  let config = context["config"] as? [String: Any]
+            else { continue }
+
+            if let timestamp = entry["ts"] as? String,
+               let loggedAt = parseISODate(timestamp),
+               now.timeIntervalSince(loggedAt) > 7 * 24 * 60 * 60 {
+                return .unavailable(source: "grok-cli-log")
+            }
+
+            return parseBillingConfig(
+                config,
+                sourceName: "grok-cli-log"
+            )
+        }
+        return nil
+    }
+
+    private static func parseBillingConfig(
+        _ config: [String: Any],
+        sourceName: String = source
+    ) -> UsageSnapshot {
         let rawUsed = config["creditUsagePercent"] as? Double
             ?? (config["creditUsagePercent"] as? Int).map(Double.init)
+            ?? ((config["historyLen"] as? Int) == 0 ? 0 : nil)
         guard let rawUsed else {
-            return .unavailable(source: source)
+            return .unavailable(source: sourceName)
         }
         let used = max(0, min(100, rawUsed))
         let remaining = max(0, min(100, 100 - used))
@@ -953,7 +1001,7 @@ enum ProcessGrokUsageReader {
                 ?? (config["currentPeriod"] as? [String: Any])?["end"] as? String
         )
         return UsageSnapshot(
-            source: source,
+            source: sourceName,
             status: "Normal",
             remainingPct: remaining,
             resetText: resetText,
