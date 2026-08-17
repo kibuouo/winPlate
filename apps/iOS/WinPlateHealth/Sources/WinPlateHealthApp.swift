@@ -18,9 +18,9 @@ final class WinPlateHealthAppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct WinPlateHealthApp: App {
     @UIApplicationDelegateAdaptor(WinPlateHealthAppDelegate.self) private var appDelegate
-    @StateObject private var healthStore = HealthStore()
-    @State private var isShowingLaunchTransition = true
-    @State private var hasStartedLaunchTransition = false
+    @ObservedObject private var healthStore = HealthStore.shared
+    @State private var isShowingLaunchTransition = !HealthOverviewCache.hasCachedOverview
+    @State private var hasStartedLaunchTransition = HealthOverviewCache.hasCachedOverview
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -48,8 +48,15 @@ struct WinPlateHealthApp: App {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            healthStore.reconnectPeerIfNeeded()
+            switch phase {
+            case .active:
+                healthStore.restoreIfNeeded()
+                healthStore.reconnectPeerIfNeeded()
+            case .inactive, .background:
+                healthStore.persistForBackground()
+            @unknown default:
+                break
+            }
         }
     }
 }

@@ -196,15 +196,30 @@ struct DesktopStatusSnapshot: Codable, Equatable {
     let sender: String
     let sentAt: String
     let weather: DesktopWeatherSnapshot?
+    let github: DesktopGitHubSnapshot?
+    let mail: DesktopMailSnapshot?
     let codex: DesktopQuotaSnapshot?
     let superGrok: DesktopQuotaSnapshot?
     let deepSeek: DesktopBalanceSnapshot?
+
+    static let empty = DesktopStatusSnapshot(
+        sender: "",
+        sentAt: "",
+        weather: nil,
+        github: nil,
+        mail: nil,
+        codex: nil,
+        superGrok: nil,
+        deepSeek: nil
+    )
 
     init(
         schemaVersion: Int = currentSchemaVersion,
         sender: String,
         sentAt: String,
         weather: DesktopWeatherSnapshot?,
+        github: DesktopGitHubSnapshot? = nil,
+        mail: DesktopMailSnapshot? = nil,
         codex: DesktopQuotaSnapshot?,
         superGrok: DesktopQuotaSnapshot?,
         deepSeek: DesktopBalanceSnapshot?
@@ -213,9 +228,61 @@ struct DesktopStatusSnapshot: Codable, Equatable {
         self.sender = sender
         self.sentAt = sentAt
         self.weather = weather
+        self.github = github
+        self.mail = mail
         self.codex = codex
         self.superGrok = superGrok
         self.deepSeek = deepSeek
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, sender, sentAt, weather, github, mail, codex, superGrok, deepSeek
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? Self.currentSchemaVersion
+        sender = try container.decodeIfPresent(String.self, forKey: .sender) ?? ""
+        sentAt = try container.decodeIfPresent(String.self, forKey: .sentAt) ?? ""
+        weather = try container.decodeIfPresent(DesktopWeatherSnapshot.self, forKey: .weather)
+        github = try container.decodeIfPresent(DesktopGitHubSnapshot.self, forKey: .github)
+        mail = try container.decodeIfPresent(DesktopMailSnapshot.self, forKey: .mail)
+        codex = try container.decodeIfPresent(DesktopQuotaSnapshot.self, forKey: .codex)
+        superGrok = try container.decodeIfPresent(DesktopQuotaSnapshot.self, forKey: .superGrok)
+        deepSeek = try container.decodeIfPresent(DesktopBalanceSnapshot.self, forKey: .deepSeek)
+    }
+
+    var hasUsefulData: Bool {
+        !sender.isEmpty
+            || weather?.hasContent == true
+            || github?.hasContent == true
+            || mail != nil
+            || codex != nil
+            || superGrok != nil
+            || deepSeek != nil
+    }
+
+    static func merging(_ incoming: DesktopStatusSnapshot?, onto existing: DesktopStatusSnapshot?) -> DesktopStatusSnapshot {
+        switch (incoming, existing) {
+        case (nil, nil):
+            return .empty
+        case (let incoming?, nil):
+            return incoming
+        case (nil, let existing?):
+            return existing
+        case (let incoming?, let existing?):
+            return DesktopStatusSnapshot(
+                schemaVersion: incoming.schemaVersion,
+                sender: incoming.sender.isEmpty ? existing.sender : incoming.sender,
+                sentAt: incoming.sentAt.isEmpty ? existing.sentAt : incoming.sentAt,
+                weather: DesktopWeatherSnapshot.preferred(incoming.weather, existing: existing.weather),
+                github: DesktopGitHubSnapshot.preferred(incoming.github, existing: existing.github),
+                mail: DesktopMailSnapshot.preferred(incoming.mail, existing: existing.mail),
+                codex: incoming.codex ?? existing.codex,
+                superGrok: incoming.superGrok ?? existing.superGrok,
+                deepSeek: incoming.deepSeek ?? existing.deepSeek
+            )
+        }
     }
 }
 
@@ -227,6 +294,147 @@ struct DesktopWeatherSnapshot: Codable, Equatable {
     let feelsLike: Double?
     let humidity: Int?
     let icon: String?
+    let alerts: [DesktopWeatherAlert]
+
+    init(
+        source: String,
+        location: String,
+        condition: String,
+        temperature: Double?,
+        feelsLike: Double?,
+        humidity: Int?,
+        icon: String?,
+        alerts: [DesktopWeatherAlert] = []
+    ) {
+        self.source = source
+        self.location = location
+        self.condition = condition
+        self.temperature = temperature
+        self.feelsLike = feelsLike
+        self.humidity = humidity
+        self.icon = icon
+        self.alerts = alerts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, location, condition, temperature, feelsLike, humidity, icon, alerts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        condition = try container.decodeIfPresent(String.self, forKey: .condition) ?? ""
+        temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
+        feelsLike = try container.decodeIfPresent(Double.self, forKey: .feelsLike)
+        humidity = try container.decodeIfPresent(Int.self, forKey: .humidity)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        alerts = try container.decodeIfPresent([DesktopWeatherAlert].self, forKey: .alerts) ?? []
+    }
+
+    var hasContent: Bool {
+        !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || temperature != nil
+    }
+
+    static func preferred(_ incoming: DesktopWeatherSnapshot?, existing: DesktopWeatherSnapshot?) -> DesktopWeatherSnapshot? {
+        if let incoming, incoming.hasContent { return incoming }
+        return existing
+    }
+}
+
+struct DesktopWeatherAlert: Codable, Equatable {
+    let title: String
+    let level: String
+    let message: String
+}
+
+struct DesktopGitHubSnapshot: Codable, Equatable {
+    let status: String
+    let username: String
+    let name: String
+    let profileUrl: String
+    let commitsThisMonth: Int?
+    let streakDays: Int?
+    let contributions30d: [Int]
+    let project: String
+
+    init(
+        status: String,
+        username: String,
+        name: String,
+        profileUrl: String,
+        commitsThisMonth: Int?,
+        streakDays: Int?,
+        contributions30d: [Int] = [],
+        project: String = ""
+    ) {
+        self.status = status
+        self.username = username
+        self.name = name
+        self.profileUrl = profileUrl
+        self.commitsThisMonth = commitsThisMonth
+        self.streakDays = streakDays
+        self.contributions30d = contributions30d
+        self.project = project
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status, username, name, profileUrl, commitsThisMonth, streakDays, contributions30d, project
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? ""
+        username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        profileUrl = try container.decodeIfPresent(String.self, forKey: .profileUrl) ?? ""
+        commitsThisMonth = try container.decodeIfPresent(Int.self, forKey: .commitsThisMonth)
+        streakDays = try container.decodeIfPresent(Int.self, forKey: .streakDays)
+        contributions30d = try container.decodeIfPresent([Int].self, forKey: .contributions30d) ?? []
+        project = try container.decodeIfPresent(String.self, forKey: .project) ?? ""
+    }
+
+    var hasContent: Bool {
+        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func preferred(_ incoming: DesktopGitHubSnapshot?, existing: DesktopGitHubSnapshot?) -> DesktopGitHubSnapshot? {
+        if let incoming, incoming.hasContent { return incoming }
+        return existing
+    }
+}
+
+struct DesktopMailSnapshot: Codable, Equatable {
+    let status: String
+    let unreadCount: Int
+
+    init(status: String, unreadCount: Int) {
+        self.status = status
+        self.unreadCount = max(0, unreadCount)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "unavailable"
+        unreadCount = max(0, try container.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status, unreadCount
+    }
+
+    var isLive: Bool {
+        status.caseInsensitiveCompare("live") == .orderedSame
+    }
+
+    static func preferred(_ incoming: DesktopMailSnapshot?, existing: DesktopMailSnapshot?) -> DesktopMailSnapshot? {
+        if let incoming {
+            if incoming.isLive { return incoming }
+            if existing?.isLive == true { return existing }
+            return incoming
+        }
+        return existing
+    }
 }
 
 struct DesktopQuotaSnapshot: Codable, Equatable {
@@ -518,11 +726,7 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
     func send(_ payload: HealthSyncPayload) {
         let peers = session.connectedPeers
-        guard !peers.isEmpty else {
-            publish(.searching)
-            restartIfNeeded()
-            return
-        }
+        guard !peers.isEmpty else { return }
 
         do {
             let data = try JSONEncoder().encode(payload)
@@ -569,6 +773,7 @@ extension HealthPeerLink: MCSessionDelegate {
                 self?.onPayload?(payload)
             }
         } catch {
+            if case .connected = connectionState { return }
             publish(.error("收到无法识别的健康数据"))
         }
     }

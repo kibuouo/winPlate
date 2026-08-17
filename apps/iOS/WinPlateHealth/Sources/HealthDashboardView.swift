@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct HealthDashboardView: View {
     @EnvironmentObject private var healthStore: HealthStore
@@ -35,7 +36,8 @@ struct HealthDashboardView: View {
                 macPairingDraft = healthStore.macPairingCode
                 isWindowsSetupExpanded = healthStore.windowsEndpoint.isEmpty
                 isMacSetupExpanded = healthStore.macPairingCode.isEmpty
-                await healthStore.refresh()
+                healthStore.restoreIfNeeded()
+                await healthStore.refresh(reason: .foregroundTimer)
             }
         }
         .tint(.primary)
@@ -90,6 +92,8 @@ struct HealthDashboardView: View {
                         .font(.system(.title2, design: .rounded, weight: .bold))
                 }
 
+                desktopWeatherAlertBlock
+
                 Divider()
 
                 LazyVGrid(
@@ -120,6 +124,11 @@ struct HealthDashboardView: View {
                     )
                 }
 
+                HStack(alignment: .top, spacing: 8) {
+                    desktopGitHubCard
+                    desktopMailCard
+                }
+
                 if let error = healthStore.desktopStatusError {
                     Text(error)
                         .font(.caption)
@@ -134,40 +143,44 @@ struct HealthDashboardView: View {
     }
 
     private var healthOverviewSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            DashboardModuleHeader(
-                icon: "heart.fill",
-                tint: .pink,
-                title: "健康数据",
-                subtitle: "Apple 健康"
-            )
-
-            healthHeroCard
-
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
-                ],
-                spacing: 12
-            ) {
-                MetricCard(
-                    title: "步数",
-                    value: HealthFormatting.count(healthStore.stepCount),
-                    unit: "步",
-                    icon: "figure.walk",
-                    tint: .blue
+        Button(action: openHealthApp) {
+            VStack(alignment: .leading, spacing: 12) {
+                DashboardModuleHeader(
+                    icon: "heart.fill",
+                    tint: .pink,
+                    title: "健康数据",
+                    subtitle: "Apple 健康"
                 )
 
-                MetricCard(
-                    title: "活动能量",
-                    value: HealthFormatting.kilocalories(healthStore.activeEnergy),
-                    unit: "千卡",
-                    icon: "flame.fill",
-                    tint: .orange
-                )
+                healthHeroCard
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                    ],
+                    spacing: 12
+                ) {
+                    MetricCard(
+                        title: "步数",
+                        value: HealthFormatting.count(healthStore.stepCount),
+                        unit: "步",
+                        icon: "figure.walk",
+                        tint: .blue
+                    )
+
+                    MetricCard(
+                        title: "活动能量",
+                        value: HealthFormatting.kilocalories(healthStore.activeEnergy),
+                        unit: "千卡",
+                        icon: "flame.fill",
+                        tint: .orange
+                    )
+                }
             }
         }
+        .buttonStyle(.plain)
+        .accessibilityHint("打开健康应用")
     }
 
     private var healthHeroCard: some View {
@@ -473,6 +486,167 @@ struct HealthDashboardView: View {
         return "\(currency)\(balance)"
     }
 
+    @ViewBuilder
+    private var desktopWeatherAlertBlock: some View {
+        let alerts = healthStore.desktopStatus.weather?.alerts ?? []
+        if alerts.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: healthStore.lastDesktopStatusAt == nil ? "cloud" : "checkmark.shield")
+                    .foregroundStyle(healthStore.lastDesktopStatusAt == nil ? Color.secondary : Color.green)
+                Text(healthStore.lastDesktopStatusAt == nil ? "等待桌面天气预警" : "当前无天气预警")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(alerts.prefix(2)) { alert in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: alert.level == "critical" ? "exclamationmark.triangle.fill" : "cloud.bolt.rain.fill")
+                            .foregroundStyle(alert.level == "critical" ? .red : .orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(alert.title)
+                                .font(.caption.weight(.semibold))
+                            if !alert.message.isEmpty {
+                                Text(alert.message)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var desktopGitHubCard: some View {
+        let github = healthStore.desktopStatus.github
+        return Button {
+            openGitHubApp(username: github?.username, profileURL: github?.profileUrl)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("GitHub")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(githubUsernameText)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                HStack(spacing: 10) {
+                    labeledDesktopStat(title: "本月", value: github?.commitsThisMonth.map(String.init) ?? "--")
+                    labeledDesktopStat(title: "连续", value: github?.streakDays.map { "\($0)天" } ?? "--")
+                }
+                DesktopContributionSparkline(values: github?.contributions30d ?? [])
+                if let project = github?.project, !project.isEmpty, project != "--" {
+                    Text(project)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
+            .padding(12)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var desktopMailCard: some View {
+        Button(action: openQQMailApp) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("邮件")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(mailUnreadText)
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                    .monospacedDigit()
+                Text("未读")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(mailStatusText)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
+            .padding(12)
+            .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func openGitHubApp(username: String?, profileURL: String?) {
+        var candidates: [URL] = []
+        if let username, !username.isEmpty {
+            if let appURL = URL(string: "github://user?username=\(username)") {
+                candidates.append(appURL)
+            }
+            if let httpsURL = URL(string: "https://github.com/\(username)") {
+                candidates.append(httpsURL)
+            }
+        }
+        if let profileURL, let url = URL(string: profileURL) {
+            candidates.append(url)
+        }
+        openFirstAvailableApp(candidates)
+    }
+
+    private func openQQMailApp() {
+        openFirstAvailableApp([
+            URL(string: "qqmail://"),
+            URL(string: "mqqmail://"),
+            URL(string: "https://mail.qq.com")
+        ].compactMap { $0 })
+    }
+
+    private func openHealthApp() {
+        openFirstAvailableApp([
+            URL(string: "x-apple-health://"),
+            URL(string: "x-apple-health://summary")
+        ].compactMap { $0 })
+    }
+
+    private func openFirstAvailableApp(_ urls: [URL]) {
+        healthStore.persistForBackground()
+        guard let url = urls.first else { return }
+        if UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+            return
+        }
+        openFirstAvailableApp(Array(urls.dropFirst()))
+    }
+
+    private func labeledDesktopStat(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var githubUsernameText: String {
+        guard let username = healthStore.desktopStatus.github?.username, !username.isEmpty else {
+            return "等待桌面数据"
+        }
+        return "@\(username)"
+    }
+
+    private var mailUnreadText: String {
+        guard let mail = healthStore.desktopStatus.mail else { return "--" }
+        return mail.unreadCount > 99 ? "99+" : "\(mail.unreadCount)"
+    }
+
+    private var mailStatusText: String {
+        switch healthStore.desktopStatus.mail?.status {
+        case "live": return "来自桌面收件箱"
+        case "unconfigured", "unconnected": return "桌面未配置邮箱"
+        case "unavailable": return "桌面邮件不可用"
+        case nil: return "等待桌面数据"
+        default: return "来自桌面"
+        }
+    }
+
     private var desktopWeatherSymbol: String {
         let condition = healthStore.desktopStatus.weather?.condition ?? ""
         if condition.localizedCaseInsensitiveContains("雨") { return "cloud.rain.fill" }
@@ -609,6 +783,23 @@ private struct MetricCard: View {
         .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+private struct DesktopContributionSparkline: View {
+    let values: [Int]
+
+    var body: some View {
+        let maximum = max(values.max() ?? 0, 1)
+        HStack(alignment: .bottom, spacing: 1.5) {
+            ForEach(Array(values.suffix(30).enumerated()), id: \.offset) { _, value in
+                Capsule()
+                    .fill(Color.primary.opacity(value == 0 ? 0.12 : 0.72))
+                    .frame(width: 3, height: max(3, CGFloat(value) / CGFloat(maximum) * 22))
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 22, alignment: .bottomLeading)
+        .accessibilityHidden(true)
     }
 }
 

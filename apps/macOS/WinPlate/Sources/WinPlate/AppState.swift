@@ -81,6 +81,7 @@ final class AppState: ObservableObject {
     private var githubRepositoryCommitsCache: [String: GitHubRepositoryCommits] = [:]
     private var dismissedAcknowledgementIDs: Set<String> = []
     private let healthPeerLink: HealthPeerLink
+    private var lastSentDesktopStatus: DesktopStatusSnapshot?
 
     init() {
         let pairingCode = HealthPeerPairing.loadOrCreateCode()
@@ -118,6 +119,9 @@ final class AppState: ObservableObject {
                     }
                 }
                 self.healthSyncError = nil
+                if payload.desktopStatus == nil {
+                    self.sendDesktopStatusSnapshot()
+                }
             }
         }
     }
@@ -136,7 +140,8 @@ final class AppState: ObservableObject {
         let balance = deepSeek.balances.first(where: {
             $0.currency.uppercased() == "CNY"
         }) ?? deepSeek.balances.first
-        let desktopStatus = DesktopStatusSnapshot(
+        let github = snapshot.github
+        let nextDesktopStatus = DesktopStatusSnapshot(
             sender: Host.current().localizedName ?? "WinPlate",
             sentAt: formatter.string(from: Date()),
             weather: DesktopWeatherSnapshot(
@@ -146,7 +151,25 @@ final class AppState: ObservableObject {
                 temperature: snapshot.weather.temperature,
                 feelsLike: snapshot.weather.feelsLike,
                 humidity: snapshot.weather.humidity,
-                icon: snapshot.weather.icon
+                icon: snapshot.weather.icon,
+                alerts: desktopWeatherAlerts()
+            ),
+            github: github.flatMap { github in
+                guard github.isAvailable else { return nil }
+                return DesktopGitHubSnapshot(
+                    status: github.status,
+                    username: github.username,
+                    name: github.name,
+                    profileUrl: github.profileUrl,
+                    commitsThisMonth: github.commitsThisMonth,
+                    streakDays: github.streakDays,
+                    contributions30d: Array(github.contributions30d.suffix(30)),
+                    project: github.project
+                )
+            },
+            mail: DesktopMailSnapshot(
+                status: mail.availability,
+                unreadCount: mail.unreadCount ?? mail.items.filter(\.unread).count
             ),
             codex: DesktopQuotaSnapshot(
                 status: codex.status,
@@ -164,6 +187,8 @@ final class AppState: ObservableObject {
                 balance: balance?.totalBalance
             )
         )
+        let desktopStatus = DesktopStatusSnapshot.merging(nextDesktopStatus, onto: lastSentDesktopStatus)
+        lastSentDesktopStatus = desktopStatus
         let payload = HealthSyncPayload(
             schemaVersion: HealthSyncPayload.currentSchemaVersion,
             sender: Host.current().localizedName ?? "WinPlate",
@@ -176,6 +201,26 @@ final class AppState: ObservableObject {
             desktopStatus: desktopStatus
         )
         healthPeerLink.send(payload)
+    }
+
+    private func desktopWeatherAlerts() -> [DesktopWeatherAlert] {
+        weatherAlerts.alerts
+            .filter { $0.lifecycle != "resolved" }
+            .sorted { desktopWeatherAlertPriority($0) > desktopWeatherAlertPriority($1) }
+            .prefix(2)
+            .map { alert in
+                DesktopWeatherAlert(
+                    title: String(alert.title.prefix(80)),
+                    level: alert.level,
+                    message: String(alert.message.prefix(120))
+                )
+            }
+    }
+
+    private func desktopWeatherAlertPriority(_ alert: WeatherAlert) -> Int {
+        if alert.level == "critical" { return 3 }
+        if alert.lifecycle == "upgraded" { return 2 }
+        return 1
     }
 
     func start() {
@@ -783,6 +828,7 @@ final class AppState: ObservableObject {
             if force { isMailConnected = result.value?.availability == "live" }
             lastError = mailConnectionError
             isRefreshingMail = false
+            sendDesktopStatusSnapshot()
         }
     }
 
@@ -1068,6 +1114,7 @@ final class AppState: ObservableObject {
         }
         weatherAlertError = result.error ?? result.value?.error
         isWeatherAlertConnected = result.value != nil && weatherAlertError == nil
+        sendDesktopStatusSnapshot()
         return weatherAlertError
     }
 }

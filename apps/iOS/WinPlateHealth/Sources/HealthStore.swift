@@ -10,6 +10,7 @@ private struct HealthMetricValue {
 
 @MainActor
 final class HealthStore: ObservableObject {
+    static let shared = HealthStore()
     @Published private(set) var latestHeartRate: Double?
     @Published private(set) var stepCount: Double?
     @Published private(set) var activeEnergy: Double?
@@ -42,13 +43,16 @@ final class HealthStore: ObservableObject {
     private var lastActiveEnergySampleAt: Date?
     private var syncTask: Task<Void, Never>?
     private var desktopStatusTask: Task<Void, Never>?
+    private var resignObserver: NSObjectProtocol?
+    private var backgroundObserver: NSObjectProtocol?
 
-    init() {
+    private init() {
         peerLink = HealthPeerLink(
             role: .advertiser,
             displayName: String(UIDevice.current.name.prefix(32))
         )
         backgroundCoordinator = HealthBackgroundCoordinator(store: store)
+        restoreCachedOverview()
 
         peerLink.onStateChange = { [weak self] state in
             DispatchQueue.main.async {
@@ -102,6 +106,7 @@ final class HealthStore: ObservableObject {
             backgroundUploader.resumePending(to: windowsEndpoint)
             startDesktopStatusPolling()
         }
+        observeLifecycleForPersistence()
 
         syncTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -115,6 +120,12 @@ final class HealthStore: ObservableObject {
     deinit {
         syncTask?.cancel()
         desktopStatusTask?.cancel()
+        if let resignObserver {
+            NotificationCenter.default.removeObserver(resignObserver)
+        }
+        if let backgroundObserver {
+            NotificationCenter.default.removeObserver(backgroundObserver)
+        }
         peerLink.stop()
     }
 
@@ -165,7 +176,20 @@ final class HealthStore: ObservableObject {
     }
 
     func reconnectPeerIfNeeded() {
+        restoreIfNeeded()
         peerLink.restartIfNeeded()
+    }
+
+    func persistForBackground() {
+        let task = UIApplication.shared.beginBackgroundTask(withName: "winplate.overview-cache")
+        persistOverviewCache()
+        if task != .invalid {
+            UIApplication.shared.endBackgroundTask(task)
+        }
+    }
+
+    func restoreIfNeeded() {
+        restoreCachedOverview()
     }
 
     func refresh(reason: HealthRefreshReason) async {
@@ -180,29 +204,36 @@ final class HealthStore: ObservableObject {
         }
         message = nil
 
-        let heartRate: HealthMetricValue?
-        let heartRateSamples: [HeartRateSample]
-        let steps: HealthMetricValue?
-        let energy: HealthMetricValue?
+        var heartRate: HealthMetricValue?
+        var heartRateSamples: [HeartRateSample] = lastHeartRateSamples
+        var steps: HealthMetricValue?
+        var energy: HealthMetricValue?
+        var readError: String?
         do {
             let sampledHeartRate = try await recentHeartRateSamples()
             heartRateSamples = sampledHeartRate.series
             heartRate = sampledHeartRate.latest
+        } catch {
+            heartRate = (try? await latestHeartRateSample())
+                ?? HealthMetricValue(value: latestHeartRate, sampleAt: lastHeartRateSampleAt)
+            readError = error.localizedDescription
+        }
+        do {
             steps = try await todayTotal(for: stepCountType, unit: .count())
             energy = try await todayTotal(for: activeEnergyType, unit: .kilocalorie())
         } catch {
-            if showsProgress {
-                isLoading = false
-                message = "读取健康数据失败：\(error.localizedDescription)"
-            }
-            return
+            steps = HealthMetricValue(value: stepCount, sampleAt: lastStepCountSampleAt)
+            energy = HealthMetricValue(value: activeEnergy, sampleAt: lastActiveEnergySampleAt)
+            readError = readError ?? error.localizedDescription
         }
 
-        latestHeartRate = heartRate?.value
-        stepCount = steps?.value
-        activeEnergy = energy?.value
+        latestHeartRate = heartRate?.value ?? latestHeartRate
+        stepCount = steps?.value ?? stepCount
+        activeEnergy = energy?.value ?? activeEnergy
         lastHeartRateSampleAt = heartRate?.sampleAt ?? lastHeartRateSampleAt
-        lastHeartRateSamples = heartRateSamples
+        if !heartRateSamples.isEmpty {
+            lastHeartRateSamples = heartRateSamples
+        }
         lastStepCountSampleAt = steps?.sampleAt ?? lastStepCountSampleAt
         lastActiveEnergySampleAt = energy?.sampleAt ?? lastActiveEnergySampleAt
         if heartRate?.value != nil || steps?.value != nil || energy?.value != nil {
@@ -214,9 +245,13 @@ final class HealthStore: ObservableObject {
             steps?.sampleAt ?? lastStepCountSampleAt,
             energy?.sampleAt ?? lastActiveEnergySampleAt
         ].compactMap { $0 }
-        lastUpdated = sampleDates.max()
+        if let newest = sampleDates.max() {
+            lastUpdated = newest
+        }
 
-        if latestHeartRate == nil && stepCount == nil && activeEnergy == nil {
+        if let readError {
+            message = "读取健康数据失败：\(readError)"
+        } else if latestHeartRate == nil && stepCount == nil && activeEnergy == nil {
             message = hasRequestedAccess
                 ? "暂时没有可显示的健康记录，请确认“健康”中已允许 WinPlate 读取数据。"
                 : "开启健康数据后，这里会显示本机的健康概览。"
@@ -225,6 +260,7 @@ final class HealthStore: ObservableObject {
         if showsProgress {
             isLoading = false
         }
+        persistOverviewCache()
         sendCurrentSnapshot(
             reason: reason,
             heartRate: heartRate,
@@ -281,9 +317,80 @@ final class HealthStore: ObservableObject {
     }
 
     private func applyDesktopStatus(_ status: DesktopStatusSnapshot) {
-        desktopStatus = status
-        lastDesktopStatusAt = ISO8601DateFormatter().date(from: status.sentAt) ?? Date()
+        guard status.hasUsefulData else { return }
+        let fallback = desktopStatus.hasUsefulData ? desktopStatus : HealthOverviewCache.load()?.desktopStatus
+        let merged = DesktopStatusSnapshot.merging(status, onto: fallback)
+        guard merged.hasUsefulData else { return }
+        desktopStatus = merged
+        lastDesktopStatusAt = ISO8601DateFormatter().date(from: merged.sentAt) ?? Date()
         desktopStatusError = nil
+        persistOverviewCache()
+    }
+
+    private func restoreCachedOverview() {
+        guard let cached = HealthOverviewCache.load() else { return }
+        if let status = cached.desktopStatus {
+            desktopStatus = DesktopStatusSnapshot.merging(desktopStatus, onto: status)
+            if lastDesktopStatusAt == nil {
+                lastDesktopStatusAt = cached.lastDesktopStatusAt
+            }
+        }
+        if latestHeartRate == nil {
+            latestHeartRate = cached.latestHeartRate
+            lastHeartRateSampleAt = cached.lastHeartRateSampleAt ?? lastHeartRateSampleAt
+        }
+        if stepCount == nil {
+            stepCount = cached.stepCount
+            lastStepCountSampleAt = cached.lastStepCountSampleAt ?? lastStepCountSampleAt
+        }
+        if activeEnergy == nil {
+            activeEnergy = cached.activeEnergy
+            lastActiveEnergySampleAt = cached.lastActiveEnergySampleAt ?? lastActiveEnergySampleAt
+        }
+        if lastUpdated == nil {
+            lastUpdated = cached.lastUpdated
+        }
+        if lastHeartRateSamples.isEmpty {
+            lastHeartRateSamples = cached.lastHeartRateSamples
+        }
+    }
+
+    private func persistOverviewCache() {
+        HealthOverviewCache.save(
+            HealthOverviewCache.Snapshot(
+                desktopStatus: desktopStatus.sender.isEmpty ? nil : desktopStatus,
+                lastDesktopStatusAt: lastDesktopStatusAt,
+                latestHeartRate: latestHeartRate,
+                lastHeartRateSampleAt: lastHeartRateSampleAt,
+                stepCount: stepCount,
+                lastStepCountSampleAt: lastStepCountSampleAt,
+                activeEnergy: activeEnergy,
+                lastActiveEnergySampleAt: lastActiveEnergySampleAt,
+                lastUpdated: lastUpdated,
+                lastHeartRateSamples: lastHeartRateSamples
+            )
+        )
+    }
+
+    private func observeLifecycleForPersistence() {
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.persistForBackground()
+            }
+        }
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.persistForBackground()
+            }
+        }
     }
 
     private func currentPayload(
@@ -350,11 +457,14 @@ final class HealthStore: ObservableObject {
     private func sendWindowsSnapshot(_ payload: HealthSyncPayload, to endpoint: String) async {
         await backgroundUploader.enqueue(payload, to: endpoint)
         do {
-            try await WindowsHealthLink.send(payload, to: endpoint)
+            let desktopStatus = try await WindowsHealthLink.send(payload, to: endpoint)
             backgroundUploader.markDelivered(payload.snapshotId)
             windowsSyncState = .connected
             lastWindowsSyncSentAt = Date()
             syncError = nil
+            if let desktopStatus {
+                applyDesktopStatus(desktopStatus)
+            }
         } catch {
             windowsSyncState = .error("Windows 同步失败：\(error.localizedDescription)")
         }
@@ -366,6 +476,17 @@ final class HealthStore: ObservableObject {
             guard let self else { return }
             pendingWindowsSnapshotCount = await backgroundUploader.pendingCount()
         }
+    }
+
+    private func latestHeartRateSample() async throws -> HealthMetricValue {
+        let sample = try await latestQuantitySample(for: heartRateType, predicate: nil)
+        guard let sample else { return HealthMetricValue(value: nil, sampleAt: nil) }
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let value = sample.quantity.doubleValue(for: unit)
+        guard (30...300).contains(value) else {
+            return HealthMetricValue(value: nil, sampleAt: nil)
+        }
+        return HealthMetricValue(value: value, sampleAt: sample.endDate)
     }
 
     private func recentHeartRateSamples() async throws -> (latest: HealthMetricValue, series: [HeartRateSample]) {

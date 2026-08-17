@@ -4,6 +4,238 @@ import Foundation
 import MultipeerConnectivity
 import Security
 
+enum HealthOverviewCache {
+    struct Snapshot {
+        var desktopStatus: DesktopStatusSnapshot?
+        var lastDesktopStatusAt: Date?
+        var latestHeartRate: Double?
+        var lastHeartRateSampleAt: Date?
+        var stepCount: Double?
+        var lastStepCountSampleAt: Date?
+        var activeEnergy: Double?
+        var lastActiveEnergySampleAt: Date?
+        var lastUpdated: Date?
+        var lastHeartRateSamples: [HeartRateSample]
+    }
+
+    private static let defaultsKey = "winplate.health.overview-cache-v2"
+    private static var supportDirectory: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("WinPlateHealth", isDirectory: true)
+    }
+    private static var cacheURL: URL? {
+        supportDirectory?.appendingPathComponent("overview-cache-v2.json")
+    }
+    private static var samplesURL: URL? {
+        supportDirectory?.appendingPathComponent("heart-rate-samples.json")
+    }
+
+    static var hasCachedOverview: Bool {
+        guard let snapshot = load() else { return false }
+        return snapshot.desktopStatus != nil || snapshot.lastUpdated != nil || snapshot.latestHeartRate != nil
+    }
+
+    static func load() -> Snapshot? {
+        if let snapshot = load(from: cacheURL.flatMap { try? Data(contentsOf: $0) }) {
+            return snapshot
+        }
+        return load(from: UserDefaults.standard.data(forKey: defaultsKey))
+    }
+
+    static func save(_ snapshot: Snapshot) {
+        let merged = merge(snapshot, onto: load())
+        let stored = Stored(
+            desktopStatus: merged.desktopStatus.flatMap { status in
+                status.hasUsefulData ? status : nil
+            },
+            lastDesktopStatusAt: merged.lastDesktopStatusAt?.timeIntervalSince1970,
+            latestHeartRate: merged.latestHeartRate,
+            lastHeartRateSampleAt: merged.lastHeartRateSampleAt?.timeIntervalSince1970,
+            stepCount: merged.stepCount,
+            lastStepCountSampleAt: merged.lastStepCountSampleAt?.timeIntervalSince1970,
+            activeEnergy: merged.activeEnergy,
+            lastActiveEnergySampleAt: merged.lastActiveEnergySampleAt?.timeIntervalSince1970,
+            lastUpdated: merged.lastUpdated?.timeIntervalSince1970,
+            github: merged.desktopStatus?.github.flatMap { $0.hasContent ? $0 : nil },
+            mail: merged.desktopStatus?.mail
+        )
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+        UserDefaults.standard.synchronize()
+        if let cacheURL {
+            do {
+                try FileManager.default.createDirectory(
+                    at: cacheURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: cacheURL, options: .atomic)
+            } catch {
+                // UserDefaults already holds a copy for the next launch.
+            }
+        }
+        saveSamples(merged.lastHeartRateSamples)
+    }
+
+    private static func load(from data: Data?) -> Snapshot? {
+        guard let data, let stored = try? JSONDecoder().decode(Stored.self, from: data) else {
+            return nil
+        }
+        let desktopStatus = DesktopStatusSnapshot.merging(
+            stored.desktopStatus,
+            onto: DesktopStatusSnapshot(
+                sender: stored.desktopStatus?.sender ?? "",
+                sentAt: stored.desktopStatus?.sentAt ?? "",
+                weather: stored.desktopStatus?.weather,
+                github: stored.github,
+                mail: stored.mail,
+                codex: stored.desktopStatus?.codex,
+                superGrok: stored.desktopStatus?.superGrok,
+                deepSeek: stored.desktopStatus?.deepSeek
+            )
+        )
+        return Snapshot(
+            desktopStatus: desktopStatus.hasUsefulData ? desktopStatus : nil,
+            lastDesktopStatusAt: stored.lastDesktopStatusAt.map(Date.init(timeIntervalSince1970:)),
+            latestHeartRate: stored.latestHeartRate,
+            lastHeartRateSampleAt: stored.lastHeartRateSampleAt.map(Date.init(timeIntervalSince1970:)),
+            stepCount: stored.stepCount,
+            lastStepCountSampleAt: stored.lastStepCountSampleAt.map(Date.init(timeIntervalSince1970:)),
+            activeEnergy: stored.activeEnergy,
+            lastActiveEnergySampleAt: stored.lastActiveEnergySampleAt.map(Date.init(timeIntervalSince1970:)),
+            lastUpdated: stored.lastUpdated.map(Date.init(timeIntervalSince1970:)),
+            lastHeartRateSamples: loadSamples()
+        )
+    }
+
+    private static func merge(_ snapshot: Snapshot, onto existing: Snapshot?) -> Snapshot {
+        Snapshot(
+            desktopStatus: {
+                let merged = DesktopStatusSnapshot.merging(snapshot.desktopStatus, onto: existing?.desktopStatus)
+                return merged.hasUsefulData ? merged : nil
+            }(),
+            lastDesktopStatusAt: snapshot.lastDesktopStatusAt ?? existing?.lastDesktopStatusAt,
+            latestHeartRate: snapshot.latestHeartRate ?? existing?.latestHeartRate,
+            lastHeartRateSampleAt: snapshot.lastHeartRateSampleAt ?? existing?.lastHeartRateSampleAt,
+            stepCount: snapshot.stepCount ?? existing?.stepCount,
+            lastStepCountSampleAt: snapshot.lastStepCountSampleAt ?? existing?.lastStepCountSampleAt,
+            activeEnergy: snapshot.activeEnergy ?? existing?.activeEnergy,
+            lastActiveEnergySampleAt: snapshot.lastActiveEnergySampleAt ?? existing?.lastActiveEnergySampleAt,
+            lastUpdated: snapshot.lastUpdated ?? existing?.lastUpdated,
+            lastHeartRateSamples: snapshot.lastHeartRateSamples.isEmpty
+                ? (existing?.lastHeartRateSamples ?? [])
+                : snapshot.lastHeartRateSamples
+        )
+    }
+
+    private static func loadSamples() -> [HeartRateSample] {
+        guard let samplesURL, let data = try? Data(contentsOf: samplesURL) else { return [] }
+        return (try? JSONDecoder().decode([StoredSample].self, from: data))?.compactMap(\.sample) ?? []
+    }
+
+    private static func saveSamples(_ samples: [HeartRateSample]) {
+        guard let samplesURL else { return }
+        do {
+            try FileManager.default.createDirectory(
+                at: samplesURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try JSONEncoder().encode(samples.map(StoredSample.init)).write(to: samplesURL, options: .atomic)
+        } catch {
+            return
+        }
+    }
+
+    private struct Stored: Codable {
+        var desktopStatus: DesktopStatusSnapshot?
+        var lastDesktopStatusAt: TimeInterval?
+        var latestHeartRate: Double?
+        var lastHeartRateSampleAt: TimeInterval?
+        var stepCount: Double?
+        var lastStepCountSampleAt: TimeInterval?
+        var activeEnergy: Double?
+        var lastActiveEnergySampleAt: TimeInterval?
+        var lastUpdated: TimeInterval?
+        var github: DesktopGitHubSnapshot?
+        var mail: DesktopMailSnapshot?
+
+        private enum CodingKeys: String, CodingKey {
+            case desktopStatus
+            case lastDesktopStatusAt
+            case latestHeartRate
+            case lastHeartRateSampleAt
+            case stepCount
+            case lastStepCountSampleAt
+            case activeEnergy
+            case lastActiveEnergySampleAt
+            case lastUpdated
+            case github
+            case mail
+        }
+
+        init(
+            desktopStatus: DesktopStatusSnapshot?,
+            lastDesktopStatusAt: TimeInterval?,
+            latestHeartRate: Double?,
+            lastHeartRateSampleAt: TimeInterval?,
+            stepCount: Double?,
+            lastStepCountSampleAt: TimeInterval?,
+            activeEnergy: Double?,
+            lastActiveEnergySampleAt: TimeInterval?,
+            lastUpdated: TimeInterval?,
+            github: DesktopGitHubSnapshot?,
+            mail: DesktopMailSnapshot?
+        ) {
+            self.desktopStatus = desktopStatus
+            self.lastDesktopStatusAt = lastDesktopStatusAt
+            self.latestHeartRate = latestHeartRate
+            self.lastHeartRateSampleAt = lastHeartRateSampleAt
+            self.stepCount = stepCount
+            self.lastStepCountSampleAt = lastStepCountSampleAt
+            self.activeEnergy = activeEnergy
+            self.lastActiveEnergySampleAt = lastActiveEnergySampleAt
+            self.lastUpdated = lastUpdated
+            self.github = github
+            self.mail = mail
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let status = try? container.decode(DesktopStatusSnapshot.self, forKey: .desktopStatus) {
+                desktopStatus = status
+            } else if let data = try? container.decode(Data.self, forKey: .desktopStatus) {
+                desktopStatus = try? JSONDecoder().decode(DesktopStatusSnapshot.self, from: data)
+            } else {
+                desktopStatus = nil
+            }
+            lastDesktopStatusAt = try container.decodeIfPresent(TimeInterval.self, forKey: .lastDesktopStatusAt)
+            latestHeartRate = try container.decodeIfPresent(Double.self, forKey: .latestHeartRate)
+            lastHeartRateSampleAt = try container.decodeIfPresent(TimeInterval.self, forKey: .lastHeartRateSampleAt)
+            stepCount = try container.decodeIfPresent(Double.self, forKey: .stepCount)
+            lastStepCountSampleAt = try container.decodeIfPresent(TimeInterval.self, forKey: .lastStepCountSampleAt)
+            activeEnergy = try container.decodeIfPresent(Double.self, forKey: .activeEnergy)
+            lastActiveEnergySampleAt = try container.decodeIfPresent(TimeInterval.self, forKey: .lastActiveEnergySampleAt)
+            lastUpdated = try container.decodeIfPresent(TimeInterval.self, forKey: .lastUpdated)
+            github = try container.decodeIfPresent(DesktopGitHubSnapshot.self, forKey: .github)
+            mail = try container.decodeIfPresent(DesktopMailSnapshot.self, forKey: .mail)
+        }
+    }
+
+    private struct StoredSample: Codable {
+        var sampleAt: TimeInterval
+        var heartRate: Double
+
+        init(_ sample: HeartRateSample) {
+            sampleAt = sample.sampleAt.timeIntervalSince1970
+            heartRate = sample.heartRate
+        }
+
+        var sample: HeartRateSample? {
+            guard (30...300).contains(heartRate) else { return nil }
+            return HeartRateSample(sampleAt: Date(timeIntervalSince1970: sampleAt), heartRate: heartRate)
+        }
+    }
+}
+
 enum HealthSecretStore {
     private static let service = "com.kiko.winplate.health"
 
@@ -216,6 +448,8 @@ struct DesktopStatusSnapshot: Codable, Equatable {
     let sender: String
     let sentAt: String
     let weather: DesktopWeatherSnapshot?
+    let github: DesktopGitHubSnapshot?
+    let mail: DesktopMailSnapshot?
     let codex: DesktopQuotaSnapshot?
     let superGrok: DesktopQuotaSnapshot?
     let deepSeek: DesktopBalanceSnapshot?
@@ -224,6 +458,8 @@ struct DesktopStatusSnapshot: Codable, Equatable {
         sender: "",
         sentAt: "",
         weather: nil,
+        github: nil,
+        mail: nil,
         codex: nil,
         superGrok: nil,
         deepSeek: nil
@@ -234,6 +470,8 @@ struct DesktopStatusSnapshot: Codable, Equatable {
         sender: String,
         sentAt: String,
         weather: DesktopWeatherSnapshot?,
+        github: DesktopGitHubSnapshot? = nil,
+        mail: DesktopMailSnapshot? = nil,
         codex: DesktopQuotaSnapshot?,
         superGrok: DesktopQuotaSnapshot?,
         deepSeek: DesktopBalanceSnapshot?
@@ -242,13 +480,15 @@ struct DesktopStatusSnapshot: Codable, Equatable {
         self.sender = sender
         self.sentAt = sentAt
         self.weather = weather
+        self.github = github
+        self.mail = mail
         self.codex = codex
         self.superGrok = superGrok
         self.deepSeek = deepSeek
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, sender, sentAt, weather, codex, superGrok, deepSeek
+        case schemaVersion, sender, sentAt, weather, github, mail, codex, superGrok, deepSeek
     }
 
     init(from decoder: Decoder) throws {
@@ -257,9 +497,44 @@ struct DesktopStatusSnapshot: Codable, Equatable {
         sender = try container.decodeIfPresent(String.self, forKey: .sender) ?? ""
         sentAt = try container.decodeIfPresent(String.self, forKey: .sentAt) ?? ""
         weather = try container.decodeIfPresent(DesktopWeatherSnapshot.self, forKey: .weather)
+        github = try container.decodeIfPresent(DesktopGitHubSnapshot.self, forKey: .github)
+        mail = try container.decodeIfPresent(DesktopMailSnapshot.self, forKey: .mail)
         codex = try container.decodeIfPresent(DesktopQuotaSnapshot.self, forKey: .codex)
         superGrok = try container.decodeIfPresent(DesktopQuotaSnapshot.self, forKey: .superGrok)
         deepSeek = try container.decodeIfPresent(DesktopBalanceSnapshot.self, forKey: .deepSeek)
+    }
+
+    var hasUsefulData: Bool {
+        !sender.isEmpty
+            || weather?.hasContent == true
+            || github?.hasContent == true
+            || mail != nil
+            || codex != nil
+            || superGrok != nil
+            || deepSeek != nil
+    }
+
+    static func merging(_ incoming: DesktopStatusSnapshot?, onto existing: DesktopStatusSnapshot?) -> DesktopStatusSnapshot {
+        switch (incoming, existing) {
+        case (nil, nil):
+            return .empty
+        case (let incoming?, nil):
+            return incoming
+        case (nil, let existing?):
+            return existing
+        case (let incoming?, let existing?):
+            return DesktopStatusSnapshot(
+                schemaVersion: incoming.schemaVersion,
+                sender: incoming.sender.isEmpty ? existing.sender : incoming.sender,
+                sentAt: incoming.sentAt.isEmpty ? existing.sentAt : incoming.sentAt,
+                weather: DesktopWeatherSnapshot.preferred(incoming.weather, existing: existing.weather),
+                github: DesktopGitHubSnapshot.preferred(incoming.github, existing: existing.github),
+                mail: DesktopMailSnapshot.preferred(incoming.mail, existing: existing.mail),
+                codex: incoming.codex ?? existing.codex,
+                superGrok: incoming.superGrok ?? existing.superGrok,
+                deepSeek: incoming.deepSeek ?? existing.deepSeek
+            )
+        }
     }
 }
 
@@ -271,6 +546,148 @@ struct DesktopWeatherSnapshot: Codable, Equatable {
     let feelsLike: Double?
     let humidity: Int?
     let icon: String?
+    let alerts: [DesktopWeatherAlert]
+
+    init(
+        source: String,
+        location: String,
+        condition: String,
+        temperature: Double?,
+        feelsLike: Double?,
+        humidity: Int?,
+        icon: String?,
+        alerts: [DesktopWeatherAlert] = []
+    ) {
+        self.source = source
+        self.location = location
+        self.condition = condition
+        self.temperature = temperature
+        self.feelsLike = feelsLike
+        self.humidity = humidity
+        self.icon = icon
+        self.alerts = alerts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, location, condition, temperature, feelsLike, humidity, icon, alerts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        condition = try container.decodeIfPresent(String.self, forKey: .condition) ?? ""
+        temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
+        feelsLike = try container.decodeIfPresent(Double.self, forKey: .feelsLike)
+        humidity = try container.decodeIfPresent(Int.self, forKey: .humidity)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        alerts = try container.decodeIfPresent([DesktopWeatherAlert].self, forKey: .alerts) ?? []
+    }
+
+    var hasContent: Bool {
+        !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || temperature != nil
+    }
+
+    static func preferred(_ incoming: DesktopWeatherSnapshot?, existing: DesktopWeatherSnapshot?) -> DesktopWeatherSnapshot? {
+        if let incoming, incoming.hasContent { return incoming }
+        return existing
+    }
+}
+
+struct DesktopWeatherAlert: Codable, Equatable, Identifiable {
+    var id: String { "\(level)|\(title)|\(message)" }
+    let title: String
+    let level: String
+    let message: String
+}
+
+struct DesktopGitHubSnapshot: Codable, Equatable {
+    let status: String
+    let username: String
+    let name: String
+    let profileUrl: String
+    let commitsThisMonth: Int?
+    let streakDays: Int?
+    let contributions30d: [Int]
+    let project: String
+
+    init(
+        status: String,
+        username: String,
+        name: String,
+        profileUrl: String,
+        commitsThisMonth: Int?,
+        streakDays: Int?,
+        contributions30d: [Int] = [],
+        project: String = ""
+    ) {
+        self.status = status
+        self.username = username
+        self.name = name
+        self.profileUrl = profileUrl
+        self.commitsThisMonth = commitsThisMonth
+        self.streakDays = streakDays
+        self.contributions30d = contributions30d
+        self.project = project
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status, username, name, profileUrl, commitsThisMonth, streakDays, contributions30d, project
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? ""
+        username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        profileUrl = try container.decodeIfPresent(String.self, forKey: .profileUrl) ?? ""
+        commitsThisMonth = try container.decodeIfPresent(Int.self, forKey: .commitsThisMonth)
+        streakDays = try container.decodeIfPresent(Int.self, forKey: .streakDays)
+        contributions30d = try container.decodeIfPresent([Int].self, forKey: .contributions30d) ?? []
+        project = try container.decodeIfPresent(String.self, forKey: .project) ?? ""
+    }
+
+    var hasContent: Bool {
+        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func preferred(_ incoming: DesktopGitHubSnapshot?, existing: DesktopGitHubSnapshot?) -> DesktopGitHubSnapshot? {
+        if let incoming, incoming.hasContent { return incoming }
+        return existing
+    }
+}
+
+struct DesktopMailSnapshot: Codable, Equatable {
+    let status: String
+    let unreadCount: Int
+
+    init(status: String, unreadCount: Int) {
+        self.status = status
+        self.unreadCount = max(0, unreadCount)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "unavailable"
+        unreadCount = max(0, try container.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status, unreadCount
+    }
+
+    var isLive: Bool {
+        status.caseInsensitiveCompare("live") == .orderedSame
+    }
+
+    static func preferred(_ incoming: DesktopMailSnapshot?, existing: DesktopMailSnapshot?) -> DesktopMailSnapshot? {
+        if let incoming {
+            if incoming.isLive { return incoming }
+            if existing?.isLive == true { return existing }
+            return incoming
+        }
+        return existing
+    }
 }
 
 struct DesktopQuotaSnapshot: Codable, Equatable {
@@ -320,6 +737,10 @@ enum WindowsHealthSyncState: Equatable {
 }
 
 private struct WindowsHealthStatusResponse: Decodable {
+    let desktopStatus: DesktopStatusSnapshot?
+}
+
+private struct WindowsHealthSyncResponse: Decodable {
     let desktopStatus: DesktopStatusSnapshot?
 }
 
@@ -468,7 +889,7 @@ enum WindowsHealthLink {
         return try JSONDecoder().decode(WindowsHealthStatusResponse.self, from: data).desktopStatus
     }
 
-    static func send(_ payload: HealthSyncPayload, to endpoint: String) async throws {
+    static func send(_ payload: HealthSyncPayload, to endpoint: String) async throws -> DesktopStatusSnapshot? {
         guard var components = URLComponents(string: endpoint),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
@@ -487,9 +908,10 @@ enum WindowsHealthLink {
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 12
         let session = URLSession(configuration: configuration)
+        let data: Data
         let response: URLResponse
         do {
-            (_, response) = try await session.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError {
             let host = url.host ?? "Windows"
             let detail: String
@@ -519,6 +941,8 @@ enum WindowsHealthLink {
                 userInfo: [NSLocalizedDescriptionKey: detail]
             )
         }
+
+        return try? JSONDecoder().decode(WindowsHealthSyncResponse.self, from: data).desktopStatus
     }
 }
 
@@ -696,11 +1120,7 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
     func send(_ payload: HealthSyncPayload) {
         let peers = session.connectedPeers
-        guard !peers.isEmpty else {
-            publish(.searching)
-            restartIfNeeded()
-            return
-        }
+        guard !peers.isEmpty else { return }
 
         do {
             let data = try JSONEncoder().encode(payload)
@@ -747,6 +1167,7 @@ extension HealthPeerLink: MCSessionDelegate {
                 self?.onPayload?(payload)
             }
         } catch {
+            if case .connected = connectionState { return }
             publish(.error("收到无法识别的健康数据"))
         }
     }

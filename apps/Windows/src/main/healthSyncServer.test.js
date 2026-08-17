@@ -116,21 +116,70 @@ test("normalizes and stores desktop status without sensitive configuration", () 
       temperature: 28,
       feelsLike: 30,
       humidity: 65,
-      icon: "100"
+      icon: "100",
+      alerts: [
+        { title: "暴雨橙色预警", level: "warning", message: "今天下午到夜里有强降雨" }
+      ]
     },
+    github: {
+      status: "Live",
+      username: "kibuouo",
+      name: "Will",
+      profileUrl: "https://github.com/kibuouo",
+      commitsThisMonth: 42,
+      streakDays: 8,
+      contributions30d: [0, 1, 3],
+      project: "winPlate"
+    },
+    mail: { status: "live", unreadCount: 4 },
     codex: { status: "Normal", remainingPct: 84, resetText: "6d 20h" },
     superGrok: { status: "Unavailable", remainingPct: null, resetText: null },
     deepSeek: { status: "Normal", currency: "CNY", balance: "12.34" }
   });
 
   assert.equal(snapshot.weather.temperature, 28);
+  assert.equal(snapshot.weather.alerts[0].title, "暴雨橙色预警");
+  assert.equal(snapshot.github.username, "kibuouo");
+  assert.equal(snapshot.github.commitsThisMonth, 42);
+  assert.deepEqual(snapshot.github.contributions30d, [0, 1, 3]);
+  assert.equal(snapshot.mail.unreadCount, 4);
   assert.equal(snapshot.codex.remainingPct, 84);
   assert.equal(snapshot.deepSeek.balance, "12.34");
   assert.equal(Object.hasOwn(snapshot, "apiKey"), false);
+  assert.equal(Object.hasOwn(snapshot.mail, "items"), false);
+
+  const legacy = normalizeDesktopStatusSnapshot({
+    schemaVersion: 1,
+    sender: "Windows WinPlate",
+    sentAt: new Date().toISOString()
+  });
+  assert.equal(legacy.github, null);
+  assert.equal(legacy.mail, null);
+  assert.equal(legacy.weather, null);
 
   const service = createHealthSyncServer({ token: TOKEN });
   service.setDesktopStatusSnapshot(snapshot);
   assert.deepEqual(service.getStatus().desktopStatus, snapshot);
+
+  const incomplete = normalizeDesktopStatusSnapshot({
+    schemaVersion: 1,
+    sender: "Windows WinPlate",
+    sentAt: new Date().toISOString(),
+    weather: snapshot.weather,
+    github: { status: "Unavailable", username: "", name: "", profileUrl: "", contributions30d: [] },
+    mail: { status: "unavailable", unreadCount: 0 },
+    codex: { status: "Normal", remainingPct: 80, resetText: "6d 19h" },
+    superGrok: { status: "Normal", remainingPct: 55, resetText: "4d" },
+    deepSeek: snapshot.deepSeek
+  });
+  service.setDesktopStatusSnapshot(incomplete);
+  const merged = service.getStatus().desktopStatus;
+  assert.equal(merged.github.username, "kibuouo");
+  assert.equal(merged.github.commitsThisMonth, 42);
+  assert.equal(merged.mail.status, "live");
+  assert.equal(merged.mail.unreadCount, 4);
+  assert.equal(merged.codex.remainingPct, 80);
+  assert.equal(merged.superGrok.remainingPct, 55);
 });
 
 test("accepts authenticated health snapshots and rejects invalid tokens", async () => {
@@ -170,6 +219,7 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
       body: JSON.stringify(payload)
     });
     assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json()).desktopStatus, null);
     assert.equal(service.getStatus().snapshot.heartRate, 84);
     assert.equal(service.getStatus().lastSnapshotId, "snapshot-accepted");
     assert.deepEqual(service.getStatus().heartRateHistory, [

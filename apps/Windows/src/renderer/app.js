@@ -139,6 +139,7 @@ function buildDesktopStatusSnapshot() {
     return Number.isFinite(number) ? number : null;
   };
   const weather = statusData.weather || mockStatus.weather;
+  const github = statusData.github || mockStatus.github;
   const codex = statusData.codex || mockStatus.codex;
   const codexQuota = codex.windows?.sevenDay || codex;
   const superGrok = statusData.supergrok || mockStatus.supergrok;
@@ -147,6 +148,9 @@ function buildDesktopStatusSnapshot() {
   const balance = balances.find((item) => String(item?.currency || "").toUpperCase() === "CNY")
     || balances[0]
     || null;
+  const contributions = Array.isArray(github.contributions30d)
+    ? github.contributions30d.slice(-30).map((value) => Math.max(0, Number(value) || 0))
+    : [];
   return {
     schemaVersion: 1,
     sender: "Windows WinPlate",
@@ -158,7 +162,29 @@ function buildDesktopStatusSnapshot() {
       temperature: optionalNumber(weather.temperature),
       feelsLike: optionalNumber(weather.feelsLike),
       humidity: optionalNumber(weather.humidity),
-      icon: weather.icon ? String(weather.icon) : null
+      icon: weather.icon ? String(weather.icon) : null,
+      alerts: (Array.isArray(weatherAlerts?.alerts) ? weatherAlerts.alerts : [])
+        .filter((alert) => alert && alert.lifecycle !== "resolved")
+        .slice(0, 2)
+        .map((alert) => ({
+          title: String(alert.title || "天气预警").slice(0, 80),
+          level: String(alert.level || "warning").slice(0, 32),
+          message: String(alert.message || "").slice(0, 120)
+        }))
+    },
+    github: {
+      status: String(github.status || github.availability || "Unavailable"),
+      username: String(github.username || ""),
+      name: String(github.name || ""),
+      profileUrl: String(github.profileUrl || ""),
+      commitsThisMonth: optionalNumber(github.commitsThisMonth),
+      streakDays: optionalNumber(github.streakDays),
+      contributions30d: contributions,
+      project: String(github.project || "")
+    },
+    mail: {
+      status: String(mailOutline.availability || "unavailable"),
+      unreadCount: dockedUnreadMailCount(mailOutline)
     },
     codex: {
       status: String(codex.status || "Unavailable"),

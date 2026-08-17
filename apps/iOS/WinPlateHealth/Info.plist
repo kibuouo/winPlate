@@ -39,6 +39,13 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>github</string>
+		<string>qqmail</string>
+		<string>mqqmail</string>
+		<string>x-apple-health</string>
+	</array>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_winplate-health._tcp</string>

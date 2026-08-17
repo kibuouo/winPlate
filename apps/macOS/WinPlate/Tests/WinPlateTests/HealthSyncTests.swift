@@ -33,8 +33,22 @@ final class HealthSyncTests: XCTestCase {
                 temperature: 28,
                 feelsLike: 30,
                 humidity: 65,
-                icon: "100"
+                icon: "100",
+                alerts: [
+                    DesktopWeatherAlert(title: "暴雨橙色预警", level: "warning", message: "今天下午到夜里有强降雨")
+                ]
             ),
+            github: DesktopGitHubSnapshot(
+                status: "Live",
+                username: "kibuouo",
+                name: "Will",
+                profileUrl: "https://github.com/kibuouo",
+                commitsThisMonth: 42,
+                streakDays: 8,
+                contributions30d: [0, 1, 3],
+                project: "winPlate"
+            ),
+            mail: DesktopMailSnapshot(status: "live", unreadCount: 4),
             codex: DesktopQuotaSnapshot(status: "Normal", remainingPct: 84, resetText: "6d 20h"),
             superGrok: DesktopQuotaSnapshot(status: "Unavailable", remainingPct: nil, resetText: nil),
             deepSeek: DesktopBalanceSnapshot(status: "Normal", currency: "CNY", balance: "12.34")
@@ -58,6 +72,68 @@ final class HealthSyncTests: XCTestCase {
 
         XCTAssertEqual(decoded, payload)
         XCTAssertEqual(decoded.desktopStatus?.weather?.location, "上海")
+        XCTAssertEqual(decoded.desktopStatus?.weather?.alerts.first?.title, "暴雨橙色预警")
+        XCTAssertEqual(decoded.desktopStatus?.github?.commitsThisMonth, 42)
+        XCTAssertEqual(decoded.desktopStatus?.mail?.unreadCount, 4)
+    }
+
+    func testDesktopStatusMergeKeepsGitHubAndLiveMailWhenIncomingOmitsThem() {
+        let existing = DesktopStatusSnapshot(
+            sender: "MacBook Pro",
+            sentAt: "2026-08-16T10:00:00Z",
+            weather: DesktopWeatherSnapshot(
+                source: "qweather",
+                location: "上海",
+                condition: "晴",
+                temperature: 28,
+                feelsLike: 30,
+                humidity: 65,
+                icon: "100"
+            ),
+            github: DesktopGitHubSnapshot(
+                status: "Live",
+                username: "kibuouo",
+                name: "Will",
+                profileUrl: "https://github.com/kibuouo",
+                commitsThisMonth: 42,
+                streakDays: 8,
+                contributions30d: [0, 1, 3],
+                project: "winPlate"
+            ),
+            mail: DesktopMailSnapshot(status: "live", unreadCount: 4),
+            codex: DesktopQuotaSnapshot(status: "Normal", remainingPct: 84, resetText: "6d 20h"),
+            superGrok: DesktopQuotaSnapshot(status: "Unavailable", remainingPct: nil, resetText: nil),
+            deepSeek: DesktopBalanceSnapshot(status: "Normal", currency: "CNY", balance: "12.34")
+        )
+        let incoming = DesktopStatusSnapshot(
+            sender: "MacBook Pro",
+            sentAt: "2026-08-16T10:01:00Z",
+            weather: DesktopWeatherSnapshot(
+                source: "qweather",
+                location: "上海",
+                condition: "多云",
+                temperature: 26,
+                feelsLike: 27,
+                humidity: 70,
+                icon: "101"
+            ),
+            github: nil,
+            mail: DesktopMailSnapshot(status: "unavailable", unreadCount: 0),
+            codex: DesktopQuotaSnapshot(status: "Normal", remainingPct: 80, resetText: "6d 19h"),
+            superGrok: DesktopQuotaSnapshot(status: "Normal", remainingPct: 55, resetText: "4d"),
+            deepSeek: DesktopBalanceSnapshot(status: "Normal", currency: "CNY", balance: "11.00")
+        )
+
+        let merged = DesktopStatusSnapshot.merging(incoming, onto: existing)
+
+        XCTAssertEqual(merged.github?.username, "kibuouo")
+        XCTAssertEqual(merged.github?.commitsThisMonth, 42)
+        XCTAssertEqual(merged.mail?.status, "live")
+        XCTAssertEqual(merged.mail?.unreadCount, 4)
+        XCTAssertEqual(merged.codex?.remainingPct, 80)
+        XCTAssertEqual(merged.superGrok?.remainingPct, 55)
+        XCTAssertEqual(merged.deepSeek?.balance, "11.00")
+        XCTAssertEqual(merged.weather?.condition, "多云")
     }
 
     func testSearchingStateExplainsHowToReconnect() {

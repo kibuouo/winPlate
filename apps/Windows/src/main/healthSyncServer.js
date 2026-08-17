@@ -143,9 +143,12 @@ function normalizeDesktopStatusSnapshot(input) {
         temperature: optionalNumber(input.weather.temperature, "weather.temperature", { minimum: -100, maximum: 100 }),
         feelsLike: optionalNumber(input.weather.feelsLike, "weather.feelsLike", { minimum: -100, maximum: 100 }),
         humidity: optionalNumber(input.weather.humidity, "weather.humidity", { maximum: 100 }),
-        icon: optionalStatusText(input.weather.icon, "weather.icon", 32)
+        icon: optionalStatusText(input.weather.icon, "weather.icon", 32),
+        alerts: normalizeDesktopWeatherAlerts(input.weather.alerts)
       }
     : null;
+  const github = normalizeDesktopGitHubSnapshot(input.github);
+  const mail = normalizeDesktopMailSnapshot(input.mail);
   const normalizeQuota = (value, fieldName) => value && typeof value === "object"
     ? {
         status: optionalStatusText(value.status, `${fieldName}.status`),
@@ -165,9 +168,93 @@ function normalizeDesktopStatusSnapshot(input) {
     sender,
     sentAt,
     weather,
+    github,
+    mail,
     codex: normalizeQuota(input.codex, "codex"),
     superGrok: normalizeQuota(input.superGrok, "superGrok"),
     deepSeek
+  };
+}
+
+function normalizeDesktopWeatherAlerts(alerts) {
+  if (alerts === null || alerts === undefined || alerts === "") return [];
+  if (!Array.isArray(alerts)) throw new Error("weather.alerts is invalid");
+  return alerts.slice(0, 3).map((alert, index) => {
+    if (!alert || typeof alert !== "object" || Array.isArray(alert)) {
+      throw new Error(`weather.alerts[${index}] is invalid`);
+    }
+    return {
+      title: optionalStatusText(alert.title, `weather.alerts[${index}].title`, 80) || "天气预警",
+      level: optionalStatusText(alert.level, `weather.alerts[${index}].level`, 32) || "warning",
+      message: optionalStatusText(alert.message, `weather.alerts[${index}].message`, 120)
+    };
+  });
+}
+
+function normalizeDesktopGitHubSnapshot(input) {
+  if (input === null || input === undefined || input === "") return null;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("github is invalid");
+  }
+  const contributions = Array.isArray(input.contributions30d)
+    ? input.contributions30d.slice(-30).map((value, index) => {
+        const count = optionalNumber(value, `github.contributions30d[${index}]`, { maximum: 10_000 });
+        return count === null ? 0 : count;
+      })
+    : [];
+  return {
+    status: optionalStatusText(input.status, "github.status", 64),
+    username: optionalStatusText(input.username, "github.username", 64),
+    name: optionalStatusText(input.name, "github.name", 80),
+    profileUrl: optionalStatusText(input.profileUrl, "github.profileUrl", 256),
+    commitsThisMonth: optionalNumber(input.commitsThisMonth, "github.commitsThisMonth", { maximum: 100_000 }),
+    streakDays: optionalNumber(input.streakDays, "github.streakDays", { maximum: 10_000 }),
+    contributions30d: contributions,
+    project: optionalStatusText(input.project, "github.project", 80)
+  };
+}
+
+function hasDesktopGitHub(github) {
+  return Boolean(github && String(github.username || "").trim());
+}
+
+function hasDesktopWeather(weather) {
+  return Boolean(
+    weather
+    && (String(weather.location || "").trim() || weather.temperature != null)
+  );
+}
+
+function preferDesktopMail(incoming, existing) {
+  if (!incoming) return existing || null;
+  if (!existing) return incoming;
+  if (String(incoming.status || "").toLowerCase() === "live") return incoming;
+  if (String(existing.status || "").toLowerCase() === "live") return existing;
+  return incoming;
+}
+
+function mergeDesktopStatusSnapshot(incoming, existing) {
+  if (!incoming) return existing || null;
+  if (!existing) return incoming;
+  return {
+    ...incoming,
+    weather: hasDesktopWeather(incoming.weather) ? incoming.weather : existing.weather,
+    github: hasDesktopGitHub(incoming.github) ? incoming.github : existing.github,
+    mail: preferDesktopMail(incoming.mail, existing.mail),
+    codex: incoming.codex || existing.codex,
+    superGrok: incoming.superGrok || existing.superGrok,
+    deepSeek: incoming.deepSeek || existing.deepSeek
+  };
+}
+
+function normalizeDesktopMailSnapshot(input) {
+  if (input === null || input === undefined || input === "") return null;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("mail is invalid");
+  }
+  return {
+    status: optionalStatusText(input.status, "mail.status", 64) || "unavailable",
+    unreadCount: Math.max(0, optionalNumber(input.unreadCount, "mail.unreadCount", { maximum: 9_999 }) || 0)
   };
 }
 
@@ -312,7 +399,10 @@ function createHealthSyncServer({
   }
 
   function setDesktopStatusSnapshot(input) {
-    desktopStatus = normalizeDesktopStatusSnapshot(input);
+    desktopStatus = mergeDesktopStatusSnapshot(
+      normalizeDesktopStatusSnapshot(input),
+      desktopStatus
+    );
     notify();
     return desktopStatus;
   }
@@ -357,7 +447,8 @@ function createHealthSyncServer({
           jsonResponse(response, 200, {
             ok: true,
             duplicate: true,
-            receivedAt: lastReceivedAt
+            receivedAt: lastReceivedAt,
+            desktopStatus
           });
           notify();
           return;
@@ -367,7 +458,8 @@ function createHealthSyncServer({
           jsonResponse(response, 200, {
             ok: true,
             ignored: "older",
-            receivedAt: lastReceivedAt
+            receivedAt: lastReceivedAt,
+            desktopStatus
           });
           return;
         }
@@ -381,7 +473,11 @@ function createHealthSyncServer({
           heartRateHistory = nextHeartRateHistory;
           persistHeartRateHistory();
         }
-        jsonResponse(response, 200, { ok: true, receivedAt: lastReceivedAt });
+        jsonResponse(response, 200, {
+          ok: true,
+          receivedAt: lastReceivedAt,
+          desktopStatus
+        });
         notify();
       } catch (error) {
         lastError = error.message;
@@ -498,5 +594,6 @@ module.exports = {
   normalizeHeartRateHistory,
   normalizeHealthPayload,
   normalizeDesktopStatusSnapshot,
+  mergeDesktopStatusSnapshot,
   parseHealthPairingPayload
 };
