@@ -17,6 +17,12 @@ const {
 
 const TOKEN = "test-health-sync-token-123456";
 
+test("Windows shared heart-rate history script stays identical to @winplate/core/health", async () => {
+  const core = await fs.readFile(require.resolve("@winplate/core/health"), "utf8");
+  const shared = await fs.readFile(path.join(__dirname, "../shared/heartRateHistory.js"), "utf8");
+  assert.equal(shared, core);
+});
+
 test("deduplicates, sorts, and prunes local heart-rate history", () => {
   const now = Date.parse("2026-08-08T00:00:00.000Z");
   const history = normalizeHeartRateHistory([

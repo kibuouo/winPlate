@@ -2,6 +2,14 @@ const http = require("node:http");
 const os = require("node:os");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const {
+  HEART_RATE_HISTORY_WINDOW_MS,
+  MAX_HEART_RATE_HISTORY_POINTS,
+  parseHealthDate,
+  normalizeHeartRateHistory,
+  normalizeIncomingHeartRateSamples,
+  mergeHeartRateHistory
+} = require("@winplate/core/health");
 
 const HEALTH_SYNC_SCHEMA_VERSION = 2;
 const SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS = new Set([1, HEALTH_SYNC_SCHEMA_VERSION]);
@@ -9,8 +17,6 @@ const DEFAULT_HEALTH_SYNC_PORT = 8766;
 const MAX_BODY_BYTES = 64 * 1024;
 const STALE_AFTER_MS = 2 * 60 * 1000;
 const HEART_RATE_HISTORY_FILE_NAME = "health-heart-rate-history.json";
-const HEART_RATE_HISTORY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_HEART_RATE_HISTORY_POINTS = 2048;
 
 function getLanIPv4Addresses(networkInterfaces = os.networkInterfaces()) {
   const addresses = [];
@@ -25,23 +31,8 @@ function getLanIPv4Addresses(networkInterfaces = os.networkInterfaces()) {
   return addresses;
 }
 
-function parseDate(value, fieldName, { required = false } = {}) {
-  if (value === null || value === undefined || value === "") {
-    if (required) throw new Error(`${fieldName} is required`);
-    return null;
-  }
-
-  let timestamp;
-  if (typeof value === "number" && Number.isFinite(value)) {
-    // Swift's JSONEncoder encodes Date as seconds since 2001-01-01.
-    timestamp = value < 10_000_000_000 ? (value + 978307200) * 1000 : value;
-  } else if (typeof value === "string") {
-    timestamp = Date.parse(value);
-  }
-  if (!Number.isFinite(timestamp)) throw new Error(`${fieldName} is invalid`);
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) throw new Error(`${fieldName} is invalid`);
-  return date.toISOString();
+function parseDate(value, fieldName, options) {
+  return parseHealthDate(value, fieldName, options);
 }
 
 function optionalNumber(value, fieldName, { minimum = 0, maximum = Number.POSITIVE_INFINITY } = {}) {
@@ -63,87 +54,6 @@ function optionalReason(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "string" || value.length > 64) throw new Error("reason is invalid");
   return value;
-}
-
-function normalizeHeartRateHistory(points, nowTimestamp = Date.now()) {
-  const nowMs = Number.isFinite(Number(nowTimestamp)) ? Number(nowTimestamp) : Date.now();
-  const cutoff = nowMs - HEART_RATE_HISTORY_WINDOW_MS;
-  const bySampleTimestamp = new Map();
-
-  for (const point of Array.isArray(points) ? points : []) {
-    const rawSampleAt = point?.sampleAt ?? point?.heartRateSampleAt;
-    let sampleAt;
-    try {
-      sampleAt = parseDate(rawSampleAt, "sampleAt");
-    } catch {
-      continue;
-    }
-    const sampleTimestamp = Date.parse(sampleAt);
-    const heartRate = Number(point?.heartRate ?? point?.value);
-    if (
-      !Number.isFinite(sampleTimestamp)
-      || sampleTimestamp < cutoff
-      || !Number.isFinite(heartRate)
-      || heartRate < 0
-      || heartRate > 300
-    ) {
-      continue;
-    }
-    bySampleTimestamp.set(sampleTimestamp, {
-      sampleAt: new Date(sampleTimestamp).toISOString(),
-      heartRate
-    });
-  }
-
-  return [...bySampleTimestamp.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([, point]) => point)
-    .slice(-MAX_HEART_RATE_HISTORY_POINTS);
-}
-
-function normalizeIncomingHeartRateSamples(samples) {
-  if (samples === null || samples === undefined || samples === "") return [];
-  if (!Array.isArray(samples)) throw new Error("heartRateSamples is invalid");
-  const normalized = [];
-  for (const sample of samples.slice(-MAX_HEART_RATE_HISTORY_POINTS)) {
-    const rawSampleAt = sample?.sampleAt ?? sample?.date;
-    const rawHeartRate = sample?.heartRate ?? sample?.bpm ?? sample?.value;
-    let sampleAt;
-    try {
-      sampleAt = parseDate(rawSampleAt, "heartRateSamples.sampleAt");
-    } catch {
-      continue;
-    }
-    let heartRate;
-    try {
-      heartRate = optionalNumber(rawHeartRate, "heartRateSamples.heartRate", { maximum: 300 });
-    } catch {
-      continue;
-    }
-    if (!sampleAt || heartRate === null) continue;
-    normalized.push({ sampleAt, heartRate });
-  }
-  return normalized;
-}
-
-function mergeHeartRateHistory(history, snapshot, nowTimestamp = Date.now()) {
-  const incoming = [];
-  if (Array.isArray(snapshot?.heartRateSamples)) {
-    incoming.push(...snapshot.heartRateSamples);
-  }
-  if (snapshot?.heartRate !== null && snapshot?.heartRate !== undefined) {
-    incoming.push({
-      sampleAt: snapshot.heartRateSampleAt || snapshot.healthUpdatedAt || snapshot.sentAt,
-      heartRate: snapshot.heartRate
-    });
-  }
-  if (incoming.length === 0) {
-    return normalizeHeartRateHistory(history, nowTimestamp);
-  }
-  return normalizeHeartRateHistory(
-    [...(Array.isArray(history) ? history : []), ...incoming],
-    nowTimestamp
-  );
 }
 
 function metricFreshness(sampleAt, nowTimestamp, { freshMs, agingMs }) {

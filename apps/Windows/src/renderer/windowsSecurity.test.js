@@ -415,16 +415,14 @@ test("Windows health configuration lives in settings while the health workspace 
 
 test("health display helpers preserve empty values and use Chinese sync labels", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const helperStart = appSource.indexOf("function healthTimestamp");
+  const helperStart = appSource.indexOf("function healthHistoryApi");
   const helperEnd = appSource.indexOf("function normalizeGithub", helperStart);
-  const statsStart = appSource.indexOf("function healthHeartRateStats");
-  const statsEnd = appSource.indexOf("function healthHeartRateAxisBounds", statsStart);
-  const context = {};
+  const healthHistory = require("@winplate/core/health");
+  const context = { window: { WinPlateHealthHistory: healthHistory } };
   vm.runInNewContext(`${appSource.slice(helperStart, helperEnd)}
-    ${appSource.slice(statsStart, statsEnd)}
     this.healthMetric = healthMetric;
     this.healthStateLabel = healthStateLabel;
-    this.healthHeartRateStats = healthHeartRateStats;`, context);
+    this.healthHeartRateStats = window.WinPlateHealthHistory.heartRateStats;`, context);
 
   assert.equal(context.healthMetric(null), "--");
   assert.equal(context.healthMetric(undefined), "--");

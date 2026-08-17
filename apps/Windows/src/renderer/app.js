@@ -1,11 +1,9 @@
+function healthHistoryApi() {
+  return (typeof window !== "undefined" ? window : globalThis).WinPlateHealthHistory;
+}
+
 function healthTimestamp(value) {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "number" && Number.isFinite(value)) return value < 10_000_000_000 ? value * 1000 : value;
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
+  return healthHistoryApi().parseHealthTimestamp(value);
 }
 
 function healthMetric(value) {
@@ -96,28 +94,8 @@ function healthMetricTile({ title, value, unit, icon, tone }) {
     </div>`;
 }
 
-function normalizeHealthRateHistory(points) {
-  const bySampleTimestamp = new Map();
-  for (const point of Array.isArray(points) ? points : []) {
-    const sampleTimestamp = healthTimestamp(point?.sampleAt ?? point?.heartRateSampleAt);
-    const heartRate = Number(point?.heartRate ?? point?.value);
-    if (
-      !Number.isFinite(sampleTimestamp)
-      || !Number.isFinite(heartRate)
-      || heartRate < 0
-      || heartRate > 300
-    ) {
-      continue;
-    }
-    bySampleTimestamp.set(sampleTimestamp, {
-      sampleAt: new Date(sampleTimestamp).toISOString(),
-      heartRate
-    });
-  }
-  return [...bySampleTimestamp.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([, point]) => point)
-    .slice(-2048);
+function normalizeHealthRateHistory(points, nowTimestamp = Date.now()) {
+  return healthHistoryApi().normalizeHeartRateHistory(points, nowTimestamp);
 }
 
 function applyHealthSyncStatus(payload) {
@@ -3349,34 +3327,18 @@ function healthDiagnosticsCard() {
 }
 
 function healthHeartRateRange(range = healthChartRange) {
-  if (range === "week") {
-    return { key: "week", label: "7 天", windowMs: 7 * 24 * 60 * 60 * 1000 };
-  }
-  return { key: "day", label: "24 小时", windowMs: 24 * 60 * 60 * 1000 };
+  return healthHistoryApi().heartRateRange(range);
 }
 
 function healthHeartRateSamples(range = healthChartRange, nowTimestamp = Date.now()) {
-  const rangeConfig = healthHeartRateRange(range);
-  const nowMs = Number.isFinite(Number(nowTimestamp)) ? Number(nowTimestamp) : Date.now();
-  const start = nowMs - rangeConfig.windowMs;
-  return normalizeHealthRateHistory(healthSyncStatus.heartRateHistory)
-    .filter((point) => {
-      const timestamp = Date.parse(point.sampleAt);
-      return timestamp >= start && timestamp <= nowMs + 60 * 1000;
-    });
+  return healthHistoryApi().filterHeartRateHistory(healthSyncStatus.heartRateHistory, {
+    range,
+    nowTimestamp
+  });
 }
 
 function healthHeartRateStats(samples) {
-  const values = (Array.isArray(samples) ? samples : [])
-    .map((point) => Number(point?.heartRate))
-    .filter((value) => Number.isFinite(value));
-  if (!values.length) return null;
-  return {
-    count: values.length,
-    average: values.reduce((sum, value) => sum + value, 0) / values.length,
-    minimum: Math.min(...values),
-    maximum: Math.max(...values)
-  };
+  return healthHistoryApi().heartRateStats(samples);
 }
 
 function healthHeartRateAxisBounds(samples) {

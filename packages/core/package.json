@@ -6,12 +6,13 @@
   "exports": {
     ".": "./index.js",
     "./digest": "./digest/index.js",
+    "./health": "./health/index.js",
     "./module-registry": "./module-registry/index.js",
     "./notification": "./notification/index.js",
     "./notification/smart-icon-keys": "./notification/smart-icon-keys.js"
   },
   "scripts": {
-    "test": "node --test architecture.test.js digest/digestEngine.test.js module-registry/moduleRegistry.test.js notification/conversations.test.js notification/manager.test.js"
+    "test": "node --test architecture.test.js digest/digestEngine.test.js health/healthHistory.test.js module-registry/moduleRegistry.test.js notification/conversations.test.js notification/manager.test.js"
   },
   "dependencies": {
     "@winplate/icons": "0.3.0",
