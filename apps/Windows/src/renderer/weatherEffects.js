@@ -3,7 +3,15 @@
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (globalScope) globalScope.WinPlateWeatherEffects = api;
 })(typeof window !== "undefined" ? window : globalThis, (globalScope) => {
+  const MAX_CANVAS_WIDTH = 720;
+  const MAX_CANVAS_HEIGHT = 420;
+  const MAX_PIXEL_RATIO = 1;
+  const MAX_PARTICLES = 64;
+  const MAX_DROPLETS = 12;
+  const MIN_FRAME_MS = 50;
   const activeEffects = new WeakMap();
+  const liveEffects = new Set();
+  let visibilityBound = false;
 
   function finite(value, fallback = 0) {
     const number = Number(value);
@@ -12,6 +20,42 @@
 
   function clamp(value, minimum, maximum) {
     return Math.max(minimum, Math.min(maximum, value));
+  }
+
+  function pageIsHidden() {
+    return globalScope.document?.hidden === true;
+  }
+
+  function canvasBitmapSize(cssWidth, cssHeight, devicePixelRatio = 1) {
+    const width = clamp(Math.round(finite(cssWidth, 1)), 1, MAX_CANVAS_WIDTH);
+    const height = clamp(Math.round(finite(cssHeight, 1)), 1, MAX_CANVAS_HEIGHT);
+    const pixelRatio = clamp(finite(devicePixelRatio, 1), 1, MAX_PIXEL_RATIO);
+    return {
+      cssWidth: width,
+      cssHeight: height,
+      pixelRatio,
+      bitmapWidth: Math.max(1, Math.round(width * pixelRatio)),
+      bitmapHeight: Math.max(1, Math.round(height * pixelRatio))
+    };
+  }
+
+  function particleBudget(config = {}) {
+    const density = clamp(finite(config.density, 1), .2, 1);
+    const intensity = clamp(finite(config.intensity), 0, 1);
+    const haze = clamp(finite(config.haze), 0, 1);
+    let count = 0;
+    if (["rain", "storm"].includes(config.scene)) count = Math.round(28 + intensity * 36);
+    else if (config.scene === "sleet") count = Math.round(24 + intensity * 28);
+    else if (["snow", "cold"].includes(config.scene)) count = Math.round(18 + intensity * 28);
+    else if (["mist", "haze", "sand", "hot"].includes(config.scene)) count = Math.round(10 + Math.max(haze, intensity) * 18);
+    return clamp(Math.round(count * density), 0, MAX_PARTICLES);
+  }
+
+  function dropletBudget(config = {}) {
+    if (!["rain", "storm", "sleet"].includes(config.scene)) return 0;
+    const density = clamp(finite(config.density, 1), .2, 1);
+    const intensity = clamp(finite(config.intensity), 0, 1);
+    return clamp(Math.round((4 + intensity * 10) * density), 0, MAX_DROPLETS);
   }
 
   function readConfig(canvas) {
@@ -29,9 +73,7 @@
   }
 
   function effectSignature(canvas) {
-    return ["scene", "intensity", "cloudCover", "windSpeed", "windDegrees", "humidity", "visibility", "haze", "density"]
-      .map((key) => canvas.dataset[key] || "")
-      .join("|");
+    return `${canvas?.dataset?.scene || ""}|${canvas?.dataset?.density || ""}`;
   }
 
   function resetParticle(particle, width, height, config, initial = false) {
@@ -51,13 +93,7 @@
   }
 
   function createParticles(width, height, config) {
-    let count = 0;
-    if (["rain", "storm"].includes(config.scene)) count = Math.round(70 + config.intensity * 170);
-    else if (config.scene === "sleet") count = Math.round(60 + config.intensity * 110);
-    else if (["snow", "cold"].includes(config.scene)) count = Math.round(42 + config.intensity * 120);
-    else if (["mist", "haze", "sand", "hot"].includes(config.scene)) count = Math.round(24 + Math.max(config.haze, config.intensity) * 70);
-    count = Math.round(count * config.density);
-    return Array.from({ length: count }, (_, index) => {
+    return Array.from({ length: particleBudget(config) }, (_, index) => {
       const particle = {
         kind: config.scene === "sleet" && index % 3 === 0
           ? "snow"
@@ -73,14 +109,19 @@
   }
 
   function createDroplets(width, height, config) {
-    if (!["rain", "storm", "sleet"].includes(config.scene)) return [];
-    return Array.from({ length: Math.round((8 + config.intensity * 28) * config.density) }, () => ({
+    return Array.from({ length: dropletBudget(config) }, () => ({
       x: Math.random() * width,
       y: Math.random() * height,
       radius: 1.5 + Math.random() * 5.5,
       speed: Math.random() < .22 ? 4 + Math.random() * 12 : 0,
       alpha: .08 + Math.random() * .18
     }));
+  }
+
+  function releaseCanvasBitmap(canvas) {
+    if (!canvas) return;
+    canvas.width = 1;
+    canvas.height = 1;
   }
 
   function startEffect(canvas) {
@@ -98,18 +139,23 @@
     let destroyed = false;
     let nextFlash = 2800 + Math.random() * 4200;
     let flashStarted = -1000;
+    let lastBitmapWidth = 0;
+    let lastBitmapHeight = 0;
 
     const windRadians = config.windDegrees * Math.PI / 180;
     const windX = Math.sin(windRadians) * config.windSpeed * 4.2;
 
     function resize() {
       const bounds = canvas.getBoundingClientRect();
-      width = Math.max(1, Math.round(bounds.width));
-      height = Math.max(1, Math.round(bounds.height));
-      const pixelRatio = Math.min(1.5, globalScope.devicePixelRatio || 1);
-      canvas.width = Math.max(1, Math.round(width * pixelRatio));
-      canvas.height = Math.max(1, Math.round(height * pixelRatio));
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      const bitmap = canvasBitmapSize(bounds.width, bounds.height, globalScope.devicePixelRatio || 1);
+      width = bitmap.cssWidth;
+      height = bitmap.cssHeight;
+      if (bitmap.bitmapWidth === lastBitmapWidth && bitmap.bitmapHeight === lastBitmapHeight) return;
+      lastBitmapWidth = bitmap.bitmapWidth;
+      lastBitmapHeight = bitmap.bitmapHeight;
+      canvas.width = bitmap.bitmapWidth;
+      canvas.height = bitmap.bitmapHeight;
+      context.setTransform(bitmap.pixelRatio, 0, 0, bitmap.pixelRatio, 0, 0);
       particles = createParticles(width, height, config);
       droplets = createDroplets(width, height, config);
       render(0, 0);
@@ -226,12 +272,21 @@
       drawParticles(deltaSeconds, time);
     }
 
+    function stopLoop() {
+      if (frameId) globalScope.cancelAnimationFrame(frameId);
+      frameId = 0;
+    }
+
     function frame(time) {
       if (destroyed || !canvas.isConnected) {
         destroy();
         return;
       }
-      if (visible && time - lastFrame >= 30) {
+      if (pageIsHidden() || !visible) {
+        frameId = 0;
+        return;
+      }
+      if (time - lastFrame >= MIN_FRAME_MS) {
         const deltaSeconds = lastFrame ? Math.min(.05, (time - lastFrame) / 1000) : 0;
         lastFrame = time;
         render(time, reducedMotion ? 0 : deltaSeconds);
@@ -239,28 +294,63 @@
       if (!reducedMotion) frameId = globalScope.requestAnimationFrame(frame);
     }
 
+    function resume() {
+      if (destroyed || reducedMotion || frameId || pageIsHidden() || !visible) return;
+      frameId = globalScope.requestAnimationFrame(frame);
+    }
+
     const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(resize) : null;
     const intersectionObserver = typeof IntersectionObserver === "function"
-      ? new IntersectionObserver((entries) => { visible = entries.some((entry) => entry.isIntersecting); })
+      ? new IntersectionObserver((entries) => {
+        visible = entries.some((entry) => entry.isIntersecting);
+        if (visible) resume();
+        else stopLoop();
+      })
       : null;
     resizeObserver?.observe(canvas);
     intersectionObserver?.observe(canvas);
     resize();
-    if (!reducedMotion) frameId = globalScope.requestAnimationFrame(frame);
 
     function destroy() {
       if (destroyed) return;
       destroyed = true;
-      if (frameId) globalScope.cancelAnimationFrame(frameId);
+      stopLoop();
       resizeObserver?.disconnect();
       intersectionObserver?.disconnect();
+      particles = [];
+      droplets = [];
+      releaseCanvasBitmap(canvas);
       activeEffects.delete(canvas);
+      liveEffects.delete(controller);
     }
 
-    return { signature, destroy };
+    const controller = { signature, destroy, resume, pause: stopLoop };
+    liveEffects.add(controller);
+    if (!reducedMotion) resume();
+    return controller;
+  }
+
+  function bindVisibilityPause() {
+    const documentRef = globalScope.document;
+    if (visibilityBound || !documentRef?.addEventListener) return;
+    visibilityBound = true;
+    documentRef.addEventListener("visibilitychange", () => {
+      if (pageIsHidden()) {
+        for (const effect of liveEffects) effect.pause();
+        return;
+      }
+      for (const effect of liveEffects) effect.resume();
+    });
+  }
+
+  function unmountWeatherEffects(root = globalScope.document) {
+    root?.querySelectorAll?.("canvas.weather-scene-canvas").forEach((canvas) => {
+      activeEffects.get(canvas)?.destroy();
+    });
   }
 
   function mountWeatherEffects(root = globalScope.document) {
+    bindVisibilityPause();
     root?.querySelectorAll?.("canvas.weather-scene-canvas").forEach((canvas) => {
       const signature = effectSignature(canvas);
       const active = activeEffects.get(canvas);
@@ -270,5 +360,16 @@
     });
   }
 
-  return { mountWeatherEffects };
+  return {
+    MAX_CANVAS_WIDTH,
+    MAX_CANVAS_HEIGHT,
+    MAX_PARTICLES,
+    MAX_DROPLETS,
+    canvasBitmapSize,
+    particleBudget,
+    dropletBudget,
+    effectSignature,
+    mountWeatherEffects,
+    unmountWeatherEffects
+  };
 });

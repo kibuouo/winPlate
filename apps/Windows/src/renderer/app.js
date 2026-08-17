@@ -212,7 +212,7 @@ function normalizeGithub(github = {}, fallback = mockStatus.github) {
       ? merged.contributions30d.slice(-30)
       : Array(30).fill(0),
     contributionMonths: Array.isArray(merged.contributionMonths)
-      ? merged.contributionMonths
+      ? merged.contributionMonths.slice(-12)
       : [],
     repositories: Array.isArray(merged.repositories)
       ? merged.repositories.map((repository) => ({
@@ -339,9 +339,17 @@ function dashboardCachePayload() {
   };
 }
 
+let dashboardCachePersistTimer = null;
+const DASHBOARD_CACHE_PERSIST_MS = 2_500;
+
 function persistDashboardCache() {
   if (view === "tooltip" || !window.WinPlateDashboardCache?.write) return false;
-  return window.WinPlateDashboardCache.write(dashboardCachePayload());
+  if (dashboardCachePersistTimer) return true;
+  dashboardCachePersistTimer = setTimeout(() => {
+    dashboardCachePersistTimer = null;
+    window.WinPlateDashboardCache.write(dashboardCachePayload());
+  }, DASHBOARD_CACHE_PERSIST_MS);
+  return true;
 }
 
 let healthSyncStatus = { state: "waiting", snapshot: null, heartRateHistory: [], connectionUrls: [], pairingPayloads: [] };
@@ -362,6 +370,16 @@ let selectedContributionMonth = null;
 let selectedContributionDate = null;
 let selectedContributionRepository = null;
 const githubContributionDetailCache = new Map();
+const GITHUB_CONTRIBUTION_CACHE_LIMIT = 16;
+
+function rememberGithubContributionDetail(key, detail) {
+  githubContributionDetailCache.delete(key);
+  githubContributionDetailCache.set(key, detail);
+  while (githubContributionDetailCache.size > GITHUB_CONTRIBUTION_CACHE_LIMIT) {
+    const oldest = githubContributionDetailCache.keys().next().value;
+    githubContributionDetailCache.delete(oldest);
+  }
+}
 let githubContributionRequestId = 0;
 let githubRefreshInFlight = false;
 let dashboardRefreshInFlight = false;
@@ -661,9 +679,10 @@ function applyMainTheme() {
   document.documentElement.style.setProperty("--window-opacity", String(appSettings.appearance.opacity));
   document.documentElement.style.setProperty("--window-opacity-percent", `${Math.round(appSettings.appearance.opacity * 100)}%`);
   if (view === "main") window.winplate.setWindowTheme(theme);
-  // Rebuild open mail preview so dark/light srcdoc chrome stays in sync.
   if (view === "main" && mailDetail.open) {
-    updateMainStatusDom();
+    const frame = document.querySelector("iframe.mail-detail-frame");
+    if (frame) delete frame.dataset.mailFrameBound;
+    bindMailPreviewFrame();
   }
 }
 
@@ -1811,10 +1830,16 @@ function shouldPreserveFormState(element) {
     || element instanceof HTMLSelectElement;
 }
 
+function shouldPreserveMailFrameState(element) {
+  return element instanceof HTMLIFrameElement && element.classList.contains("mail-detail-frame");
+}
+
 function syncAttributes(current, desired) {
   const preserved = shouldPreserveFormState(current)
     ? new Set(["value", "checked", "selected"])
-    : new Set();
+    : shouldPreserveMailFrameState(current)
+      ? new Set(["srcdoc", "data-mail-frame-bound"])
+      : new Set();
   Array.from(current.attributes).forEach(({ name }) => {
     if (!preserved.has(name) && !desired.hasAttribute(name)) {
       current.removeAttribute(name);
@@ -2210,7 +2235,7 @@ async function loadGithubContributionActivity(range, fallback) {
   try {
     const detail = await window.winplate.getGithubContributions(range);
     if (requestId !== githubContributionRequestId) return;
-    githubContributionDetailCache.set(key, detail);
+    rememberGithubContributionDetail(key, detail);
     panel.innerHTML = renderGithubContributionActivity(detail);
   } catch (error) {
     if (requestId !== githubContributionRequestId) return;
@@ -2393,6 +2418,10 @@ function weatherSceneMarkup(weather = {}, options = {}) {
 
 function mountWeatherEffects(root = document) {
   window.WinPlateWeatherEffects?.mountWeatherEffects(root);
+}
+
+function unmountWeatherEffects(root = document) {
+  window.WinPlateWeatherEffects?.unmountWeatherEffects?.(root);
 }
 
 function weatherLiveInsights(weather = {}) {
@@ -3777,15 +3806,33 @@ function mailIframeDocument(body = "", isPlainText = false) {
   return withMailPreviewCsp(body);
 }
 
+function mailPreviewFrameKey(message = {}) {
+  const uid = String(mailDetail.uid || "");
+  if (message.htmlBody) return `${uid}:html`;
+  if (message.textBody) return `${uid}:text`;
+  return "";
+}
+
 function mailDetailBody(message = {}) {
-  if (message.htmlBody) {
-    return `<iframe class="mail-detail-frame theme-html" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.htmlBody, false))}"></iframe>`;
-  }
-  if (message.textBody) {
-    const themeClass = resolvedTheme() === "dark" ? "theme-plain-dark" : "theme-plain-light";
-    return `<iframe class="mail-detail-frame ${themeClass}" sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeHtml(mailIframeDocument(message.textBody, true))}"></iframe>`;
-  }
-  return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
+  const key = mailPreviewFrameKey(message);
+  if (!key) return `<div class="mail-detail-empty">这封邮件没有可展示的正文。</div>`;
+  const themeClass = message.htmlBody
+    ? "theme-html"
+    : (resolvedTheme() === "dark" ? "theme-plain-dark" : "theme-plain-light");
+  return `<iframe class="mail-detail-frame ${themeClass}" data-mail-frame="${escapeHtml(key)}" sandbox="" referrerpolicy="no-referrer"></iframe>`;
+}
+
+function bindMailPreviewFrame() {
+  const frame = document.querySelector("iframe.mail-detail-frame[data-mail-frame]");
+  if (!frame) return;
+  const key = frame.dataset.mailFrame || "";
+  const message = mailDetail.message || {};
+  if (!key || key !== mailPreviewFrameKey(message)) return;
+  if (frame.dataset.mailFrameBound === key && frame.getAttribute("srcdoc") != null) return;
+  frame.dataset.mailFrameBound = key;
+  frame.srcdoc = message.htmlBody
+    ? mailIframeDocument(message.htmlBody, false)
+    : mailIframeDocument(message.textBody, true);
 }
 
 function closeMailDetail() {
@@ -4911,6 +4958,7 @@ function updateMainStatusDom(moduleIds = null) {
     updateProgressBars(pageContent);
     updateModuleHealthDom(requested);
     if (requested.includes("weather")) mountWeatherEffects(pageContent);
+    if (!moduleIds || requested.includes("mail")) bindMailPreviewFrame();
     return;
   }
 
@@ -4919,6 +4967,7 @@ function updateMainStatusDom(moduleIds = null) {
     const scrollPosition = mainContent
       ? { top: mainContent.scrollTop, left: mainContent.scrollLeft }
       : null;
+    unmountWeatherEffects(pageContent);
     pageContent.replaceChildren(...desiredChildren.map((node) => node.cloneNode(true)));
     if (scrollPosition) mainContent.scrollTo(scrollPosition);
     bindAvatarFallbacks(pageContent);
@@ -4931,6 +4980,7 @@ function updateMainStatusDom(moduleIds = null) {
     bindHealthControls();
     updateProgressBars(pageContent);
     mountWeatherEffects(pageContent);
+    bindMailPreviewFrame();
     return;
   }
 
@@ -4957,6 +5007,7 @@ function updateMainStatusDom(moduleIds = null) {
   }
   updateProgressBars(pageContent);
   mountWeatherEffects(pageContent);
+  bindMailPreviewFrame();
 }
 
 function updateFloatingStatusDom(moduleIds = null) {
@@ -5151,6 +5202,7 @@ async function refreshSelectedWeatherLocation({ force = false, allowSystem = fal
 }
 
 function bindMailControls() {
+  bindMailPreviewFrame();
   const pageContent = document.querySelector("#page-content");
   if (pageContent && !pageContent.dataset.mailDelegationBound) {
     pageContent.dataset.mailDelegationBound = "true";

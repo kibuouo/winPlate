@@ -463,6 +463,32 @@ test("opening an unread notification paints detail before marking it read and ke
   assert.match(listSource, /pinnedId: notificationSelection\.id/);
 });
 
+test("main renderer avoids rebuilding mail HTML and caches dashboard snapshots on a delay", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const effects = fs.readFileSync(path.join(__dirname, "weatherEffects.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const mailStart = appSource.indexOf("function mailPreviewFrameKey");
+  const mailEnd = appSource.indexOf("function closeMailDetail", mailStart);
+  const mailSource = appSource.slice(mailStart, mailEnd);
+  const cacheStart = appSource.indexOf("function persistDashboardCache");
+  const cacheEnd = appSource.indexOf("let healthSyncStatus", cacheStart);
+  const cacheSource = appSource.slice(cacheStart, cacheEnd);
+
+  assert.match(mailSource, /data-mail-frame=/);
+  assert.doesNotMatch(mailSource, /srcdoc="\$\{escapeHtml\(mailIframeDocument/);
+  assert.match(mailSource, /function bindMailPreviewFrame/);
+  assert.match(appSource, /shouldPreserveMailFrameState/);
+  assert.match(appSource, /GITHUB_CONTRIBUTION_CACHE_LIMIT = 16/);
+  assert.match(appSource, /contributionMonths\.slice\(-12\)/);
+  assert.match(cacheSource, /DASHBOARD_CACHE_PERSIST_MS/);
+  assert.match(cacheSource, /setTimeout/);
+  assert.match(effects, /MAX_CANVAS_WIDTH = 720/);
+  assert.match(effects, /MAX_PARTICLES = 64/);
+  assert.match(effects, /document\?\.hidden/);
+  assert.match(effects, /canvas\.width = 1/);
+  assert.doesNotMatch(styles, /will-change:\s*transform/);
+});
+
 test("renderer CSP allows only the intended external image capability", () => {
   const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
   assert.match(html, /img-src[^;]*https:/);
