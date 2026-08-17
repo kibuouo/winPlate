@@ -94,6 +94,7 @@ final class AppState: ObservableObject {
         isMainSidebarVisible = UserDefaults.standard.object(
             forKey: SidebarPresentation.visibilityDefaultsKey
         ) as? Bool ?? true
+        heartRateHistory = HeartRateHistoryStore.load()
         healthPeerLink.onStateChange = { [weak self] state in
             DispatchQueue.main.async {
                 self?.healthConnectionState = state
@@ -108,12 +109,13 @@ final class AppState: ObservableObject {
                 guard let self else { return }
                 self.healthSnapshot = payload
                 self.healthLastReceivedAt = Date()
-                if let heartRate = payload.heartRate {
-                    let date = payload.heartRateSampleAt ?? payload.healthUpdatedAt ?? payload.sentAt
-                    self.heartRateHistory = HeartRateHistory.appending(
-                        HeartRateHistoryPoint(date: date, bpm: heartRate),
-                        to: self.heartRateHistory
-                    )
+                let incoming = payload.recordedHeartRatePoints
+                if !incoming.isEmpty {
+                    let nextHistory = HeartRateHistory.merging(incoming, into: self.heartRateHistory)
+                    if nextHistory != self.heartRateHistory {
+                        self.heartRateHistory = nextHistory
+                        HeartRateHistoryStore.save(nextHistory)
+                    }
                 }
                 self.healthSyncError = nil
             }

@@ -90,6 +90,7 @@ struct HealthSyncPayload: Codable, Equatable {
     let permissionGranted: Bool
     let heartRate: Double?
     let heartRateSampleAt: Date?
+    let heartRateSamples: [HeartRateSample]
     let stepCount: Double?
     let stepCountSampleAt: Date?
     let activeEnergy: Double?
@@ -106,6 +107,7 @@ struct HealthSyncPayload: Codable, Equatable {
         permissionGranted: Bool,
         heartRate: Double?,
         heartRateSampleAt: Date? = nil,
+        heartRateSamples: [HeartRateSample] = [],
         stepCount: Double?,
         stepCountSampleAt: Date? = nil,
         activeEnergy: Double?,
@@ -121,6 +123,7 @@ struct HealthSyncPayload: Codable, Equatable {
         self.permissionGranted = permissionGranted
         self.heartRate = heartRate
         self.heartRateSampleAt = heartRateSampleAt
+        self.heartRateSamples = heartRateSamples
         self.stepCount = stepCount
         self.stepCountSampleAt = stepCountSampleAt
         self.activeEnergy = activeEnergy
@@ -138,6 +141,7 @@ struct HealthSyncPayload: Codable, Equatable {
         case permissionGranted
         case heartRate
         case heartRateSampleAt
+        case heartRateSamples
         case stepCount
         case stepCountSampleAt
         case activeEnergy
@@ -156,12 +160,33 @@ struct HealthSyncPayload: Codable, Equatable {
         permissionGranted = try container.decode(Bool.self, forKey: .permissionGranted)
         heartRate = try container.decodeIfPresent(Double.self, forKey: .heartRate)
         heartRateSampleAt = try container.decodeIfPresent(Date.self, forKey: .heartRateSampleAt)
+        heartRateSamples = try container.decodeIfPresent([HeartRateSample].self, forKey: .heartRateSamples) ?? []
         stepCount = try container.decodeIfPresent(Double.self, forKey: .stepCount)
         stepCountSampleAt = try container.decodeIfPresent(Date.self, forKey: .stepCountSampleAt)
         activeEnergy = try container.decodeIfPresent(Double.self, forKey: .activeEnergy)
         activeEnergySampleAt = try container.decodeIfPresent(Date.self, forKey: .activeEnergySampleAt)
         desktopStatus = try container.decodeIfPresent(DesktopStatusSnapshot.self, forKey: .desktopStatus)
     }
+
+    var recordedHeartRatePoints: [HeartRateHistoryPoint] {
+        var points = heartRateSamples.map { sample in
+            HeartRateHistoryPoint(date: sample.sampleAt, bpm: sample.heartRate)
+        }
+        if let heartRate {
+            points.append(
+                HeartRateHistoryPoint(
+                    date: heartRateSampleAt ?? healthUpdatedAt ?? sentAt,
+                    bpm: heartRate
+                )
+            )
+        }
+        return points
+    }
+}
+
+struct HeartRateSample: Codable, Equatable {
+    let sampleAt: Date
+    let heartRate: Double
 }
 
 struct DesktopStatusSnapshot: Codable, Equatable {
@@ -247,20 +272,94 @@ enum HeartRateHistory {
         to history: [HeartRateHistoryPoint],
         now: Date = Date()
     ) -> [HeartRateHistoryPoint] {
+        merging([point], into: history, now: now)
+    }
+
+    static func merging(
+        _ points: [HeartRateHistoryPoint],
+        into history: [HeartRateHistoryPoint],
+        now: Date = Date()
+    ) -> [HeartRateHistoryPoint] {
         let cutoff = now.addingTimeInterval(-retention)
-        var next = history.filter { $0.date >= cutoff }
+        var byDate: [Date: HeartRateHistoryPoint] = [:]
+        for point in history where point.date >= cutoff && (30...300).contains(point.bpm) {
+            byDate[point.date] = point
+        }
+        for point in points where point.date >= cutoff && (30...300).contains(point.bpm) {
+            byDate[point.date] = point
+        }
+        return compacting(byDate.values.sorted { $0.date < $1.date })
+    }
 
-        if let existingIndex = next.lastIndex(where: { $0.date == point.date }) {
-            next[existingIndex] = point
-        } else {
-            next.append(point)
+    static func compacting(
+        _ points: [HeartRateHistoryPoint],
+        limit: Int = maximumPoints
+    ) -> [HeartRateHistoryPoint] {
+        guard points.count > limit, limit > 1 else { return points }
+        var compacted: [HeartRateHistoryPoint] = []
+        compacted.reserveCapacity(limit)
+        let lastIndex = points.count - 1
+        for index in 0..<limit {
+            let sourceIndex = index == limit - 1
+                ? lastIndex
+                : (index * lastIndex) / (limit - 1)
+            let point = points[sourceIndex]
+            if compacted.last?.date != point.date {
+                compacted.append(point)
+            }
+        }
+        return compacted
+    }
+}
+
+enum HeartRateHistoryStore {
+    private static let fileName = "health-heart-rate-history.json"
+
+    static func defaultFileURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("WinPlate", isDirectory: true)
+            .appendingPathComponent(fileName)
+    }
+
+    static func load(from url: URL? = defaultFileURL(), now: Date = Date()) -> [HeartRateHistoryPoint] {
+        guard let url, let data = try? Data(contentsOf: url) else { return [] }
+        guard let file = try? JSONDecoder().decode(File.self, from: data) else { return [] }
+        return HeartRateHistory.merging(file.points.compactMap(\.point), into: [], now: now)
+    }
+
+    static func save(_ points: [HeartRateHistoryPoint], to url: URL? = defaultFileURL()) {
+        guard let url else { return }
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            try encoder.encode(File(points: points.map(Record.init))).write(to: url, options: .atomic)
+        } catch {
+            return
+        }
+    }
+
+    private struct File: Codable {
+        var points: [Record]
+    }
+
+    private struct Record: Codable {
+        var sampleAt: TimeInterval
+        var heartRate: Double
+
+        init(_ point: HeartRateHistoryPoint) {
+            sampleAt = point.date.timeIntervalSince1970
+            heartRate = point.bpm
         }
 
-        next.sort { $0.date < $1.date }
-        if next.count > maximumPoints {
-            next.removeFirst(next.count - maximumPoints)
+        var point: HeartRateHistoryPoint? {
+            guard (30...300).contains(heartRate) else { return nil }
+            return HeartRateHistoryPoint(date: Date(timeIntervalSince1970: sampleAt), bpm: heartRate)
         }
-        return next
     }
 }
 

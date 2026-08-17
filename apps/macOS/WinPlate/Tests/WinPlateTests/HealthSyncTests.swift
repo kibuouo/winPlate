@@ -130,4 +130,65 @@ final class HealthSyncTests: XCTestCase {
         XCTAssertEqual(decoded.heartRateSampleAt, sampleAt)
         XCTAssertEqual(decoded.reason, .healthKitObserver)
     }
+
+    func testHeartRateHistoryMergesDistinctSamplesInsteadOfReplacingTheLatest() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = HeartRateHistoryPoint(date: now.addingTimeInterval(-120), bpm: 78)
+        let second = HeartRateHistoryPoint(date: now.addingTimeInterval(-60), bpm: 92)
+        let third = HeartRateHistoryPoint(date: now.addingTimeInterval(-30), bpm: 88)
+
+        let result = HeartRateHistory.merging([first, second, third], into: [first], now: now)
+
+        XCTAssertEqual(result, [first, second, third])
+    }
+
+    func testHeartRateSampleSeriesSurvivesDecodingAndBecomesHistoryPoints() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_200)
+        let samples = [
+            HeartRateSample(sampleAt: now.addingTimeInterval(-180), heartRate: 74),
+            HeartRateSample(sampleAt: now.addingTimeInterval(-90), heartRate: 81),
+            HeartRateSample(sampleAt: now, heartRate: 86)
+        ]
+        let payload = HealthSyncPayload(
+            schemaVersion: 2,
+            sender: "iPhone",
+            sentAt: now,
+            healthUpdatedAt: now,
+            permissionGranted: true,
+            heartRate: 86,
+            heartRateSampleAt: now,
+            heartRateSamples: samples,
+            stepCount: nil,
+            activeEnergy: nil
+        )
+
+        let decoded = try JSONDecoder().decode(
+            HealthSyncPayload.self,
+            from: JSONEncoder().encode(payload)
+        )
+
+        XCTAssertEqual(decoded.heartRateSamples, samples)
+        XCTAssertEqual(
+            decoded.recordedHeartRatePoints.map(\.bpm),
+            [74, 81, 86, 86]
+        )
+    }
+
+    func testHeartRateHistoryStorePersistsMergedSamples() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("winplate-heart-rate-\(UUID().uuidString)", isDirectory: true)
+        let url = directory.appendingPathComponent("health-heart-rate-history.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let points = [
+            HeartRateHistoryPoint(date: now.addingTimeInterval(-3_600), bpm: 70),
+            HeartRateHistoryPoint(date: now.addingTimeInterval(-1_800), bpm: 84)
+        ]
+
+        HeartRateHistoryStore.save(points, to: url)
+        let loaded = HeartRateHistoryStore.load(from: url, now: now)
+
+        XCTAssertEqual(loaded, points)
+    }
 }

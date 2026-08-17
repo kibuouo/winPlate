@@ -37,6 +37,7 @@ final class HealthStore: ObservableObject {
     private let backgroundCoordinator: HealthBackgroundCoordinator
     private let backgroundUploader = HealthBackgroundUploader.shared
     private var lastHeartRateSampleAt: Date?
+    private var lastHeartRateSamples: [HeartRateSample] = []
     private var lastStepCountSampleAt: Date?
     private var lastActiveEnergySampleAt: Date?
     private var syncTask: Task<Void, Never>?
@@ -54,7 +55,7 @@ final class HealthStore: ObservableObject {
                 self?.syncState = state
                 self?.syncError = state.detail
                 if state.isConnected {
-                    self?.sendCurrentSnapshot()
+                    Task { await self?.refresh(reason: .retry) }
                 }
             }
         }
@@ -180,10 +181,13 @@ final class HealthStore: ObservableObject {
         message = nil
 
         let heartRate: HealthMetricValue?
+        let heartRateSamples: [HeartRateSample]
         let steps: HealthMetricValue?
         let energy: HealthMetricValue?
         do {
-            heartRate = try await latestHeartRateSample()
+            let sampledHeartRate = try await recentHeartRateSamples()
+            heartRateSamples = sampledHeartRate.series
+            heartRate = sampledHeartRate.latest
             steps = try await todayTotal(for: stepCountType, unit: .count())
             energy = try await todayTotal(for: activeEnergyType, unit: .kilocalorie())
         } catch {
@@ -198,6 +202,7 @@ final class HealthStore: ObservableObject {
         stepCount = steps?.value
         activeEnergy = energy?.value
         lastHeartRateSampleAt = heartRate?.sampleAt ?? lastHeartRateSampleAt
+        lastHeartRateSamples = heartRateSamples
         lastStepCountSampleAt = steps?.sampleAt ?? lastStepCountSampleAt
         lastActiveEnergySampleAt = energy?.sampleAt ?? lastActiveEnergySampleAt
         if heartRate?.value != nil || steps?.value != nil || energy?.value != nil {
@@ -220,7 +225,13 @@ final class HealthStore: ObservableObject {
         if showsProgress {
             isLoading = false
         }
-        sendCurrentSnapshot(reason: reason, heartRate: heartRate, steps: steps, energy: energy)
+        sendCurrentSnapshot(
+            reason: reason,
+            heartRate: heartRate,
+            heartRateSamples: heartRateSamples,
+            steps: steps,
+            energy: energy
+        )
         await pollDesktopStatus()
     }
 
@@ -278,13 +289,16 @@ final class HealthStore: ObservableObject {
     private func currentPayload(
         reason: HealthRefreshReason = .manual,
         heartRate: HealthMetricValue? = nil,
+        heartRateSamples: [HeartRateSample] = [],
         steps: HealthMetricValue? = nil,
         energy: HealthMetricValue? = nil
     ) -> HealthSyncPayload {
-        let heartRateValue = heartRate?.value ?? latestHeartRate
+        let series = HeartRateHistory.compacting(heartRateSamples.isEmpty ? lastHeartRateSamples : heartRateSamples)
+        let latestFromSeries = series.last
+        let heartRateValue = heartRate?.value ?? latestFromSeries?.heartRate ?? latestHeartRate
         let stepValue = steps?.value ?? stepCount
         let energyValue = energy?.value ?? activeEnergy
-        let heartRateDate = heartRate?.sampleAt ?? lastHeartRateSampleAt
+        let heartRateDate = heartRate?.sampleAt ?? latestFromSeries?.sampleAt ?? lastHeartRateSampleAt
         let stepDate = steps?.sampleAt ?? lastStepCountSampleAt
         let energyDate = energy?.sampleAt ?? lastActiveEnergySampleAt
         let dates = [heartRateDate, stepDate, energyDate].compactMap { $0 }
@@ -298,6 +312,7 @@ final class HealthStore: ObservableObject {
             permissionGranted: hasRequestedAccess,
             heartRate: heartRateValue,
             heartRateSampleAt: heartRateDate,
+            heartRateSamples: series,
             stepCount: stepValue,
             stepCountSampleAt: stepDate,
             activeEnergy: energyValue,
@@ -308,10 +323,17 @@ final class HealthStore: ObservableObject {
     private func sendCurrentSnapshot(
         reason: HealthRefreshReason = .manual,
         heartRate: HealthMetricValue? = nil,
+        heartRateSamples: [HeartRateSample] = [],
         steps: HealthMetricValue? = nil,
         energy: HealthMetricValue? = nil
     ) {
-        let payload = currentPayload(reason: reason, heartRate: heartRate, steps: steps, energy: energy)
+        let payload = currentPayload(
+            reason: reason,
+            heartRate: heartRate,
+            heartRateSamples: heartRateSamples,
+            steps: steps,
+            energy: energy
+        )
         peerLink.send(payload)
         guard !windowsEndpoint.isEmpty else {
             windowsSyncState = .notConfigured
@@ -346,13 +368,45 @@ final class HealthStore: ObservableObject {
         }
     }
 
-    private func latestHeartRateSample() async throws -> HealthMetricValue {
-        let sample = try await latestQuantitySample(for: heartRateType, predicate: nil)
-        guard let sample else { return HealthMetricValue(value: nil, sampleAt: nil) }
+    private func recentHeartRateSamples() async throws -> (latest: HealthMetricValue, series: [HeartRateSample]) {
+        let end = Date()
+        let start = end.addingTimeInterval(-HeartRateHistory.retention)
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start,
+            end: end,
+            options: .strictEndDate
+        )
+        let samples: [HKQuantitySample] = try await withCheckedThrowingContinuation { continuation in
+            let sortDescriptor = NSSortDescriptor(
+                key: HKSampleSortIdentifierEndDate,
+                ascending: false
+            )
+            let query = HKSampleQuery(
+                sampleType: heartRateType,
+                predicate: predicate,
+                limit: HeartRateHistory.queryLimit,
+                sortDescriptors: [sortDescriptor]
+            ) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: samples as? [HKQuantitySample] ?? [])
+            }
+            store.execute(query)
+        }
+
         let unit = HKUnit.count().unitDivided(by: .minute())
-        return HealthMetricValue(
-            value: sample.quantity.doubleValue(for: unit),
-            sampleAt: sample.endDate
+        let collected = samples.compactMap { sample -> HeartRateSample? in
+            let value = sample.quantity.doubleValue(for: unit)
+            guard (30...300).contains(value) else { return nil }
+            return HeartRateSample(sampleAt: sample.endDate, heartRate: value)
+        }
+        let series = HeartRateHistory.compacting(collected, now: end)
+        let latestSample = series.last
+        return (
+            HealthMetricValue(value: latestSample?.heartRate, sampleAt: latestSample?.sampleAt),
+            series
         )
     }
 

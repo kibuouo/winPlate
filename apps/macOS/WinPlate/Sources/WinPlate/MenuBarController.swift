@@ -216,8 +216,8 @@ final class MenuBarController: NSObject {
 private final class MenuBarStatusSummary: NSView {
     private let temperatureLabel = MenuBarStatusSummary.label(size: 11, weight: .semibold, color: .labelColor)
     private let weatherIconView = NSImageView()
-    private let sevenDayRow = MenuBarQuotaRow(label: "7d")
-    private let superGrokRow = MenuBarQuotaRow(label: "Grok")
+    private let sevenDayRow = MenuBarQuotaRow(label: "7d", tint: .systemBlue)
+    private let superGrokRow = MenuBarQuotaRow(label: "7d", tint: .systemOrange)
     private static var weatherIcons = [String: NSImage]()
 
     init(icon: NSImage?) {
@@ -314,10 +314,10 @@ private final class MenuBarQuotaRow: NSView {
     private let resetLabel = MenuBarStatusSummary.label(size: 9, weight: .regular, color: .secondaryLabelColor)
     private let progress = NSProgressIndicator()
 
-    init(label: String) {
+    init(label: String, tint: NSColor = .secondaryLabelColor) {
         super.init(frame: .zero)
 
-        let labelView = MenuBarStatusSummary.label(size: 9, weight: .medium, color: .secondaryLabelColor)
+        let labelView = MenuBarStatusSummary.label(size: 9, weight: .semibold, color: tint)
         labelView.stringValue = label
 
         progress.isIndeterminate = false

@@ -38,7 +38,9 @@ private struct MenuBarHeader: View {
                 .frame(width: 30, height: 30)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityHidden(true)
-            Spacer()
+            MenuBarHeartRateStatus()
+            MenuBarMailStatus()
+            Spacer(minLength: 8)
             HeaderIconButton(symbol: "rectangle.on.rectangle", label: "打开 WinPlate") {
                 NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
             }
@@ -54,6 +56,91 @@ private struct MenuBarHeader: View {
         NSImage(named: NSImage.Name("AppIcon"))
             ?? NSImage(systemSymbolName: "rectangle.3.group.fill", accessibilityDescription: "WinPlate")
             ?? NSImage()
+    }
+}
+
+private struct MenuBarHeartRateStatus: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        Button {
+            state.selectedWorkspace = .health
+            NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.pink)
+                Text(heartRateText)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded).monospacedDigit())
+                Text("BPM")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.pink.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("打开健康")
+        .accessibilityLabel("心率 \(heartRateText) BPM")
+    }
+
+    private var heartRate: Double? {
+        state.healthSnapshot.heartRate ?? state.heartRateHistory.last?.bpm
+    }
+
+    private var heartRateText: String {
+        heartRate.map { "\(Int($0.rounded()))" } ?? "--"
+    }
+
+    private var subtitle: String? {
+        guard let receivedAt = state.healthLastReceivedAt else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: receivedAt, relativeTo: Date())
+    }
+}
+
+private struct MenuBarMailStatus: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        Button {
+            state.selectedWorkspace = .mail
+            NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.indigo)
+                Text(unreadText)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded).monospacedDigit())
+                Text("未读")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("打开邮件")
+        .accessibilityLabel("\(unreadCount) 封未读邮件")
+    }
+
+    private var unreadCount: Int {
+        state.mail.unreadCount ?? state.mail.items.filter(\.unread).count
+    }
+
+    private var unreadText: String {
+        unreadCount > 99 ? "99+" : "\(unreadCount)"
     }
 }
 
@@ -149,34 +236,37 @@ private struct UsageRings: View {
     let codex: Double?
     let grok: Double?
 
+    private let stroke: CGFloat = 8
+    private let gap: CGFloat = 5
+
     var body: some View {
         ZStack {
-            // Outer ring: Codex 7d remaining.
-            UsageRing(progress: codex, color: .blue, lineWidth: 10)
-            // Inner ring: SuperGrok remaining.
-            UsageRing(progress: grok, color: .orange, lineWidth: 7)
-                .padding(12)
-            VStack(spacing: 3) {
-                ringLegend(color: .blue, label: "7D", value: codex)
-                ringLegend(color: .orange, label: "Grok", value: grok)
+            UsageRing(progress: codex, color: .blue, lineWidth: stroke)
+            UsageRing(progress: grok, color: .orange, lineWidth: stroke)
+                .padding(stroke + gap)
+            VStack(alignment: .leading, spacing: 5) {
+                ringLegend(color: .blue, value: codex)
+                ringLegend(color: .orange, value: grok)
             }
         }
+        .padding(stroke / 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Codex 7 天剩余 \(codex.map { "\(Int($0.rounded()))%" } ?? "不可用")，SuperGrok 剩余 \(grok.map { "\(Int($0.rounded()))%" } ?? "不可用")"
+            "Codex 7 天剩余 \(codex.map { "\(Int($0.rounded()))%" } ?? "不可用")，SuperGrok 7 天剩余 \(grok.map { "\(Int($0.rounded()))%" } ?? "不可用")"
         )
     }
 
-    private func ringLegend(color: Color, label: String, value: Double?) -> some View {
-        HStack(spacing: 4) {
-            Circle()
+    private func ringLegend(color: Color, value: Double?) -> some View {
+        HStack(spacing: 5) {
+            Capsule()
                 .fill(color)
-                .frame(width: 5, height: 5)
-            Text(label)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.secondary)
+                .frame(width: 7, height: 3)
+            Text("7d")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(color.opacity(0.9))
             Text(value.map { "\(Int($0.rounded()))%" } ?? "--%")
-                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.primary)
         }
     }
 }
@@ -187,14 +277,26 @@ private struct UsageRing: View {
     let lineWidth: CGFloat
 
     var body: some View {
-        Circle()
-            .stroke(.quaternary, style: StrokeStyle(lineWidth: lineWidth))
-            .overlay {
+        let fraction = max(0, min((progress ?? 0) / 100, 1))
+        ZStack {
+            Circle()
+                .stroke(color.opacity(0.14), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            if fraction > 0 {
                 Circle()
-                    .trim(from: 0, to: max(0, min((progress ?? 0) / 100, 1)))
-                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .trim(from: 0, to: max(fraction, 0.018))
+                    .stroke(
+                        AngularGradient(
+                            colors: [color.opacity(0.72), color],
+                            center: .center,
+                            startAngle: .degrees(-90),
+                            endAngle: .degrees(270)
+                        ),
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    )
                     .rotationEffect(.degrees(-90))
             }
+        }
+        .animation(.easeInOut(duration: 0.28), value: fraction)
     }
 }
 
@@ -481,7 +583,10 @@ struct DashboardView: View {
         } detail: {
             Group {
                 switch state.selectedWorkspace ?? .overview {
-                case .overview: OverviewWorkspace()
+                case .overview:
+                    OverviewWorkspace { destination in
+                        state.selectedWorkspace = destination
+                    }
                 case .agent: AgentWorkspace()
                 case .health: HealthWorkspace()
                 case .weather: WeatherWorkspace()

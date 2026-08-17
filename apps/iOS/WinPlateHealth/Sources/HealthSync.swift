@@ -95,6 +95,7 @@ struct HealthSyncPayload: Codable, Equatable {
     let permissionGranted: Bool
     let heartRate: Double?
     let heartRateSampleAt: Date?
+    let heartRateSamples: [HeartRateSample]
     let stepCount: Double?
     let stepCountSampleAt: Date?
     let activeEnergy: Double?
@@ -111,6 +112,7 @@ struct HealthSyncPayload: Codable, Equatable {
         permissionGranted: Bool,
         heartRate: Double?,
         heartRateSampleAt: Date? = nil,
+        heartRateSamples: [HeartRateSample] = [],
         stepCount: Double?,
         stepCountSampleAt: Date? = nil,
         activeEnergy: Double?,
@@ -126,6 +128,7 @@ struct HealthSyncPayload: Codable, Equatable {
         self.permissionGranted = permissionGranted
         self.heartRate = heartRate
         self.heartRateSampleAt = heartRateSampleAt
+        self.heartRateSamples = heartRateSamples
         self.stepCount = stepCount
         self.stepCountSampleAt = stepCountSampleAt
         self.activeEnergy = activeEnergy
@@ -143,6 +146,7 @@ struct HealthSyncPayload: Codable, Equatable {
         case permissionGranted
         case heartRate
         case heartRateSampleAt
+        case heartRateSamples
         case stepCount
         case stepCountSampleAt
         case activeEnergy
@@ -161,11 +165,47 @@ struct HealthSyncPayload: Codable, Equatable {
         permissionGranted = try container.decode(Bool.self, forKey: .permissionGranted)
         heartRate = try container.decodeIfPresent(Double.self, forKey: .heartRate)
         heartRateSampleAt = try container.decodeIfPresent(Date.self, forKey: .heartRateSampleAt)
+        heartRateSamples = try container.decodeIfPresent([HeartRateSample].self, forKey: .heartRateSamples) ?? []
         stepCount = try container.decodeIfPresent(Double.self, forKey: .stepCount)
         stepCountSampleAt = try container.decodeIfPresent(Date.self, forKey: .stepCountSampleAt)
         activeEnergy = try container.decodeIfPresent(Double.self, forKey: .activeEnergy)
         activeEnergySampleAt = try container.decodeIfPresent(Date.self, forKey: .activeEnergySampleAt)
         desktopStatus = try container.decodeIfPresent(DesktopStatusSnapshot.self, forKey: .desktopStatus)
+    }
+}
+
+struct HeartRateSample: Codable, Equatable {
+    let sampleAt: Date
+    let heartRate: Double
+}
+
+enum HeartRateHistory {
+    static let retention: TimeInterval = 7 * 24 * 60 * 60
+    static let maximumPoints = 720
+    static let queryLimit = 10_000
+
+    static func compacting(_ samples: [HeartRateSample], now: Date = Date()) -> [HeartRateSample] {
+        let cutoff = now.addingTimeInterval(-retention)
+        var unique: [Date: HeartRateSample] = [:]
+        for sample in samples where sample.sampleAt >= cutoff && (30...300).contains(sample.heartRate) {
+            unique[sample.sampleAt] = sample
+        }
+        let sorted = unique.values.sorted { $0.sampleAt < $1.sampleAt }
+        guard sorted.count > maximumPoints, maximumPoints > 1 else { return sorted }
+
+        var compacted: [HeartRateSample] = []
+        compacted.reserveCapacity(maximumPoints)
+        let lastIndex = sorted.count - 1
+        for index in 0..<maximumPoints {
+            let sourceIndex = index == maximumPoints - 1
+                ? lastIndex
+                : (index * lastIndex) / (maximumPoints - 1)
+            let sample = sorted[sourceIndex]
+            if compacted.last?.sampleAt != sample.sampleAt {
+                compacted.append(sample)
+            }
+        }
+        return compacted
     }
 }
 

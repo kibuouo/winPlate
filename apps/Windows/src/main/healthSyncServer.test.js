@@ -322,6 +322,34 @@ test("marks the health connection stale after the idle window", async () => {
   }
 });
 
+test("merges a heart-rate sample series from a health snapshot", () => {
+  const now = Date.parse("2026-08-08T00:00:00.000Z");
+  const payload = normalizeHealthPayload({
+    schemaVersion: 2,
+    sender: "iPhone",
+    sentAt: "2026-08-08T00:00:00.000Z",
+    healthUpdatedAt: "2026-08-08T00:00:00.000Z",
+    permissionGranted: true,
+    heartRate: 90,
+    heartRateSampleAt: "2026-08-07T23:50:00.000Z",
+    heartRateSamples: [
+      { sampleAt: "2026-08-07T22:00:00.000Z", heartRate: 72 },
+      { sampleAt: "2026-08-07T23:00:00.000Z", bpm: 80 },
+      { sampleAt: "2026-08-07T23:50:00.000Z", heartRate: 90 }
+    ]
+  });
+
+  assert.equal(payload.heartRateSamples.length, 3);
+  assert.deepEqual(
+    mergeHeartRateHistory([], payload, now),
+    [
+      { sampleAt: "2026-08-07T22:00:00.000Z", heartRate: 72 },
+      { sampleAt: "2026-08-07T23:00:00.000Z", heartRate: 80 },
+      { sampleAt: "2026-08-07T23:50:00.000Z", heartRate: 90 }
+    ]
+  );
+});
+
 test("builds and parses a single Windows health pairing payload", () => {
   const payload = buildHealthPairingPayload("http://192.168.1.20:8766/api/health/sync", TOKEN);
   assert.equal(payload, `winplate://192.168.1.20:8766#${TOKEN}`);

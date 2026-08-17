@@ -9,7 +9,7 @@ struct OverviewWorkspace: View {
 
     private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
-    init(onNavigate: @escaping (WorkspaceDestination) -> Void = { _ in }) {
+    init(onNavigate: @escaping (WorkspaceDestination) -> Void) {
         self.onNavigate = onNavigate
     }
 
@@ -80,39 +80,33 @@ struct OverviewWorkspace: View {
     // MARK: - Grid
 
     private var metricGrid: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Row 1: weather full width
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(minimum: 260), spacing: 16),
+                GridItem(.flexible(minimum: 260), spacing: 16)
+            ],
+            spacing: 16
+        ) {
             OverviewCard(
                 eyebrow: "WEATHER",
                 symbol: weatherSymbol,
                 tint: .cyan,
                 status: weatherStatus,
-                minHeight: 148,
                 action: { onNavigate(.weather) }
             ) {
                 weatherCardContent
             }
 
-            // Health is intentionally placed directly below weather: both are
-            // at-a-glance device signals and share the same live-status area.
             OverviewCard(
                 eyebrow: "HEALTH",
                 symbol: "heart.text.square.fill",
                 tint: .pink,
                 status: healthStatus,
-                minHeight: 148
+                action: { onNavigate(.health) }
             ) {
                 healthCardContent
             }
 
-            // Remaining modules in a 2-column grid
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(minimum: 260), spacing: 16),
-                    GridItem(.flexible(minimum: 260), spacing: 16)
-                ],
-                spacing: 16
-            ) {
                 OverviewCard(
                     eyebrow: "GITHUB",
                     symbol: "chevron.left.forwardslash.chevron.right",
@@ -217,31 +211,22 @@ struct OverviewWorkspace: View {
                             .lineLimit(2)
                     }
                 }
-            }
         }
     }
 
-    /// Full-width weather row: temperature/condition left, metrics right.
     private var weatherCardContent: some View {
         let weather = state.snapshot.weather
-        return HStack(alignment: .center, spacing: 24) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(state.menuBarTemperature)
-                    .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(weather.condition)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(1)
-                    Text(weather.location.isEmpty ? "未选择城市" : weather.location)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(minWidth: 200, alignment: .leading)
-
-            Spacer(minLength: 8)
-
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(state.menuBarTemperature)
+                .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+            Text(weather.condition)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(weather.location.isEmpty ? "未选择城市" : weather.location)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             OverviewMetricStrip(items: [
                 .init(
                     value: weather.feelsLike.map { "\(Int($0.rounded()))°" } ?? "--",
@@ -252,39 +237,25 @@ struct OverviewWorkspace: View {
                     label: "湿度"
                 ),
                 .init(
-                    value: weather.windScale.isEmpty
-                        ? (weather.windDirection.isEmpty ? "--" : weather.windDirection)
-                        : "\(weather.windDirection)\(weather.windScale)级",
-                    label: "风力"
-                ),
-                .init(
                     value: state.weatherUpdatedAt.map { relativeTime($0) } ?? "--",
                     label: "更新"
                 )
             ])
-            .frame(maxWidth: 420)
         }
     }
 
     private var healthCardContent: some View {
         let health = state.healthSnapshot
-        return HStack(alignment: .center, spacing: 24) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(health.heartRate.map { "\(Int($0.rounded()))" } ?? "--")
-                    .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("最近心率")
-                        .font(.title3.weight(.semibold))
-                    Text(healthSnapshotSubtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(minWidth: 220, alignment: .leading)
-
-            Spacer(minLength: 8)
-
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(health.heartRate.map { "\(Int($0.rounded()))" } ?? "--")
+                .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+            Text("最近心率")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(healthSnapshotSubtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             OverviewMetricStrip(items: [
                 .init(
                     value: health.stepCount.map { "\(Int($0.rounded()))" } ?? "--",
@@ -299,7 +270,6 @@ struct OverviewWorkspace: View {
                     label: "同步"
                 )
             ])
-            .frame(maxWidth: 420)
         }
     }
 

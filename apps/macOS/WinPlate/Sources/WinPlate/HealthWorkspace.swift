@@ -313,6 +313,7 @@ private struct HeartRateTrendChart: View {
                     let plotWidth = max(1, geometry.size.width - plotOriginX - horizontalInset)
                     let plotHeight = chartHeight
                     let domain = valueDomain
+                    let timeline = timeDomain
 
                     ZStack(alignment: .topLeading) {
                         ForEach([0.0, 0.5, 1.0], id: \.self) { fraction in
@@ -331,6 +332,7 @@ private struct HeartRateTrendChart: View {
                         HeartRateTrendArea(
                             points: points,
                             domain: domain,
+                            timeline: timeline,
                             tint: tint,
                             width: plotWidth,
                             height: plotHeight
@@ -340,6 +342,7 @@ private struct HeartRateTrendChart: View {
                         HeartRateTrendLine(
                             points: points,
                             domain: domain,
+                            timeline: timeline,
                             tint: tint,
                             width: plotWidth,
                             height: plotHeight
@@ -349,7 +352,7 @@ private struct HeartRateTrendChart: View {
                         if let hoveredIndex {
                             let point = points[hoveredIndex]
                             HeartRateHoverGuide(
-                                x: xPosition(for: hoveredIndex, width: plotWidth),
+                                x: xPosition(for: point.date, timeline: timeline, width: plotWidth),
                                 y: yPosition(for: point.bpm, domain: domain, height: plotHeight),
                                 width: plotWidth,
                                 height: plotHeight,
@@ -360,7 +363,8 @@ private struct HeartRateTrendChart: View {
                             HeartRateHoverCard(point: point, tint: tint)
                                 .position(
                                     x: tooltipX(
-                                        for: hoveredIndex,
+                                        for: point.date,
+                                        timeline: timeline,
                                         width: plotWidth,
                                         plotOriginX: plotOriginX,
                                         containerWidth: geometry.size.width
@@ -369,13 +373,13 @@ private struct HeartRateTrendChart: View {
                                 )
                         }
 
-                        ForEach(labelIndexes, id: \.self) { index in
-                            Text(label(for: points[index].date))
+                        ForEach(Array(axisDates.enumerated()), id: \.offset) { _, date in
+                            Text(label(for: date))
                                 .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                                 .position(
-                                    x: plotOriginX + xPosition(for: index, width: plotWidth),
+                                    x: plotOriginX + xPosition(for: date, timeline: timeline, width: plotWidth),
                                     y: plotHeight + 20
                                 )
                         }
@@ -385,7 +389,7 @@ private struct HeartRateTrendChart: View {
                         switch phase {
                         case .active(let location):
                             let x = min(max(location.x - plotOriginX, 0), plotWidth)
-                            hoveredIndex = nearestIndex(for: x, width: plotWidth)
+                            hoveredIndex = nearestIndex(for: x, timeline: timeline, width: plotWidth)
                         case .ended:
                             hoveredIndex = nil
                         }
@@ -406,11 +410,15 @@ private struct HeartRateTrendChart: View {
         return (lower, upper)
     }
 
-    private var labelIndexes: [Int] {
-        let labelCount = min(6, points.count)
-        guard labelCount > 1 else { return points.isEmpty ? [] : [0] }
-        return (0..<labelCount).map { index in
-            Int((Double(index) * Double(points.count - 1) / Double(labelCount - 1)).rounded())
+    private var timeDomain: (start: Date, end: Date) {
+        let end = Date()
+        return (end.addingTimeInterval(-range.duration), end)
+    }
+
+    private var axisDates: [Date] {
+        let timeline = timeDomain
+        return [0.0, 0.5, 1.0].map { fraction in
+            timeline.start.addingTimeInterval(timeline.end.timeIntervalSince(timeline.start) * fraction)
         }
     }
 
@@ -421,8 +429,10 @@ private struct HeartRateTrendChart: View {
         return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
 
-    private func xPosition(for index: Int, width: CGFloat) -> CGFloat {
-        points.count == 1 ? width / 2 : width * CGFloat(index) / CGFloat(points.count - 1)
+    private func xPosition(for date: Date, timeline: (start: Date, end: Date), width: CGFloat) -> CGFloat {
+        let span = max(timeline.end.timeIntervalSince(timeline.start), 1)
+        let ratio = min(1, max(0, date.timeIntervalSince(timeline.start) / span))
+        return width * CGFloat(ratio)
     }
 
     private func yPosition(
@@ -439,18 +449,32 @@ private struct HeartRateTrendChart: View {
         return "\(Int(value.rounded()))"
     }
 
-    private func nearestIndex(for x: CGFloat, width: CGFloat) -> Int {
+    private func nearestIndex(
+        for x: CGFloat,
+        timeline: (start: Date, end: Date),
+        width: CGFloat
+    ) -> Int {
         guard points.count > 1 else { return 0 }
-        return Int((x / width * CGFloat(points.count - 1)).rounded())
+        var best = 0
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        for (index, point) in points.enumerated() {
+            let distance = abs(xPosition(for: point.date, timeline: timeline, width: width) - x)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = index
+            }
+        }
+        return best
     }
 
     private func tooltipX(
-        for index: Int,
+        for date: Date,
+        timeline: (start: Date, end: Date),
         width: CGFloat,
         plotOriginX: CGFloat,
         containerWidth: CGFloat
     ) -> CGFloat {
-        let x = plotOriginX + xPosition(for: index, width: width)
+        let x = plotOriginX + xPosition(for: date, timeline: timeline, width: width)
         let halfWidth: CGFloat = 62
         return min(max(x, halfWidth + 4), containerWidth - halfWidth - 4)
     }
@@ -481,6 +505,7 @@ private struct HeartRateGridLines: View {
 private struct HeartRateTrendArea: View {
     let points: [HeartRateHistoryPoint]
     let domain: (lower: Double, upper: Double)
+    let timeline: (start: Date, end: Date)
     let tint: Color
     let width: CGFloat
     let height: CGFloat
@@ -488,9 +513,10 @@ private struct HeartRateTrendArea: View {
     var body: some View {
         Canvas { context, size in
             let line = trendPath(in: size)
+            guard let first = points.first, let last = points.last else { return }
             var area = line
-            area.addLine(to: CGPoint(x: size.width, y: size.height))
-            area.addLine(to: CGPoint(x: 0, y: size.height))
+            area.addLine(to: CGPoint(x: xPosition(for: last.date, width: size.width), y: size.height))
+            area.addLine(to: CGPoint(x: xPosition(for: first.date, width: size.width), y: size.height))
             area.closeSubpath()
             context.fill(area, with: .color(tint.opacity(0.10)))
         }
@@ -501,20 +527,31 @@ private struct HeartRateTrendArea: View {
     private func trendPath(in size: CGSize) -> Path {
         var path = Path()
         for (index, point) in points.enumerated() {
-            let x = points.count == 1
-                ? size.width / 2
-                : size.width * CGFloat(index) / CGFloat(points.count - 1)
-            let ratio = min(1, max(0, (point.bpm - domain.lower) / (domain.upper - domain.lower)))
-            let location = CGPoint(x: x, y: size.height * (1 - CGFloat(ratio)))
+            let location = CGPoint(
+                x: xPosition(for: point.date, width: size.width),
+                y: yPosition(for: point.bpm, height: size.height)
+            )
             if index == 0 { path.move(to: location) } else { path.addLine(to: location) }
         }
         return path
+    }
+
+    private func xPosition(for date: Date, width: CGFloat) -> CGFloat {
+        let span = max(timeline.end.timeIntervalSince(timeline.start), 1)
+        let ratio = min(1, max(0, date.timeIntervalSince(timeline.start) / span))
+        return width * CGFloat(ratio)
+    }
+
+    private func yPosition(for bpm: Double, height: CGFloat) -> CGFloat {
+        let ratio = min(1, max(0, (bpm - domain.lower) / (domain.upper - domain.lower)))
+        return height * (1 - CGFloat(ratio))
     }
 }
 
 private struct HeartRateTrendLine: View {
     let points: [HeartRateHistoryPoint]
     let domain: (lower: Double, upper: Double)
+    let timeline: (start: Date, end: Date)
     let tint: Color
     let width: CGFloat
     let height: CGFloat
@@ -528,7 +565,7 @@ private struct HeartRateTrendLine: View {
                 style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
             )
             if let lastPoint = points.last {
-                let point = pointLocation(for: lastPoint.bpm, index: points.count - 1, in: size)
+                let point = pointLocation(for: lastPoint, in: size)
                 context.fill(
                     Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
                     with: .color(tint)
@@ -542,18 +579,17 @@ private struct HeartRateTrendLine: View {
     private func trendPath(in size: CGSize) -> Path {
         var path = Path()
         for (index, point) in points.enumerated() {
-            let location = pointLocation(for: point.bpm, index: index, in: size)
+            let location = pointLocation(for: point, in: size)
             if index == 0 { path.move(to: location) } else { path.addLine(to: location) }
         }
         return path
     }
 
-    private func pointLocation(for bpm: Double, index: Int, in size: CGSize) -> CGPoint {
-        let x = points.count == 1
-            ? size.width / 2
-            : size.width * CGFloat(index) / CGFloat(points.count - 1)
-        let ratio = min(1, max(0, (bpm - domain.lower) / (domain.upper - domain.lower)))
-        return CGPoint(x: x, y: size.height * (1 - CGFloat(ratio)))
+    private func pointLocation(for point: HeartRateHistoryPoint, in size: CGSize) -> CGPoint {
+        let span = max(timeline.end.timeIntervalSince(timeline.start), 1)
+        let ratioX = min(1, max(0, point.date.timeIntervalSince(timeline.start) / span))
+        let ratioY = min(1, max(0, (point.bpm - domain.lower) / (domain.upper - domain.lower)))
+        return CGPoint(x: size.width * CGFloat(ratioX), y: size.height * (1 - CGFloat(ratioY)))
     }
 }
 

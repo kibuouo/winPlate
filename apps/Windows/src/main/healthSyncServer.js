@@ -101,18 +101,47 @@ function normalizeHeartRateHistory(points, nowTimestamp = Date.now()) {
     .slice(-MAX_HEART_RATE_HISTORY_POINTS);
 }
 
+function normalizeIncomingHeartRateSamples(samples) {
+  if (samples === null || samples === undefined || samples === "") return [];
+  if (!Array.isArray(samples)) throw new Error("heartRateSamples is invalid");
+  const normalized = [];
+  for (const sample of samples.slice(-MAX_HEART_RATE_HISTORY_POINTS)) {
+    const rawSampleAt = sample?.sampleAt ?? sample?.date;
+    const rawHeartRate = sample?.heartRate ?? sample?.bpm ?? sample?.value;
+    let sampleAt;
+    try {
+      sampleAt = parseDate(rawSampleAt, "heartRateSamples.sampleAt");
+    } catch {
+      continue;
+    }
+    let heartRate;
+    try {
+      heartRate = optionalNumber(rawHeartRate, "heartRateSamples.heartRate", { maximum: 300 });
+    } catch {
+      continue;
+    }
+    if (!sampleAt || heartRate === null) continue;
+    normalized.push({ sampleAt, heartRate });
+  }
+  return normalized;
+}
+
 function mergeHeartRateHistory(history, snapshot, nowTimestamp = Date.now()) {
-  if (snapshot?.heartRate === null || snapshot?.heartRate === undefined) {
+  const incoming = [];
+  if (Array.isArray(snapshot?.heartRateSamples)) {
+    incoming.push(...snapshot.heartRateSamples);
+  }
+  if (snapshot?.heartRate !== null && snapshot?.heartRate !== undefined) {
+    incoming.push({
+      sampleAt: snapshot.heartRateSampleAt || snapshot.healthUpdatedAt || snapshot.sentAt,
+      heartRate: snapshot.heartRate
+    });
+  }
+  if (incoming.length === 0) {
     return normalizeHeartRateHistory(history, nowTimestamp);
   }
   return normalizeHeartRateHistory(
-    [
-      ...(Array.isArray(history) ? history : []),
-      {
-        sampleAt: snapshot.heartRateSampleAt || snapshot.healthUpdatedAt || snapshot.sentAt,
-        heartRate: snapshot.heartRate
-      }
-    ],
+    [...(Array.isArray(history) ? history : []), ...incoming],
     nowTimestamp
   );
 }
@@ -172,6 +201,7 @@ function normalizeHealthPayload(input) {
     stepCount: optionalNumber(input.stepCount, "stepCount"),
     activeEnergy: optionalNumber(input.activeEnergy, "activeEnergy"),
     heartRateSampleAt: parseDate(input.heartRateSampleAt, "heartRateSampleAt"),
+    heartRateSamples: normalizeIncomingHeartRateSamples(input.heartRateSamples),
     stepCountSampleAt: parseDate(input.stepCountSampleAt, "stepCountSampleAt"),
     activeEnergySampleAt: parseDate(input.activeEnergySampleAt, "activeEnergySampleAt")
   };
