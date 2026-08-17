@@ -1,6 +1,79 @@
 import Combine
+import CryptoKit
 import Foundation
 import MultipeerConnectivity
+import Security
+
+enum HealthSecretStore {
+    private static let service = "com.kiko.winplate.health"
+
+    static func string(for account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func set(_ value: String?, for account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+        guard let value, !value.isEmpty, let data = value.data(using: .utf8) else { return }
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+}
+
+enum HealthPeerPairing {
+    static let codeAccount = "health-peer-pairing-v1"
+
+    static var savedCode: String? {
+        HealthSecretStore.string(for: codeAccount)
+    }
+
+    static func generateCode() -> String {
+        String(format: "%06d", Int.random(in: 0...999_999))
+    }
+
+    static func normalize(_ value: String) -> String? {
+        let digits = value.filter(\.isNumber)
+        guard digits.count == 6 else { return nil }
+        return digits
+    }
+
+    static func save(_ value: String) -> String? {
+        guard let code = normalize(value) else { return nil }
+        HealthSecretStore.set(code, for: codeAccount)
+        return code
+    }
+
+    static func invitationContext(for code: String) -> Data {
+        Data("winplate-health:\(code)".utf8)
+    }
+
+    static func discoveryToken(for code: String) -> String {
+        SHA256.hash(data: Data(code.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func matches(_ context: Data?, expectedCode: String?) -> Bool {
+        guard let expectedCode, !expectedCode.isEmpty else { return false }
+        return context == invitationContext(for: expectedCode)
+    }
+}
 
 enum HealthRefreshReason: String, Codable, Equatable {
     case appLaunch
@@ -189,7 +262,7 @@ enum WindowsHealthSyncState: Equatable {
 
     var detail: String {
         switch self {
-        case .notConfigured: return "在 Windows 健康页复制地址后粘贴到这里"
+        case .notConfigured: return "在 Windows 健康页复制配对信息后粘贴到这里"
         case .sending: return "正在向 Windows 版 WinPlate 发送健康快照"
         case .connected: return "Windows 已收到最新健康快照"
         case .error(let message): return message
@@ -212,34 +285,93 @@ private struct WindowsHealthStatusResponse: Decodable {
 
 enum WindowsHealthLink {
     private static let endpointKey = "winplate.windowsHealthEndpoint"
+    private static let tokenAccount = "windows-health-token-v1"
 
     static var savedEndpoint: String {
-        UserDefaults.standard.string(forKey: endpointKey) ?? ""
+        migrateLegacyEndpointIfNeeded()
+        return UserDefaults.standard.string(forKey: endpointKey) ?? ""
     }
 
-    static func normalizeEndpoint(_ value: String) -> String? {
+    static var savedToken: String {
+        migrateLegacyEndpointIfNeeded()
+        return HealthSecretStore.string(for: tokenAccount) ?? ""
+    }
+
+    static func normalizeEndpoint(_ value: String) -> (endpoint: String, token: String)? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let candidate = trimmed.contains("://") ? trimmed : "http://\(trimmed)"
+
+        let lines = trimmed
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if lines.count >= 2, let first = parseSinglePairingValue(lines[0]) {
+            let extraToken = String(lines[1])
+            return (first.endpoint, first.token.isEmpty ? extraToken : first.token)
+        }
+        return parseSinglePairingValue(trimmed)
+    }
+
+    private static func parseSinglePairingValue(_ value: String) -> (endpoint: String, token: String)? {
+        let candidate = value.contains("://") ? value : "http://\(value)"
         guard var components = URLComponents(string: candidate),
               let scheme = components.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
+              ["http", "https", "winplate"].contains(scheme),
               let host = components.host,
               !host.isEmpty else {
             return nil
         }
 
-        if components.path.isEmpty || components.path == "/" {
-            components.path = "/api/health/sync"
-        }
-        guard components.path == "/api/health/sync" else { return nil }
-        return components.url?.absoluteString
+        let token = components.fragment
+            ?? components.queryItems?.first(where: { $0.name == "token" })?.value
+            ?? ""
+        let port = components.port ?? (scheme == "https" ? 443 : 8766)
+        components.scheme = "http"
+        components.host = host
+        components.port = port
+        components.path = "/api/health/sync"
+        components.query = nil
+        components.fragment = nil
+        guard let endpoint = components.url?.absoluteString else { return nil }
+        return (endpoint, token)
     }
 
-    static func saveEndpoint(_ value: String) -> String? {
-        guard let endpoint = normalizeEndpoint(value) else { return nil }
-        UserDefaults.standard.set(endpoint, forKey: endpointKey)
-        return endpoint
+    static func saveEndpoint(_ value: String, token: String? = nil) -> String? {
+        guard let parsed = normalizeEndpoint(value) else { return nil }
+        let nextToken = (token?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? parsed.token
+        guard !nextToken.isEmpty || !savedToken.isEmpty else { return nil }
+        UserDefaults.standard.set(parsed.endpoint, forKey: endpointKey)
+        if !nextToken.isEmpty {
+            HealthSecretStore.set(nextToken, for: tokenAccount)
+        }
+        return parsed.endpoint
+    }
+
+    private static func migrateLegacyEndpointIfNeeded() {
+        let migrationKey = "winplate.windowsHealthEndpoint.migrated"
+        guard !UserDefaults.standard.bool(forKey: migrationKey),
+              let stored = UserDefaults.standard.string(forKey: endpointKey),
+              let parsed = normalizeEndpoint(stored) else {
+            return
+        }
+        UserDefaults.standard.set(parsed.endpoint, forKey: endpointKey)
+        if !parsed.token.isEmpty {
+            HealthSecretStore.set(parsed.token, for: tokenAccount)
+        }
+        UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+
+    static func authorizedRequest(url: URL, method: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.httpShouldHandleCookies = false
+        let token = savedToken
+        if !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-WinPlate-Health-Token")
+        }
+        return request
     }
 
     static func fetchDesktopStatus(from endpoint: String) async throws -> DesktopStatusSnapshot? {
@@ -249,14 +381,11 @@ enum WindowsHealthLink {
               components.host?.isEmpty == false else {
             throw URLError(.badURL)
         }
+        components.query = nil
         components.path = "/api/health/status"
         guard let url = components.url else { throw URLError(.badURL) }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 8
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.httpShouldHandleCookies = false
+        var request = authorizedRequest(url: url, method: "GET")
 
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = true
@@ -287,7 +416,7 @@ enum WindowsHealthLink {
               (200..<300).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             let detail = statusCode == 401
-                ? "Windows 配对令牌无效，请从 Windows 健康页重新复制地址。"
+                ? "Windows 配对信息无效，请从 Windows 健康页重新复制。"
                 : "Windows 返回 HTTP \(statusCode)"
             throw NSError(
                 domain: "WinPlateWindowsStatus",
@@ -300,15 +429,16 @@ enum WindowsHealthLink {
     }
 
     static func send(_ payload: HealthSyncPayload, to endpoint: String) async throws {
-        guard let url = URL(string: endpoint), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+        guard var components = URLComponents(string: endpoint),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host?.isEmpty == false else {
             throw URLError(.badURL)
         }
+        components.query = nil
+        guard let url = components.url else { throw URLError(.badURL) }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 8
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.httpShouldHandleCookies = false
+        var request = authorizedRequest(url: url, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(payload)
 
@@ -341,7 +471,7 @@ enum WindowsHealthLink {
               (200..<300).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             let detail = statusCode == 401
-                ? "Windows 配对令牌无效，请从 Windows 健康页重新复制地址。"
+                ? "Windows 配对信息无效，请从 Windows 健康页重新复制。"
                 : "Windows 返回 HTTP \(statusCode)"
             throw NSError(
                 domain: "WinPlateWindowsHealth",
@@ -387,7 +517,7 @@ enum HealthPeerConnectionState: Equatable {
     var detail: String {
         switch self {
         case .idle: return "等待健康通信服务启动"
-        case .searching: return "请保持 WinPlate 在 macOS 上运行"
+        case .searching: return "请在 iPhone 输入 Mac 配对码，并保持 WinPlate 在 Mac 上打开"
         case .connecting: return "正在建立加密连接"
         case .connected(let peer): return "已连接到 \(peer)"
         case .error(let message): return message
@@ -426,11 +556,15 @@ final class HealthPeerLink: NSObject, ObservableObject {
     private let serviceType = "winplate-health"
     private let session: MCSession
     private let peerID: MCPeerID
+    private var pairingCode: String?
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
+    private var nearbyPeers: [MCPeerID: [String: String]] = [:]
+    private var inviteRetryWorkItem: DispatchWorkItem?
 
-    init(role: Role, displayName: String) {
+    init(role: Role, displayName: String, pairingCode: String? = HealthPeerPairing.savedCode) {
         self.role = role
+        self.pairingCode = pairingCode
         self.peerID = MCPeerID(displayName: displayName)
         self.session = MCSession(
             peer: peerID,
@@ -441,14 +575,22 @@ final class HealthPeerLink: NSObject, ObservableObject {
         session.delegate = self
     }
 
+    func updatePairingCode(_ code: String?) {
+        pairingCode = code
+    }
+
     func start() {
         guard advertiser == nil, browser == nil else { return }
 
         switch role {
         case .advertiser:
+            var discoveryInfo = ["role": "iphone", "schema": "2"]
+            if let pairingCode, !pairingCode.isEmpty {
+                discoveryInfo["pair"] = HealthPeerPairing.discoveryToken(for: pairingCode)
+            }
             let advertiser = MCNearbyServiceAdvertiser(
                 peer: peerID,
-                discoveryInfo: ["role": "iphone", "schema": "1"],
+                discoveryInfo: discoveryInfo,
                 serviceType: serviceType
             )
             advertiser.delegate = self
@@ -459,6 +601,7 @@ final class HealthPeerLink: NSObject, ObservableObject {
             browser.delegate = self
             self.browser = browser
             browser.startBrowsingForPeers()
+            scheduleInviteRetry()
         }
 
         publish(.searching)
@@ -469,8 +612,38 @@ final class HealthPeerLink: NSObject, ObservableObject {
         browser?.stopBrowsingForPeers()
         advertiser = nil
         browser = nil
+        nearbyPeers.removeAll()
+        inviteRetryWorkItem?.cancel()
+        inviteRetryWorkItem = nil
         session.disconnect()
         publish(.idle)
+    }
+
+    private func inviteMatchingPeers() {
+        guard role == .browser, let browser, let pairingCode, session.connectedPeers.isEmpty else { return }
+        let expected = HealthPeerPairing.discoveryToken(for: pairingCode)
+        let matches = nearbyPeers.filter { $0.value["role"] == "iphone" && $0.value["pair"] == expected }
+        guard !matches.isEmpty else { return }
+        publish(.connecting)
+        for peer in matches.keys {
+            browser.invitePeer(
+                peer,
+                to: session,
+                withContext: HealthPeerPairing.invitationContext(for: pairingCode),
+                timeout: 12
+            )
+        }
+    }
+
+    private func scheduleInviteRetry() {
+        inviteRetryWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.session.connectedPeers.isEmpty else { return }
+            self.inviteMatchingPeers()
+            self.scheduleInviteRetry()
+        }
+        inviteRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     func restartIfNeeded() {
@@ -519,6 +692,9 @@ extension HealthPeerLink: MCSessionDelegate {
             publish(.connected(peerID.displayName))
         case .notConnected:
             publish(.searching)
+            DispatchQueue.main.async { [weak self] in
+                self?.inviteMatchingPeers()
+            }
         @unknown default:
             publish(.error("收到未知的设备连接状态"))
         }
@@ -565,6 +741,10 @@ extension HealthPeerLink: MCNearbyServiceAdvertiserDelegate {
         withContext context: Data?,
         invitationHandler: @escaping (Bool, MCSession?) -> Void
     ) {
+        guard HealthPeerPairing.matches(context, expectedCode: pairingCode) else {
+            invitationHandler(false, nil)
+            return
+        }
         invitationHandler(true, session)
     }
 
@@ -585,11 +765,13 @@ extension HealthPeerLink: MCNearbyServiceBrowserDelegate {
         foundPeer peerID: MCPeerID,
         withDiscoveryInfo info: [String: String]?
     ) {
-        publish(.connecting)
-        browser.invitePeer(peerID, to: session, withContext: nil, timeout: 30)
+        nearbyPeers[peerID] = info ?? [:]
+        inviteMatchingPeers()
+        scheduleInviteRetry()
     }
 
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+        nearbyPeers.removeValue(forKey: peerID)
         guard session.connectedPeers.isEmpty else { return }
         publish(.searching)
     }

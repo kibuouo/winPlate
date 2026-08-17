@@ -98,6 +98,10 @@ final class HealthBackgroundUploader: NSObject {
                 request.cachePolicy = .reloadIgnoringLocalCacheData
                 request.httpShouldHandleCookies = false
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let token = WindowsHealthLink.savedToken
+                if !token.isEmpty {
+                    request.setValue(token, forHTTPHeaderField: "X-WinPlate-Health-Token")
+                }
                 let task = session.uploadTask(with: request, fromFile: uploadURL)
                 task.taskDescription = payload.snapshotId.uuidString
                 task.resume()

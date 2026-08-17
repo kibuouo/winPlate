@@ -27,6 +27,11 @@
 		<key>UIColorName</key>
 		<string>LaunchScreenBackground</string>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>healthkit</string>
+		<string>processing</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>WinPlate 需要通过本地网络把 iPhone 健康概览同步到 Mac 或 Windows 上的 WinPlate。</string>
 	<key>NSAppTransportSecurity</key>

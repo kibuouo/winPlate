@@ -49,8 +49,6 @@ function setFloatingPinned(value) {
   }
 
   enforceFloatingAlwaysOnTop();
-
-  // pinned=true 时默认鼠标穿透
   floatingWindow.setIgnoreMouseEvents(floatingPinned, { forward: true });
 
   return floatingPinned;
@@ -61,7 +59,6 @@ function setFloatingPinInteractive(value) {
     return;
   }
 
-  // 置顶胶囊或顶部刘海只在指定控制按钮上临时接管鼠标。
   floatingWindow.setIgnoreMouseEvents(!value, { forward: true });
 }
 

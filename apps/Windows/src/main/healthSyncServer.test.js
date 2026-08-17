@@ -5,12 +5,14 @@ const os = require("node:os");
 const path = require("node:path");
 
 const {
+  buildHealthPairingPayload,
   createHealthSyncServer,
   getLanIPv4Addresses,
   mergeHeartRateHistory,
   normalizeHeartRateHistory,
   normalizeHealthPayload,
-  normalizeDesktopStatusSnapshot
+  normalizeDesktopStatusSnapshot,
+  parseHealthPairingPayload
 } = require("./healthSyncServer");
 
 const TOKEN = "test-health-sync-token-123456";
@@ -153,9 +155,12 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
       activeEnergy: 78
     };
 
-    const accepted = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/health/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-WinPlate-Health-Token": TOKEN
+      },
       body: JSON.stringify(payload)
     });
     assert.equal(accepted.status, 200);
@@ -167,9 +172,12 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
     assert.equal(service.getStatus().freshness.heartRate.state, "fresh");
     assert.equal(service.getStatus().state, "live");
 
-    const duplicate = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+    const duplicate = await fetch(`http://127.0.0.1:${port}/api/health/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-WinPlate-Health-Token": TOKEN
+      },
       body: JSON.stringify(payload)
     });
     assert.equal(duplicate.status, 200);
@@ -182,20 +190,46 @@ test("accepts authenticated health snapshots and rejects invalid tokens", async 
       heartRate: 88,
       heartRateSampleAt: new Date(Date.now() + 1_000).toISOString()
     };
-    const next = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+    const next = await fetch(`http://127.0.0.1:${port}/api/health/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-WinPlate-Health-Token": TOKEN
+      },
       body: JSON.stringify(nextPayload)
     });
     assert.equal(next.status, 200);
     assert.equal(service.getStatus().heartRateHistory.length, 2);
 
-    const rejected = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=wrong`, {
+    const rejectedQuery = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
+    assert.equal(rejectedQuery.status, 401);
+
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/health/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-WinPlate-Health-Token": "wrong"
+      },
+      body: JSON.stringify(payload)
+    });
     assert.equal(rejected.status, 401);
+
+    const cors = await fetch(`http://127.0.0.1:${port}/api/health/status`, {
+      headers: { "X-WinPlate-Health-Token": TOKEN }
+    });
+    assert.equal(cors.headers.get("access-control-allow-origin"), null);
+    assert.equal(service.getStatus().pairingToken, undefined);
+    assert.equal(service.getStatus({ includePairingToken: true }).pairingToken, TOKEN);
+    assert.match(service.getStatus().connectionUrls[0], /^http:\/\/192\.168\.1\.20:\d+\/api\/health\/sync$/);
+    assert.doesNotMatch(service.getStatus().connectionUrls[0], /token=/);
+    assert.equal(service.getStatus().pairingPayloads, undefined);
+    const pairing = service.getStatus({ includePairingToken: true });
+    assert.match(pairing.pairingPayloads[0], /^winplate:\/\/192\.168\.1\.20:\d+#/);
+    assert.ok(pairing.pairingPayloads[0].endsWith(`#${TOKEN}`));
   } finally {
     await service.stop();
   }
@@ -216,9 +250,12 @@ test("persists heart-rate history across health sync server restarts", async () 
   await service.start();
   const port = new URL(service.getStatus().connectionUrls[0]).port;
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/health/sync?token=${TOKEN}`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-WinPlate-Health-Token": TOKEN
+      },
       body: JSON.stringify({
         schemaVersion: 2,
         snapshotId: "snapshot-persisted",
@@ -244,4 +281,66 @@ test("persists heart-rate history across health sync server restarts", async () 
     await service.stop();
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test("marks the health connection stale after the idle window", async () => {
+  let now = Date.parse("2026-08-17T00:00:00.000Z");
+  const service = createHealthSyncServer({
+    host: "127.0.0.1",
+    port: 0,
+    token: TOKEN,
+    now: () => now,
+    networkInterfaces: { WiFi: [{ address: "192.168.1.20", family: "IPv4", internal: false }] }
+  });
+  await service.start();
+  try {
+    const port = new URL(service.getStatus().connectionUrls[0]).port;
+    const response = await fetch(`http://127.0.0.1:${port}/api/health/sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-WinPlate-Health-Token": TOKEN
+      },
+      body: JSON.stringify({
+        schemaVersion: 2,
+        snapshotId: "snapshot-stale",
+        sender: "iPhone",
+        sentAt: new Date(now).toISOString(),
+        healthUpdatedAt: new Date(now).toISOString(),
+        permissionGranted: true,
+        heartRate: 70,
+        heartRateSampleAt: new Date(now).toISOString()
+      })
+    });
+    assert.equal(response.status, 200);
+    assert.equal(service.getStatus().state, "live");
+    now += (2 * 60 * 1000) + 1;
+    assert.equal(service.getStatus().state, "stale");
+    assert.equal(service.getStatus().snapshot.heartRate, 70);
+  } finally {
+    await service.stop();
+  }
+});
+
+test("builds and parses a single Windows health pairing payload", () => {
+  const payload = buildHealthPairingPayload("http://192.168.1.20:8766/api/health/sync", TOKEN);
+  assert.equal(payload, `winplate://192.168.1.20:8766#${TOKEN}`);
+  assert.deepEqual(parseHealthPairingPayload(payload), {
+    endpoint: "http://192.168.1.20:8766/api/health/sync",
+    token: TOKEN
+  });
+  assert.deepEqual(
+    parseHealthPairingPayload("http://192.168.1.20:8766/api/health/sync?token=legacy-token"),
+    {
+      endpoint: "http://192.168.1.20:8766/api/health/sync",
+      token: "legacy-token"
+    }
+  );
+  assert.deepEqual(
+    parseHealthPairingPayload("192.168.1.20:8766\nsecond-line-token"),
+    {
+      endpoint: "http://192.168.1.20:8766/api/health/sync",
+      token: "second-line-token"
+    }
+  );
 });

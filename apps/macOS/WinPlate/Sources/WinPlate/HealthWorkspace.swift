@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct HealthWorkspace: View {
@@ -28,6 +29,7 @@ struct HealthWorkspace: View {
 
     private var connectionCard: some View {
         HealthPanel {
+            VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: state.healthConnectionState.symbolName)
                     .font(.title2.weight(.semibold))
@@ -48,6 +50,26 @@ struct HealthWorkspace: View {
                 Text(state.healthConnectionState.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(connectionColor)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("配对码")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text(state.healthPairingCode)
+                        .font(.system(.title3, design: .monospaced).weight(.semibold))
+                        .textSelection(.enabled)
+                    Button("复制") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(state.healthPairingCode, forType: .string)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Text("在 iPhone 的 WinPlate Health 中输入此 6 位配对码，附近未配对设备无法接收健康数据。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             }
         }
     }

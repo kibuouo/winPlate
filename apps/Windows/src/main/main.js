@@ -46,6 +46,7 @@ const {
   HEART_RATE_HISTORY_FILE_NAME
 } = require("./healthSyncServer");
 const { loadOrCreateHealthSyncToken } = require("./healthSyncToken");
+const { ensureHealthSyncFirewallRule } = require("./healthSyncFirewall");
 const { readCodexUsage } = require("./codexUsage");
 const { readCodexTokenUsage } = require("./codexTokenUsage");
 const { readNetworkSpeed } = require("./networkSpeed");
@@ -427,13 +428,22 @@ if (!gotLock) {
     }
     currentSettings = await readSettings(userDataPath);
     try {
-      const healthSyncToken = await loadOrCreateHealthSyncToken(userDataPath);
+      const healthSyncToken = await loadOrCreateHealthSyncToken(userDataPath, safeStorage);
       healthSyncServer = createHealthSyncServer({
         token: healthSyncToken,
         historyFilePath: path.join(userDataPath, HEART_RATE_HISTORY_FILE_NAME),
         onUpdate: broadcastHealthSyncUpdated
       });
       await healthSyncServer.start();
+      const firewall = await ensureHealthSyncFirewallRule({
+        exePath: app.getPath("exe"),
+        port: healthSyncServer.getStatus().connectionUrls[0]
+          ? Number(new URL(healthSyncServer.getStatus().connectionUrls[0]).port)
+          : 8766
+      });
+      if (!firewall.applied && firewall.reason !== "unsupported-platform") {
+        console.warn("Windows health sync firewall rule was not applied:", firewall.reason);
+      }
     } catch (error) {
       console.error("Windows health sync server failed to start:", error.message);
       healthSyncServer = null;
@@ -623,7 +633,8 @@ if (!gotLock) {
       requireMainWindowSender(event);
       return fetchMailMessageByUid(uid, { markRead: true });
     });
-    ipcMain.handle("mail:get-message", async (_event, uid) => {
+    ipcMain.handle("mail:get-message", async (event, uid) => {
+      requireMainWindowSender(event);
       return fetchMailMessageByUid(uid, { markRead: false });
     });
     ipcMain.handle("github:refresh", async () => {
@@ -657,15 +668,20 @@ if (!gotLock) {
         force ? 0 : STATUS_CACHE_TTL_MS
       );
     });
-    ipcMain.handle("health-sync:get-status", () => healthSyncServer?.getStatus() || {
-      schemaVersion: 2,
-      state: "error",
-      error: "Windows 健康接收服务未启动",
-      snapshot: null,
-      desktopStatus: null,
-      lastReceivedAt: null,
-      heartRateHistory: [],
-      connectionUrls: []
+    ipcMain.handle("health-sync:get-status", (event) => {
+      const includePairingToken = ownsMainWindowSender(event.sender);
+      const status = healthSyncServer?.getStatus({ includePairingToken }) || {
+        schemaVersion: 2,
+        state: "error",
+        error: "Windows 健康接收服务未启动",
+        snapshot: null,
+        desktopStatus: null,
+        lastReceivedAt: null,
+        heartRateHistory: [],
+        connectionUrls: []
+      };
+      if (includePairingToken) return status;
+      return { ...status, connectionUrls: [] };
     });
     ipcMain.handle("health-sync:publish-desktop-status", (event, payload) => {
       requireMainWindowSender(event);
@@ -796,9 +812,19 @@ if (!gotLock) {
       responseCaches.delete("Mail settings");
       clearMailCaches();
       const servicePublicSettings = serviceSettingsLifecycle.publicSettings();
+      let connected = false;
+      try {
+        const response = await fetchWithTimeout("http://127.0.0.1:8765/api/mail/connect", { method: "POST" });
+        if (response.ok) {
+          const payload = await readJsonWithTimeout(response, "Mail connect");
+          connected = payload?.connected === true;
+        }
+      } catch {
+        connected = false;
+      }
       return {
         configured: true,
-        connected: true,
+        connected,
         address: servicePublicSettings.qqMailAddress,
         protocol: "IMAP",
         query: "IMAP INBOX SINCE 30 days",
@@ -816,10 +842,12 @@ if (!gotLock) {
         updatedAt: null
       };
     });
-    ipcMain.handle("mail:get-outline", () => (
-      fetchJsonCached("Mail outline", "http://127.0.0.1:8765/api/mail/outline", MAIL_CACHE_TTL_MS)
-    ));
-    ipcMain.handle("mail:refresh", async () => {
+    ipcMain.handle("mail:get-outline", (event) => {
+      requireMainWindowSender(event);
+      return fetchJsonCached("Mail outline", "http://127.0.0.1:8765/api/mail/outline", MAIL_CACHE_TTL_MS);
+    });
+    ipcMain.handle("mail:refresh", async (event) => {
+      requireMainWindowSender(event);
       const response = await fetchWithTimeout("http://127.0.0.1:8765/api/mail/refresh", { method: "POST" });
       if (!response.ok) {
         const payload = await readJsonWithTimeout(response, "Mail refresh error").catch(() => null);
@@ -915,7 +943,10 @@ if (!gotLock) {
       onUpdated: broadcastNotificationDigest
     });
     ipcMain.handle("notification:get-digest", () => notificationSummaryService.getDigest());
-    ipcMain.handle("notifications:get-detail", async (_event, id) => notificationDetailService.getNotificationDetail(id));
+    ipcMain.handle("notifications:get-detail", async (event, id) => {
+      requireMainWindowSender(event);
+      return notificationDetailService.getNotificationDetail(id);
+    });
     ipcMain.handle("notifications:copy", (_event, value) => {
       const text = typeof value === "string" ? value : "";
       if (!text) throw new Error("Notification copy text is empty");

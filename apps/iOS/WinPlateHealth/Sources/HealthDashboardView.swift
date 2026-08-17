@@ -3,7 +3,9 @@ import SwiftUI
 struct HealthDashboardView: View {
     @EnvironmentObject private var healthStore: HealthStore
     @State private var windowsEndpointDraft = ""
+    @State private var macPairingDraft = ""
     @State private var isWindowsSetupExpanded = false
+    @State private var isMacSetupExpanded = false
 
     var body: some View {
         NavigationStack {
@@ -30,7 +32,9 @@ struct HealthDashboardView: View {
             }
             .task {
                 windowsEndpointDraft = healthStore.windowsEndpoint
+                macPairingDraft = healthStore.macPairingCode
                 isWindowsSetupExpanded = healthStore.windowsEndpoint.isEmpty
+                isMacSetupExpanded = healthStore.macPairingCode.isEmpty
                 await healthStore.refresh()
             }
         }
@@ -232,14 +236,28 @@ struct HealthDashboardView: View {
             )
 
             VStack(spacing: 0) {
-                DeviceConnectionRow(
-                    icon: "desktopcomputer",
-                    tint: .indigo,
-                    title: "Mac",
-                    status: healthStore.syncState.title,
-                    detail: macConnectionDetail,
-                    statusColor: syncTint
-                )
+                Button {
+                    withAnimation(.snappy) {
+                        isMacSetupExpanded.toggle()
+                    }
+                } label: {
+                    DeviceConnectionRow(
+                        icon: "desktopcomputer",
+                        tint: .indigo,
+                        title: "Mac",
+                        status: healthStore.syncState.title,
+                        detail: macConnectionDetail,
+                        statusColor: syncTint,
+                        showsChevron: true,
+                        isExpanded: isMacSetupExpanded
+                    )
+                }
+                .buttonStyle(.plain)
+
+                if isMacSetupExpanded {
+                    macSetup
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
 
                 Divider()
                     .padding(.leading, 58)
@@ -273,17 +291,49 @@ struct HealthDashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private var windowsSetup: some View {
+    private var macSetup: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("从 Windows 健康页复制接收地址，粘贴到这里即可配对。")
+            Text("在 Mac 的健康页查看 6 位配对码，输入后才会接受附近设备连接。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            TextField("192.168.1.20:8766/api/health/sync?token=...", text: $windowsEndpointDraft)
+            TextField("Mac 配对码", text: $macPairingDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+
+            Button {
+                healthStore.saveMacPairingCode(macPairingDraft)
+            } label: {
+                Label(healthStore.macPairingCode.isEmpty ? "保存配对码" : "更新配对码", systemImage: "lock.rotation")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.indigo)
+            .disabled(macPairingDraft.filter(\.isNumber).count != 6)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+    }
+
+    private var windowsSetup: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("在 Windows 健康页点“复制配对信息”，然后粘贴到这里。旧版地址或带 token 的链接仍然可用。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            TextField(
+                healthStore.hasWindowsToken ? "已配置，重新粘贴可覆盖" : "winplate://192.168.1.20:8766#…",
+                text: $windowsEndpointDraft,
+                axis: .vertical
+            )
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
                 .textFieldStyle(.roundedBorder)
+                .lineLimit(2...4)
 
             Button {
                 Task { await healthStore.saveWindowsEndpoint(windowsEndpointDraft) }
@@ -437,6 +487,9 @@ struct HealthDashboardView: View {
     }
 
     private var macConnectionDetail: String {
+        if healthStore.macPairingCode.isEmpty {
+            return "点击输入 Mac 上显示的 6 位配对码"
+        }
         if let lastSyncSentAt = healthStore.lastSyncSentAt {
             return "最近发送于 \(lastSyncSentAt.formatted(date: .omitted, time: .shortened))"
         }
@@ -445,7 +498,7 @@ struct HealthDashboardView: View {
 
     private var windowsConnectionDetail: String {
         if healthStore.windowsEndpoint.isEmpty {
-            return "点击配置 Windows 接收地址"
+            return "点击粘贴 Windows 配对信息"
         }
         return healthStore.windowsSyncState.detail
     }

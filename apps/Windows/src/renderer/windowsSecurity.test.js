@@ -384,8 +384,11 @@ test("Windows health configuration lives in settings while the health workspace 
   const diagnosticsSource = appSource.slice(diagnosticsStart, diagnosticsEnd);
 
   assert.match(connectionSource, /iPhone 通信/);
-  assert.match(connectionSource, /Windows 接收地址/);
-  assert.match(connectionSource, /data-copy-health-url/);
+  assert.match(connectionSource, /Windows 配对信息/);
+  assert.match(connectionSource, /data-copy-health-payload/);
+  assert.match(connectionSource, /复制配对信息/);
+  assert.doesNotMatch(connectionSource, /data-copy-health-token/);
+  assert.match(appSource, /lines\.map\(\(line\) => `<span>\$\{escapeHtml\(line\)\}<\/span>`\)/);
   assert.match(appSource, /id="settings-health" data-settings-service data-settings-service-label="健康"\s*>\s*\$\{healthConnectionCard\(\)\}/);
   assert.match(detailSource, /healthSnapshotCard\(\)/);
   assert.match(detailSource, /healthHeartRateCard\(\)/);
@@ -394,7 +397,7 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(snapshotSource, /健康快照/);
   assert.match(diagnosticsSource, /通信诊断/);
   assert.match(diagnosticsSource, /健康权限/);
-  assert.doesNotMatch(detailSource, /iPhone 通信|Windows 接收地址|data-copy-health-url/);
+  assert.doesNotMatch(detailSource, /iPhone 通信|Windows 接收地址|Windows 配对信息|data-copy-health-url|data-copy-health-payload/);
   assert.match(appSource, /Heart: healthDetailContent\(\)/);
   assert.match(appSource, /if \(value === null \|\| value === undefined \|\| value === ""\) return "--"/);
   assert.match(appSource, /function healthStatusBadge\(status = healthSyncStatus\)/);

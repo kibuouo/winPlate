@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import HealthKit
+import UIKit
 
 private struct HealthMetricValue {
     let value: Double?
@@ -20,6 +21,8 @@ final class HealthStore: ObservableObject {
     @Published private(set) var lastSyncSentAt: Date?
     @Published private(set) var syncError: String?
     @Published private(set) var windowsEndpoint = WindowsHealthLink.savedEndpoint
+    @Published private(set) var hasWindowsToken = !WindowsHealthLink.savedToken.isEmpty
+    @Published private(set) var macPairingCode = HealthPeerPairing.savedCode ?? ""
     @Published private(set) var windowsSyncState: WindowsHealthSyncState = .notConfigured
     @Published private(set) var lastWindowsSyncSentAt: Date?
     @Published private(set) var desktopStatus = DesktopStatusSnapshot.empty
@@ -42,7 +45,7 @@ final class HealthStore: ObservableObject {
     init() {
         peerLink = HealthPeerLink(
             role: .advertiser,
-            displayName: ProcessInfo.processInfo.hostName
+            displayName: String(UIDevice.current.name.prefix(32))
         )
         backgroundCoordinator = HealthBackgroundCoordinator(store: store)
 
@@ -176,9 +179,20 @@ final class HealthStore: ObservableObject {
         }
         message = nil
 
-        let heartRate = try? await latestHeartRateSample()
-        let steps = try? await todayTotal(for: stepCountType, unit: .count())
-        let energy = try? await todayTotal(for: activeEnergyType, unit: .kilocalorie())
+        let heartRate: HealthMetricValue?
+        let steps: HealthMetricValue?
+        let energy: HealthMetricValue?
+        do {
+            heartRate = try await latestHeartRateSample()
+            steps = try await todayTotal(for: stepCountType, unit: .count())
+            energy = try await todayTotal(for: activeEnergyType, unit: .kilocalorie())
+        } catch {
+            if showsProgress {
+                isLoading = false
+                message = "读取健康数据失败：\(error.localizedDescription)"
+            }
+            return
+        }
 
         latestHeartRate = heartRate?.value
         stepCount = steps?.value
@@ -210,12 +224,23 @@ final class HealthStore: ObservableObject {
         await pollDesktopStatus()
     }
 
-    func saveWindowsEndpoint(_ value: String) async {
-        guard let endpoint = WindowsHealthLink.saveEndpoint(value) else {
-            windowsSyncState = .error("Windows 地址无效，请粘贴健康页提供的完整地址。")
+    func saveMacPairingCode(_ value: String) {
+        guard let code = HealthPeerPairing.save(value) else {
+            syncState = .error("请输入 Mac 健康页显示的 6 位配对码")
+            return
+        }
+        macPairingCode = code
+        peerLink.updatePairingCode(code)
+        peerLink.restartIfNeeded()
+    }
+
+    func saveWindowsEndpoint(_ value: String, token: String = "") async {
+        guard let endpoint = WindowsHealthLink.saveEndpoint(value, token: token) else {
+            windowsSyncState = .error("Windows 配对信息无效，请粘贴健康页复制的完整配对信息。")
             return
         }
         windowsEndpoint = endpoint
+        hasWindowsToken = !WindowsHealthLink.savedToken.isEmpty
         windowsSyncState = .sending
         await sendWindowsSnapshot(currentPayload(reason: .manual), to: endpoint)
         startDesktopStatusPolling()

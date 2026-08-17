@@ -49,6 +49,7 @@ final class AppState: ObservableObject {
     @Published private(set) var healthConnectionState: HealthPeerConnectionState = .idle
     @Published private(set) var healthLastReceivedAt: Date?
     @Published private(set) var healthSyncError: String?
+    @Published private(set) var healthPairingCode: String
     @Published var selectedGitHubMonthKey: String?
     @Published var menuBarEnabled: Bool
     @Published var selectedWorkspace: WorkspaceDestination? = .overview
@@ -82,9 +83,12 @@ final class AppState: ObservableObject {
     private let healthPeerLink: HealthPeerLink
 
     init() {
+        let pairingCode = HealthPeerPairing.loadOrCreateCode()
+        healthPairingCode = pairingCode
         healthPeerLink = HealthPeerLink(
             role: .browser,
-            displayName: Host.current().localizedName ?? "WinPlate"
+            displayName: String((Host.current().localizedName ?? "WinPlate").prefix(32)),
+            pairingCode: pairingCode
         )
         menuBarEnabled = settings.menuBarEnabled
         isMainSidebarVisible = UserDefaults.standard.object(
@@ -105,7 +109,7 @@ final class AppState: ObservableObject {
                 self.healthSnapshot = payload
                 self.healthLastReceivedAt = Date()
                 if let heartRate = payload.heartRate {
-                    let date = payload.healthUpdatedAt ?? payload.sentAt
+                    let date = payload.heartRateSampleAt ?? payload.healthUpdatedAt ?? payload.sentAt
                     self.heartRateHistory = HeartRateHistory.appending(
                         HeartRateHistoryPoint(date: date, bpm: heartRate),
                         to: self.heartRateHistory
@@ -287,13 +291,8 @@ final class AppState: ObservableObject {
         let projectID = projectIDValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let credentialID = credentialIDValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let privateKey = privateKeyValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Existing Keychain values are intentionally not shown in the form.
-        // Treat an empty field as "keep", otherwise saving JWT fields would
-        // silently remove the API key used for current-weather requests.
         if !key.isEmpty { settings.weatherAPIKey = key }
         settings.weatherAPIHost = host.isEmpty ? "devapi.qweather.com" : host
-        // The form intentionally does not reveal existing Keychain values.
-        // Empty fields therefore mean "keep the stored value", not "erase it".
         if !projectID.isEmpty { settings.weatherProjectID = projectID }
         if !credentialID.isEmpty { settings.weatherCredentialID = credentialID }
         if !privateKey.isEmpty { settings.weatherPrivateKey = privateKey }

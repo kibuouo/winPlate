@@ -236,8 +236,7 @@ function jsonResponse(response, statusCode, payload) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-    "Access-Control-Allow-Origin": "*"
+    "Cache-Control": "no-store"
   });
   response.end(body);
 }
@@ -327,24 +326,31 @@ function createHealthSyncServer({
     const addresses = getLanIPv4Addresses(availableInterfaces);
     const usableAddresses = addresses.length ? addresses : ["127.0.0.1"];
     return usableAddresses.map((address) => (
-      `http://${address}:${boundPort}/api/health/sync?token=${encodeURIComponent(token)}`
+      `http://${address}:${boundPort}/api/health/sync`
     ));
   }
 
-  function getStatus() {
+  function pairingPayloads() {
+    return connectionUrls().map((url) => buildHealthPairingPayload(url, token));
+  }
+
+  function connectionState() {
+    if (lastError) return "error";
+    if (!snapshot || !lastReceivedAt) return "waiting";
+    const receivedAt = Date.parse(lastReceivedAt);
+    if (Number.isFinite(receivedAt) && now() - receivedAt > STALE_AFTER_MS) return "stale";
+    return "live";
+  }
+
+  function getStatus({ includePairingToken = false } = {}) {
     const normalizedHistory = normalizeHeartRateHistory(heartRateHistory, now());
     if (normalizedHistory.length !== heartRateHistory.length) {
       heartRateHistory = normalizedHistory;
       persistHeartRateHistory();
     }
-    const state = lastError
-      ? "error"
-      : !snapshot
-        ? "waiting"
-        : "live";
-    return {
+    const status = {
       schemaVersion: HEALTH_SYNC_SCHEMA_VERSION,
-      state,
+      state: connectionState(),
       lastReceivedAt,
       lastSnapshotId,
       freshness: buildMetricFreshness(snapshot, now()),
@@ -354,6 +360,11 @@ function createHealthSyncServer({
       desktopStatus,
       connectionUrls: connectionUrls()
     };
+    if (includePairingToken) {
+      status.pairingToken = token;
+      status.pairingPayloads = pairingPayloads();
+    }
+    return status;
   }
 
   function notify() {
@@ -367,24 +378,14 @@ function createHealthSyncServer({
   }
 
   function authorized(url, request) {
-    const queryToken = url.searchParams.get("token");
     const headerToken = typeof request.headers["x-winplate-health-token"] === "string"
       ? request.headers["x-winplate-health-token"]
       : "";
-    return queryToken === token || headerToken === token;
+    return headerToken === token;
   }
 
   async function handleRequest(request, response) {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
-    if (request.method === "OPTIONS") {
-      response.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type, X-WinPlate-Health-Token",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
-      });
-      response.end();
-      return;
-    }
 
     if (request.method === "GET" && url.pathname === "/health") {
       jsonResponse(response, 200, { status: "ok" });
@@ -501,6 +502,46 @@ function createHealthSyncServer({
   };
 }
 
+function buildHealthPairingPayload(url, token) {
+  if (typeof url !== "string" || !url || typeof token !== "string" || !token) {
+    throw new Error("health pairing payload requires a url and token");
+  }
+  const parsed = new URL(url);
+  const port = parsed.port || String(DEFAULT_HEALTH_SYNC_PORT);
+  return `winplate://${parsed.hostname}:${port}#${token}`;
+}
+
+function parseHealthPairingPayload(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length >= 2) {
+    const first = parseHealthPairingPayload(lines[0]);
+    if (first) {
+      return {
+        endpoint: first.endpoint,
+        token: first.token || lines[1]
+      };
+    }
+  }
+
+  const candidate = trimmed.includes("://") ? trimmed : `http://${trimmed}`;
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+  const scheme = parsed.protocol.replace(":", "").toLowerCase();
+  if (!["http", "https", "winplate"].includes(scheme) || !parsed.hostname) return null;
+  const port = parsed.port || (scheme === "https" ? "443" : String(DEFAULT_HEALTH_SYNC_PORT));
+  const token = decodeURIComponent((parsed.hash || "").replace(/^#/, "") || parsed.searchParams.get("token") || "");
+  return {
+    endpoint: `http://${parsed.hostname}:${port}/api/health/sync`,
+    token
+  };
+}
+
 module.exports = {
   DEFAULT_HEALTH_SYNC_PORT,
   HEART_RATE_HISTORY_FILE_NAME,
@@ -509,11 +550,13 @@ module.exports = {
   HEALTH_SYNC_SCHEMA_VERSION,
   SUPPORTED_HEALTH_SYNC_SCHEMA_VERSIONS,
   STALE_AFTER_MS,
+  buildHealthPairingPayload,
   buildMetricFreshness,
   createHealthSyncServer,
   getLanIPv4Addresses,
   mergeHeartRateHistory,
   normalizeHeartRateHistory,
   normalizeHealthPayload,
-  normalizeDesktopStatusSnapshot
+  normalizeDesktopStatusSnapshot,
+  parseHealthPairingPayload
 };

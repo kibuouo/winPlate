@@ -81,7 +81,10 @@ test("sensitive business IPC handlers require the live main-window sender", () =
     "weather:set-manual-location",
     "weather:refresh-official-usage",
     "mail:save-settings",
+    "mail:get-message",
     "email:read-message",
+    "mail:refresh",
+    "notifications:get-detail",
     "notifications:mark-read",
     "notifications:mark-read-many",
     "notifications:mark-all-read",
@@ -165,6 +168,8 @@ test("settings save derives GitHub token state without an AI summary toggle", ()
 test("GitHub external navigation stays main-window-owned and GitHub-only", () => {
   const main = readMain();
 
+  assert.match(main, /ipcMain\.handle\("mail:get-outline", \(event\) => \{\s*requireMainWindowSender\(event\);/);
+  assert.match(main, /const includePairingToken = ownsMainWindowSender\(event\.sender\);/);
   assert.match(main, /ipcMain\.on\("github:open-profile", \(event, url\) => \{\s*requireMainWindowSender\(event\);/);
   assert.match(main, /target\.protocol === "https:"/);
   assert.match(main, /target\.hostname === "github\.com"/);

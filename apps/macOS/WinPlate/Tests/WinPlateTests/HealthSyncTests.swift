@@ -84,4 +84,50 @@ final class HealthSyncTests: XCTestCase {
 
         XCTAssertEqual(result, [replacement])
     }
+
+    func testPeerPairingContextMatchesOnlyTheExpectedCode() {
+        let code = "482917"
+        let context = HealthPeerPairing.invitationContext(for: code)
+
+        XCTAssertEqual(HealthPeerPairing.normalize(" 482 917 "), code)
+        XCTAssertTrue(HealthPeerPairing.matches(context, expectedCode: code))
+        XCTAssertFalse(HealthPeerPairing.matches(context, expectedCode: "000000"))
+        XCTAssertFalse(HealthPeerPairing.matches(nil, expectedCode: code))
+        XCTAssertNil(HealthPeerPairing.normalize("12345"))
+        XCTAssertEqual(
+            HealthPeerPairing.discoveryToken(for: code),
+            HealthPeerPairing.discoveryToken(for: code)
+        )
+        XCTAssertNotEqual(
+            HealthPeerPairing.discoveryToken(for: code),
+            HealthPeerPairing.discoveryToken(for: "000000")
+        )
+    }
+
+    func testSchema2HeartRateSampleDateSurvivesDecoding() throws {
+        let sampleAt = Date(timeIntervalSince1970: 1_800_000_100)
+        let payload = HealthSyncPayload(
+            schemaVersion: 2,
+            snapshotId: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+            reason: .healthKitObserver,
+            sender: "iPhone",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_200),
+            healthUpdatedAt: Date(timeIntervalSince1970: 1_800_000_150),
+            permissionGranted: true,
+            heartRate: 91,
+            heartRateSampleAt: sampleAt,
+            stepCount: 1200,
+            stepCountSampleAt: Date(timeIntervalSince1970: 1_800_000_050),
+            activeEnergy: 88
+        )
+
+        let decoded = try JSONDecoder().decode(
+            HealthSyncPayload.self,
+            from: JSONEncoder().encode(payload)
+        )
+
+        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.heartRateSampleAt, sampleAt)
+        XCTAssertEqual(decoded.reason, .healthKitObserver)
+    }
 }

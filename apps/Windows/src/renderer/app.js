@@ -44,7 +44,7 @@ function healthConnectionDetail(status = healthSyncStatus) {
   }
   if (state === "stale") return "最近一次健康快照较早，健康指标会按各自的采样时间判断新鲜度";
   if (state === "error") return status?.error || "Windows 健康接收服务异常";
-  return "请在 iPhone 上打开 WinPlate Health，并粘贴下方地址";
+  return "请在 iPhone 上打开 WinPlate Health，并粘贴下方配对信息";
 }
 
 function healthStatusBadge(status = healthSyncStatus) {
@@ -131,7 +131,13 @@ function applyHealthSyncStatus(payload) {
     state,
     snapshot: incoming.snapshot && typeof incoming.snapshot === "object" ? incoming.snapshot : null,
     heartRateHistory,
-    connectionUrls: Array.isArray(incoming.connectionUrls) ? incoming.connectionUrls : []
+    connectionUrls: Array.isArray(incoming.connectionUrls) ? incoming.connectionUrls : [],
+    pairingToken: typeof incoming.pairingToken === "string" && incoming.pairingToken
+      ? incoming.pairingToken
+      : healthSyncStatus.pairingToken || "",
+    pairingPayloads: Array.isArray(incoming.pairingPayloads) && incoming.pairingPayloads.length
+      ? incoming.pairingPayloads.filter(Boolean)
+      : healthSyncStatus.pairingPayloads || []
   };
   const snapshot = healthSyncStatus.snapshot;
   const latestHistoryPoint = heartRateHistory.at(-1);
@@ -369,7 +375,7 @@ function persistDashboardCache() {
   return window.WinPlateDashboardCache.write(dashboardCachePayload());
 }
 
-let healthSyncStatus = { state: "waiting", snapshot: null, heartRateHistory: [], connectionUrls: [] };
+let healthSyncStatus = { state: "waiting", snapshot: null, heartRateHistory: [], connectionUrls: [], pairingPayloads: [] };
 let statusData = { ...mockStatus, github: normalizeGithub(mockStatus.github) };
 const appRoot = document.querySelector("#app");
 const view = new URLSearchParams(window.location.search).get("view") || "main";
@@ -3181,7 +3187,7 @@ function renderTooltip(data = {}) {
   const lines = Array.isArray(data.lines) ? data.lines : [];
   appRoot.innerHTML = `
     <div class="system-tooltip" role="tooltip">
-      ${lines.map((line) => `<span>${line}</span>`).join("")}
+      ${lines.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}
     </div>`;
 }
 
@@ -3231,16 +3237,37 @@ function heartCard({ interactive = false } = {}) {
     </article>`;
 }
 
+function healthPairingHostLabel(payload) {
+  try {
+    return new URL(payload).host;
+  } catch {
+    return payload;
+  }
+}
+
 function healthConnectionCard() {
   const status = healthSyncStatus;
+  const payloads = Array.isArray(status.pairingPayloads) ? status.pairingPayloads.filter(Boolean) : [];
   const urls = Array.isArray(status.connectionUrls) ? status.connectionUrls.filter(Boolean) : [];
-  const pairing = urls.length
-    ? urls.map((url, index) => `
-        <div class="health-pairing-url-row">
-          <code>${escapeHtml(url)}</code>
-          <button type="button" class="health-copy-button" data-copy-health-url="${escapeHtml(url)}">${index ? "复制" : "复制地址"}</button>
-        </div>`).join("")
-    : `<p class="health-pairing-empty">Windows 接收服务暂未提供局域网地址，请稍后刷新。</p>`;
+  const primary = payloads[0] || "";
+  const extras = payloads.slice(1);
+  const pairing = primary
+    ? `<div class="health-pairing-primary">
+        <code>${escapeHtml(healthPairingHostLabel(primary))}</code>
+        <button type="button" class="health-copy-button health-copy-button-primary" data-copy-health-payload="${escapeHtml(primary)}">复制配对信息</button>
+      </div>`
+    : urls.length
+      ? urls.map((url) => `
+          <div class="health-pairing-url-row">
+            <code>${escapeHtml(url)}</code>
+            <button type="button" class="health-copy-button" data-copy-health-url="${escapeHtml(url)}">复制地址</button>
+          </div>`).join("")
+      : `<p class="health-pairing-empty">Windows 接收服务暂未提供局域网地址，请稍后刷新。</p>`;
+  const extraRows = extras.map((payload) => `
+      <div class="health-pairing-url-row">
+        <code>${escapeHtml(healthPairingHostLabel(payload))}</code>
+        <button type="button" class="health-copy-button" data-copy-health-payload="${escapeHtml(payload)}">复制</button>
+      </div>`).join("");
   return `
     <section class="health-panel health-connection-panel">
       <div class="health-panel-heading">
@@ -3258,11 +3285,11 @@ function healthConnectionCard() {
       </div>
       <div class="health-pairing-block">
         <div class="health-pairing-heading">
-          <strong>Windows 接收地址</strong>
-          <span>在 iPhone 的“WinPlate 通信”中粘贴此地址</span>
+          <strong>Windows 配对信息</strong>
+          <span>复制后在 iPhone 粘贴一次即可，令牌不会单独显示</span>
         </div>
-        <div class="health-pairing-urls">${pairing}</div>
-        <small class="health-pairing-note">请让 iPhone 与这台电脑连接到同一个局域网；配对令牌仅用于本机健康同步。</small>
+        <div class="health-pairing-urls">${pairing}${extraRows}</div>
+        <small class="health-pairing-note">请让 iPhone 与这台电脑连接到同一个局域网。复制内容包含地址和配对令牌，请只粘贴到本机 WinPlate Health。</small>
       </div>
     </section>`;
 }
@@ -5422,28 +5449,34 @@ function bindHealthHeartRateChartHover(chartRoot) {
   chartRoot.addEventListener("pointercancel", hidePoint);
 }
 
+function bindHealthCopyButton(button, value, failureLabel) {
+  button.onclick = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!value || button.disabled) return;
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    try {
+      await copyTextToClipboard(value);
+      button.textContent = "已复制";
+    } catch (error) {
+      console.warn(failureLabel, error.message);
+      button.textContent = "复制失败";
+    } finally {
+      window.setTimeout(() => {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }, 1600);
+    }
+  };
+}
+
 function bindHealthControls() {
+  document.querySelectorAll("[data-copy-health-payload]").forEach((button) => {
+    bindHealthCopyButton(button, button.dataset.copyHealthPayload, "Failed to copy health pairing payload:");
+  });
   document.querySelectorAll("[data-copy-health-url]").forEach((button) => {
-    button.onclick = async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const url = button.dataset.copyHealthUrl;
-      if (!url || button.disabled) return;
-      const originalLabel = button.textContent;
-      button.disabled = true;
-      try {
-        await copyTextToClipboard(url);
-        button.textContent = "已复制";
-      } catch (error) {
-        console.warn("Failed to copy health pairing URL:", error.message);
-        button.textContent = "复制失败";
-      } finally {
-        window.setTimeout(() => {
-          button.disabled = false;
-          button.textContent = originalLabel;
-        }, 1600);
-      }
-    };
+    bindHealthCopyButton(button, button.dataset.copyHealthUrl, "Failed to copy health pairing URL:");
   });
   document.querySelectorAll("[data-health-chart-range]").forEach((button) => {
     button.onclick = (event) => {

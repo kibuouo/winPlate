@@ -1131,7 +1131,10 @@ html[data-theme="light"] .main-body.platform-win32 .main-window-shell { --shell-
 .health-pairing-note,
 .health-pairing-empty { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .health-pairing-urls { display: grid; gap: 8px; }
+.health-pairing-primary,
 .health-pairing-url-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.health-pairing-primary code { min-width: 0; overflow-wrap: anywhere; padding: 12px 12px; color: var(--text); border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.45; user-select: text; }
+.health-copy-button-primary { min-height: 36px; padding: 0 14px; }
 .health-pairing-url-row code { min-width: 0; overflow-wrap: anywhere; padding: 9px 10px; color: var(--text); border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; line-height: 1.45; user-select: text; }
 .health-copy-button { padding: 8px 11px; color: var(--text-soft); border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-muted); font: inherit; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .health-copy-button:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
@@ -4307,6 +4310,7 @@ html[data-density="compact"] .settings-section { margin-top: 14px; }
   .health-metrics-grid { grid-template-columns: 1fr; }
   .health-heart-rate-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
   .health-heart-rate-summary small { grid-column: 1 / -1; }
+  .health-pairing-primary,
   .health-pairing-url-row { grid-template-columns: 1fr; }
   .health-copy-button { justify-self: start; }
   .health-diagnostic-row { align-items: flex-start; flex-direction: column; gap: 4px; }

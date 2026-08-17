@@ -277,7 +277,7 @@ def mail_settings() -> dict:
     configured = mail_configured()
     return {
         "configured": configured,
-        "connected": configured,
+        "connected": False,
         "address": config["address"] if configured else "",
         "protocol": config["protocol"],
         "query": MAIL_QUERY,
@@ -325,7 +325,7 @@ def connect_qq_mail() -> dict:
             connection.logout()
         except imaplib.IMAP4.error:
             pass
-    return {"connected": True, **mail_settings()}
+    return {**mail_settings(), "connected": True}
 
 
 def decode_mail_entities(value: str) -> str:
@@ -509,10 +509,6 @@ def normalize_display_severity(severity: str) -> str:
     return value if value in {"info", "warning", "danger"} else "info"
 
 
-# Semantic display severity (info | warning | danger). Mirrors packages/core/digest
-# severityForNotification so both platform clients consume one authoritative rule set.
-# Match Windows weather storage: only red-class alerts are danger.
-# Orange sits with yellow/blue as warning (amber UI), not red danger.
 DANGER_WEATHER_RE = re.compile(r"红色预警|red alert", re.I)
 WARNING_WEATHER_RE = re.compile(
     r"橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert",
@@ -596,109 +592,6 @@ def notification_api_item(item: dict) -> dict:
     value = dict(item)
     value["severity"] = severity_for_notification(value)
     return value
-
-
-def normalize_digest_severity(severity: str) -> str:
-    value = str(severity or "info").strip().lower()
-    return value if value in {"info", "warning", "danger"} else "info"
-
-
-def notification_digest_record_row_to_item(row: sqlite3.Row) -> dict:
-    try:
-        payload = json.loads(row["payload"])
-    except (TypeError, json.JSONDecodeError):
-        payload = {}
-    return {
-        "id": int(row["id"]),
-        "source": row["source"],
-        "model": row["model"] or None,
-        "title": row["title"],
-        "summary": row["summary"],
-        "content": row["content"],
-        "severity": row["severity"],
-        "category": row["category"],
-        "iconKey": row["icon_key"],
-        "unreadCount": int(row["unread_count"]),
-        "generatedAt": int(row["generated_at"]),
-        "generatedAtIso": row["generated_at_iso"],
-        "createdAt": int(row["created_at"]),
-        "payload": payload if isinstance(payload, dict) else {},
-    }
-
-
-def persist_notification_digest_record(payload: NotificationDigestRecordPayload) -> dict:
-    generated_at = int(payload.generatedAt or utc_epoch_seconds() * 1000)
-    created_at = utc_epoch_seconds() * 1000
-    title = clean_mail_text(payload.title, limit=120) or "智能摘要"
-    summary = clean_mail_text(payload.summary, limit=500) or title
-    content = clean_mail_text(payload.content or f"{title} {summary}", limit=800) or summary
-    severity = normalize_digest_severity(payload.severity)
-    category = clean_mail_text(payload.category, limit=40).lower() or "system"
-    icon_key = clean_mail_text(payload.iconKey, limit=80) or "bell"
-    source = normalize_notification_source(payload.source)
-    model = clean_mail_text(payload.model or "", limit=80)
-    unread_count = max(0, int(payload.unreadCount or 0))
-    source_ids = [
-        clean_mail_text(str(item), limit=160)
-        for item in (payload.sourceIds or [])
-        if clean_mail_text(str(item), limit=160)
-    ]
-    stored_payload = json.dumps({
-        "sourceIds": source_ids,
-        "generatedAtIso": datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
-    }, ensure_ascii=False)
-    with closing(connect()) as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO notification_digest_records
-            (source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                source,
-                model,
-                title,
-                summary,
-                content,
-                severity,
-                category,
-                icon_key,
-                unread_count,
-                generated_at,
-                datetime.fromtimestamp(generated_at / 1000, tz=timezone.utc).isoformat(),
-                created_at,
-                stored_payload,
-            ),
-        )
-        row = connection.execute(
-            """
-            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
-            FROM notification_digest_records
-            WHERE id = ?
-            """,
-            (cursor.lastrowid,),
-        ).fetchone()
-        connection.commit()
-    return notification_digest_record_row_to_item(row)
-
-
-def notification_digest_records(limit: int = 20) -> dict:
-    safe_limit = max(1, min(100, int(limit or 20)))
-    with closing(connect()) as connection:
-        rows = connection.execute(
-            """
-            SELECT id, source, model, title, summary, content, severity, category, icon_key, unread_count, generated_at, generated_at_iso, created_at, payload
-            FROM notification_digest_records
-            ORDER BY generated_at DESC, id DESC
-            LIMIT ?
-            """,
-            (safe_limit,),
-        ).fetchall()
-    items = [notification_digest_record_row_to_item(row) for row in rows]
-    return {
-        "items": items,
-        "updatedAt": utc_epoch_seconds() * 1000,
-    }
 
 
 def sync_mail_notifications(items: list[dict]) -> None:

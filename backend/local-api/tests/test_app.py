@@ -1202,6 +1202,25 @@ class DatabaseTests(unittest.TestCase):
         ):
             main.connect_qq_mail()
 
+    def test_mail_settings_stay_disconnected_until_imap_probe(self):
+        with (
+            patch.object(main, "mail_configured", return_value=True),
+            patch.object(main, "qq_mail_config", return_value={
+                "address": "user@qq.com",
+                "protocol": "IMAP",
+                "imapHost": "imap.qq.com",
+                "imapPort": 993,
+                "imapSecure": True,
+                "smtpHost": "smtp.qq.com",
+                "smtpPort": 465,
+                "smtpSecure": True,
+            }),
+        ):
+            settings = main.mail_settings()
+            self.assertTrue(settings["configured"])
+            self.assertFalse(settings["connected"])
+            self.assertEqual(settings["address"], "user@qq.com")
+
     def test_push_notification_persists_unread_summary_and_mark_read(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:
