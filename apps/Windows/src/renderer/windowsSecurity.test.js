@@ -367,7 +367,7 @@ test("scheduled mail refreshes force an IMAP pull instead of rereading the outli
   assert.doesNotMatch(refreshMailData, /hydrateMail\(\{\s*force\s*\}\)/);
 });
 
-test("Windows health configuration lives in settings while the health workspace keeps snapshot and diagnostics", () => {
+test("Windows health configuration lives in settings while the health workspace keeps its useful cards", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
   const connectionStart = appSource.indexOf("function healthConnectionCard()");
@@ -377,11 +377,8 @@ test("Windows health configuration lives in settings while the health workspace 
   const detailEnd = appSource.indexOf("function dashboardContributionMonth", detailStart);
   const detailSource = appSource.slice(detailStart, detailEnd);
   const snapshotStart = appSource.indexOf("function healthSnapshotCard()");
-  const snapshotEnd = appSource.indexOf("function healthDiagnosticsCard()", snapshotStart);
+  const snapshotEnd = appSource.indexOf("function healthHeartRateRange", snapshotStart);
   const snapshotSource = appSource.slice(snapshotStart, snapshotEnd);
-  const diagnosticsStart = appSource.indexOf("function healthDiagnosticsCard()");
-  const diagnosticsEnd = appSource.indexOf("function healthDetailContent()", diagnosticsStart);
-  const diagnosticsSource = appSource.slice(diagnosticsStart, diagnosticsEnd);
 
   assert.match(connectionSource, /iPhone 通信/);
   assert.match(connectionSource, /Windows 配对信息/);
@@ -392,11 +389,11 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(appSource, /id="settings-health" data-settings-service data-settings-service-label="健康"\s*>\s*\$\{healthConnectionCard\(\)\}/);
   assert.match(detailSource, /healthSnapshotCard\(\)/);
   assert.match(detailSource, /healthHeartRateCard\(\)/);
-  assert.match(detailSource, /healthDiagnosticsCard\(\)/);
+  assert.doesNotMatch(detailSource, /healthDiagnosticsCard\(\)/);
+  assert.doesNotMatch(appSource, /function healthDiagnosticsCard\(\)/);
   assert.match(detailSource, /data-module-id="heart"/);
   assert.match(snapshotSource, /健康快照/);
-  assert.match(diagnosticsSource, /通信诊断/);
-  assert.match(diagnosticsSource, /健康权限/);
+  assert.doesNotMatch(detailSource, /通信诊断|健康权限|步数采样|能量采样/);
   assert.doesNotMatch(detailSource, /iPhone 通信|Windows 接收地址|Windows 配对信息|data-copy-health-url|data-copy-health-payload/);
   assert.match(appSource, /Heart: healthDetailContent\(\)/);
   assert.match(appSource, /if \(value === null \|\| value === undefined \|\| value === ""\) return "--"/);
@@ -408,7 +405,7 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(appSource, /data-health-heart-rate-chart/);
   assert.match(styles, /\.health-metrics-grid\s*\{/);
   assert.match(styles, /\.health-empty-state\s*\{/);
-  assert.match(styles, /\.health-diagnostic-row\s*\{/);
+  assert.doesNotMatch(styles, /\.health-diagnostic-row\s*\{/);
   assert.match(styles, /\.health-heart-rate-chart\s*\{/);
   assert.match(styles, /\.health-heart-rate-summary\s*\{/);
 });
@@ -440,6 +437,30 @@ test("health display helpers preserve empty values and use Chinese sync labels",
   assert.equal(stats.average, 78);
   assert.equal(stats.minimum, 72);
   assert.equal(stats.maximum, 84);
+});
+
+test("opening an unread notification paints detail before marking it read and keeps the row pinned", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const selectStart = appSource.indexOf("function scheduleOpenedNotificationRead");
+  const selectEnd = appSource.indexOf("function openNotificationDigestDrawer", selectStart);
+  const selectSource = appSource.slice(selectStart, selectEnd);
+  const inlineStart = appSource.indexOf("function notificationDetailBodyText");
+  const inlineEnd = appSource.indexOf("function updateNotificationAcknowledgement", inlineStart);
+  const inlineSource = appSource.slice(inlineStart, inlineEnd);
+  const listStart = appSource.indexOf("function notificationContent()");
+  const listEnd = appSource.indexOf("function notificationDetailBodyText", listStart);
+  const listSource = appSource.slice(listStart, listEnd);
+
+  assert.match(selectSource, /function scheduleOpenedNotificationRead/);
+  assert.match(selectSource, /requestAnimationFrame\(\(\) => requestAnimationFrame\(callback\)\)/);
+  assert.match(selectSource, /notificationSelection = \{ id: safeId, loading: false, data: payload, error: "" \}/);
+  assert.match(selectSource, /updateMainStatusDom\(\);\s*if \(conversation\?\.unread \|\| payload\?\.notification\?\.unread\) \{\s*scheduleOpenedNotificationRead/);
+  assert.match(selectSource, /updateMainStatusDom\(\);\s*focusNotificationDrawerControl\("\.notification-detail-back"\);\s*if \(conversation\?\.unread \|\| payload\?\.notification\?\.unread\) \{\s*scheduleOpenedNotificationRead/);
+  assert.doesNotMatch(selectSource, /await markConversationRead\(conversation \|\| payload\?\.notification/);
+  assert.match(inlineSource, /notificationSelection\.loading\s*\n\s*\? `<div class="notification-detail-body">/);
+  assert.doesNotMatch(inlineSource, /正在加载通知详情/);
+  assert.match(listSource, /visibleNotificationConversations\(\)/);
+  assert.match(listSource, /pinnedId: notificationSelection\.id/);
 });
 
 test("renderer CSP allows only the intended external image capability", () => {

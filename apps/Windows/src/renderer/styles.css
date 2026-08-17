@@ -1157,11 +1157,6 @@ html[data-theme="light"] .main-body.platform-win32 .main-window-shell { --shell-
 .health-empty-icon { color: var(--text-muted); font-size: 32px; line-height: 1; }
 .health-empty-state strong { color: var(--text); font-size: 14px; }
 .health-empty-state p { max-width: 460px; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
-.health-diagnostics-grid { display: grid; gap: 11px; margin-top: 16px; }
-.health-diagnostic-row { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; font-size: 12px; }
-.health-diagnostic-row span { color: var(--text-muted); }
-.health-diagnostic-row strong { overflow: hidden; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; font-weight: 600; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.health-diagnostic-error { margin: 16px 0 0; padding: 10px 12px; color: #f59e0b; border-radius: 10px; background: rgba(245, 158, 11, .1); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .health-panel-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 10px; }
 .health-chart-range { display: inline-flex; flex: 0 0 auto; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
 .health-chart-range button { padding: 5px 9px; color: var(--text-muted); border: 0; border-radius: 6px; background: transparent; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -4313,6 +4308,4 @@ html[data-density="compact"] .settings-section { margin-top: 14px; }
   .health-pairing-primary,
   .health-pairing-url-row { grid-template-columns: 1fr; }
   .health-copy-button { justify-self: start; }
-  .health-diagnostic-row { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .health-diagnostic-row strong { max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 }

@@ -65,15 +65,6 @@ function healthDateTime(value, fallback = "尚无有效健康记录") {
   }).format(new Date(timestamp));
 }
 
-function healthFreshnessLabel(freshness) {
-  return {
-    fresh: "新鲜",
-    aging: "较早",
-    stale: "过期",
-    unavailable: "无记录"
-  }[freshness?.state] || "未知";
-}
-
 function healthSnapshotSubtitle() {
   if (healthSyncStatus.lastReceivedAt) {
     return `iPhone · 收到 ${relativeUpdatedAt(healthSyncStatus.lastReceivedAt)}`;
@@ -1620,6 +1611,39 @@ function notificationConversationForId(id) {
   return resolved || conversations.find((item) => String(item.id) === String(id)) || null;
 }
 
+function notificationMatchesId(item, notificationId) {
+  if (typeof window.WinPlateNotificationDigest?.notificationMatchesId === "function") {
+    return window.WinPlateNotificationDigest.notificationMatchesId(item, notificationId);
+  }
+  const id = String(notificationId || "").trim();
+  if (!id || !item) return false;
+  return String(item.id) === id
+    || (Array.isArray(item.memberIds) && item.memberIds.some((memberId) => String(memberId) === id));
+}
+
+function selectedNotificationFallback() {
+  const selectedId = String(notificationSelection?.id || "").trim();
+  if (!selectedId) return null;
+  const fromList = notificationConversationForId(selectedId);
+  if (fromList) return fromList;
+  const notification = notificationSelection.data?.notification;
+  if (!notification || !notificationMatchesId(notification, selectedId)) return null;
+  return {
+    ...notification,
+    memberIds: Array.isArray(notification.memberIds) ? notification.memberIds : [notification.id || selectedId],
+    updateCount: Number(notification.updateCount) || 1,
+    updates: Array.isArray(notification.updates) ? notification.updates : [notification]
+  };
+}
+
+function visibleNotificationConversations() {
+  const items = notificationConversations();
+  const selectedId = String(notificationSelection?.id || "").trim();
+  if (!selectedId || items.some((item) => notificationMatchesId(item, selectedId))) return items;
+  const fallback = selectedNotificationFallback();
+  return fallback ? [fallback, ...items] : items;
+}
+
 function unreadConversationMemberIds(conversation) {
   const rawById = new Map(notificationItemsForDigest().map((item) => [String(item.id), item]));
   return (Array.isArray(conversation?.memberIds) ? conversation.memberIds : [conversation?.id])
@@ -2290,7 +2314,6 @@ const healthMetricIcons = {
   heart: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"></path></svg>`,
   steps: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="6.5" r="2.5"></circle><path d="m8 10 2.5 4.5M10.5 14.5l-2.75 5M10.5 14.5l4.25 1.25M15 15.75l2.25 4.25"></path></svg>`,
   energy: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5c.7 3.1-1.8 4.6-1.8 7.1 0 1.2.7 2 1.7 2.5-.2-2.1 1-3.3 2.4-4.7 1.5 1.6 2.7 3.5 2.7 6A6.5 6.5 0 1 1 8 9.3c.1 2 1 3.2 2.1 3.8-.5-3.8 1.1-6.8 3.4-9.6Z"></path></svg>`,
-  diagnostics: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2-6 4 12 2-6h7"></path></svg>`
 };
 
 const locationArrowIcon = `
@@ -3300,32 +3323,6 @@ function healthSnapshotCard() {
     </section>`;
 }
 
-function healthDiagnosticsCard() {
-  const snapshot = healthSyncStatus.snapshot;
-  const permission = snapshot
-    ? (snapshot.permissionGranted ? "已允许读取" : "未确认")
-    : "尚未收到数据";
-  const error = healthSyncStatus.error;
-  const freshness = healthSyncStatus.freshness || {};
-  return `
-    <section class="health-panel health-diagnostics-panel">
-      <div class="health-panel-title">
-        <span class="health-panel-icon health-panel-icon-neutral" aria-hidden="true">${healthMetricIcons.diagnostics}</span>
-        <div class="health-panel-copy"><h2>通信诊断</h2></div>
-      </div>
-      <div class="health-diagnostics-grid">
-        <div class="health-diagnostic-row"><span>设备</span><strong>${escapeHtml(snapshot?.sender || "尚未识别")}</strong></div>
-        <div class="health-diagnostic-row"><span>健康权限</span><strong>${permission}</strong></div>
-        <div class="health-diagnostic-row"><span>数据时间</span><strong>${escapeHtml(healthDateTime(snapshot?.healthUpdatedAt))}</strong></div>
-        <div class="health-diagnostic-row"><span>心率采样</span><strong>${escapeHtml(healthFreshnessLabel(freshness.heartRate))}</strong></div>
-        <div class="health-diagnostic-row"><span>步数采样</span><strong>${escapeHtml(healthFreshnessLabel(freshness.stepCount))}</strong></div>
-        <div class="health-diagnostic-row"><span>能量采样</span><strong>${escapeHtml(healthFreshnessLabel(freshness.activeEnergy))}</strong></div>
-        <div class="health-diagnostic-row"><span>最近接收</span><strong>${escapeHtml(healthSyncStatus.lastReceivedAt ? healthDateTime(healthSyncStatus.lastReceivedAt) : "尚未收到健康快照")}</strong></div>
-      </div>
-      ${error ? `<p class="health-diagnostic-error">${escapeHtml(error)}</p>` : ""}
-    </section>`;
-}
-
 function healthHeartRateRange(range = healthChartRange) {
   return healthHistoryApi().heartRateRange(range);
 }
@@ -3505,7 +3502,6 @@ function healthDetailContent() {
     ${modulePageHeader({ title: "健康", description: "从 iPhone WinPlate Health 接收 HealthKit 概览；通信配置位于设置 → 连接服务 → 健康。" })}
     ${healthSnapshotCard()}
     ${healthHeartRateCard()}
-    ${healthDiagnosticsCard()}
   </section>`;
 }
 
@@ -3895,17 +3891,19 @@ function notificationDrawer() {
   const payload = notificationDetail.data || {};
   const detail = payload.detail || {};
   const notification = payload.notification || {};
+  const conversation = notificationConversationForId(notificationDetail.id);
   const title = notificationDetail.loading
-    ? "正在读取通知..."
+    ? (detail.title || notification.title || conversation?.title || "正在读取通知...")
     : notificationDetail.error
       ? "通知读取失败"
-      : detail.title || notification.title || "通知详情";
+      : detail.title || notification.title || conversation?.title || "通知详情";
+  const previewText = notificationDetailBodyText(conversation, payload);
   const body = notificationDetail.loading
-    ? `<div class="notification-detail-state">正在加载通知详情...</div>`
+    ? `<div class="notification-detail-body"><p>${escapeHtml(previewText).replaceAll("\n", "<br>")}</p></div>`
     : notificationDetail.error
       ? `<div class="notification-detail-state error">${escapeHtml(notificationDetail.error)}</div>
          <button type="button" data-notification-detail-retry="${escapeHtml(notificationDetail.id || "")}">重试</button>`
-      : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
+      : `<div class="notification-detail-body"><p>${escapeHtml(previewText).replaceAll("\n", "<br>")}</p></div>`;
   const metadata = Array.isArray(detail.metadata) ? detail.metadata : [];
   const actions = Array.isArray(payload.actions) ? payload.actions.filter((action) => action.type !== "view") : [];
   return `
@@ -4009,9 +4007,12 @@ function mailContent() {
 
 function notificationContent() {
   const summary = normalizedNotifications();
-  const items = notificationConversations();
-  const unreadCount = items.filter((item) => item.unread).length;
-  const filteredItems = window.WinPlateNotificationDigest.filterNotificationItems(items, notificationFilters);
+  const items = visibleNotificationConversations();
+  const unreadCount = notificationConversations().filter((item) => item.unread).length;
+  const filteredItems = window.WinPlateNotificationDigest.filterNotificationItems(items, {
+    ...notificationFilters,
+    pinnedId: notificationSelection.id
+  });
   const sourceCounts = window.WinPlateNotificationDigest.notificationSourceCounts(items);
   const sourceChips = [{ source: "all", count: items.length }, ...sourceCounts].map(({ source, count }) => `
     <button class="notification-source-chip ${notificationFilters.source === source ? "active" : ""}"
@@ -4066,15 +4067,21 @@ function notificationContent() {
     </section>`;
 }
 
-function notificationInlineDetail(conversation = notificationConversationForId(notificationSelection.id)) {
-  const payload = notificationSelection.data || {};
+function notificationDetailBodyText(conversation, payload = {}) {
   const detail = payload.detail || {};
   const notification = payload.notification || {};
+  return detail.body || notification.body || notification.message || conversation?.body || conversation?.message || notification.title || conversation?.title || "暂无详细内容。";
+}
+
+function notificationInlineDetail(conversation = notificationConversationForId(notificationSelection.id) || selectedNotificationFallback()) {
+  const payload = notificationSelection.data || {};
+  const notification = payload.notification || {};
+  const previewText = notificationDetailBodyText(conversation, payload);
   const body = notificationSelection.loading
-    ? '<div class="notification-detail-state">正在加载通知详情...</div>'
+    ? `<div class="notification-detail-body"><p>${escapeHtml(previewText).replaceAll("\n", "<br>")}</p></div>`
     : notificationSelection.error
       ? `<div class="notification-detail-state error">${escapeHtml(notificationSelection.error)}</div><button type="button" data-notification-detail-retry="${escapeHtml(notificationSelection.id)}">重试</button>`
-      : `<div class="notification-detail-body"><p>${escapeHtml(detail.body || notification.body || notification.message || notification.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></div>`;
+      : `<div class="notification-detail-body"><p>${escapeHtml(previewText).replaceAll("\n", "<br>")}</p></div>`;
   const actions = Array.isArray(payload.actions)
     ? payload.actions
       .filter((action) => action.type === "navigate" || action.type === "markRead")
@@ -5477,27 +5484,46 @@ function bindHealthControls() {
   document.querySelectorAll("[data-health-heart-rate-chart]").forEach(bindHealthHeartRateChartHover);
 }
 
+function scheduleOpenedNotificationRead(conversation, options = null) {
+  const openedId = String(conversation?.id || notificationSelection.id || notificationDetail.id || "").trim();
+  if (!openedId) return;
+  const paint = typeof requestAnimationFrame === "function"
+    ? (callback) => requestAnimationFrame(() => requestAnimationFrame(callback))
+    : (callback) => setTimeout(callback, 0);
+  paint(() => {
+    const stillOpen = String(notificationSelection.id) === openedId
+      || String(notificationDetail.id) === openedId;
+    if (!stillOpen) return;
+    markConversationRead(conversation, options).catch((error) => {
+      console.warn("Failed to mark opened notification read:", error);
+      if (String(notificationSelection.id) === openedId || String(notificationDetail.id) === openedId) {
+        notificationActionFeedback = "已查看，但标记已读失败";
+        updateMainStatusDom();
+      }
+    });
+  });
+}
+
 async function openNotificationDetail(notificationId) {
   const conversation = notificationConversationForId(notificationId);
   const id = String(conversation?.id || notificationId || "").trim();
   if (!id) return;
   notificationDrawerState = { ...notificationDrawerState, open: true, mode: "detail" };
-  notificationDetail = { open: true, loading: true, id, data: null, error: "" };
+  notificationDetail = { open: true, loading: true, id, data: notificationDetail.id === id ? notificationDetail.data : null, error: "" };
   notificationActionFeedback = "";
   updateMainStatusDom();
   focusNotificationDrawerControl(".notification-detail-back");
   try {
     const payload = await window.winplate.getNotificationDetail(id);
+    if (String(notificationDetail.id) !== id) return;
     notificationDetail = { open: true, loading: false, id, data: payload, error: "" };
+    updateMainStatusDom();
+    focusNotificationDrawerControl(".notification-detail-back");
     if (conversation?.unread || payload?.notification?.unread) {
-      try {
-        await markConversationRead(conversation || payload?.notification, { feedback: "已标记为已读" });
-      } catch (error) {
-        console.warn("Failed to mark opened notification read:", error);
-        notificationActionFeedback = "已查看，但标记已读失败";
-      }
+      scheduleOpenedNotificationRead(conversation || payload?.notification, { feedback: "已标记为已读" });
     }
   } catch (error) {
+    if (String(notificationDetail.id) !== id) return;
     notificationDetail = {
       open: true,
       loading: false,
@@ -5505,32 +5531,43 @@ async function openNotificationDetail(notificationId) {
       data: null,
       error: error.message || "通知详情加载失败"
     };
+    updateMainStatusDom();
+    focusNotificationDrawerControl(".notification-detail-back");
   }
-  updateMainStatusDom();
-  focusNotificationDrawerControl(".notification-detail-back");
 }
 
 async function selectNotification(id) {
   const conversation = notificationConversationForId(id);
   const safeId = String(conversation?.id || id || "").trim();
   if (!safeId) return;
+  if (notificationSelection.id === safeId && notificationSelection.loading) return;
   if (notificationSelection.id === safeId && !notificationSelection.loading) {
     notificationSelection = { id: null, loading: false, data: null, error: "" };
     notificationActionFeedback = "";
     updateMainStatusDom();
     return;
   }
-  notificationSelection = { id: safeId, loading: true, data: null, error: "" };
+  notificationSelection = {
+    id: safeId,
+    loading: true,
+    data: notificationSelection.id === safeId ? notificationSelection.data : null,
+    error: ""
+  };
   notificationActionFeedback = "";
   updateMainStatusDom();
   try {
     const payload = await window.winplate.getNotificationDetail(safeId);
+    if (String(notificationSelection.id) !== safeId) return;
     notificationSelection = { id: safeId, loading: false, data: payload, error: "" };
-    if (conversation?.unread || payload?.notification?.unread) await markConversationRead(conversation || payload?.notification, { feedback: "" });
+    updateMainStatusDom();
+    if (conversation?.unread || payload?.notification?.unread) {
+      scheduleOpenedNotificationRead(conversation || payload?.notification, { feedback: "" });
+    }
   } catch (error) {
+    if (String(notificationSelection.id) !== safeId) return;
     notificationSelection = { id: safeId, loading: false, data: null, error: error.message || "通知详情加载失败" };
+    updateMainStatusDom();
   }
-  updateMainStatusDom();
 }
 
 function openNotificationDigestDrawer(trigger = null) {

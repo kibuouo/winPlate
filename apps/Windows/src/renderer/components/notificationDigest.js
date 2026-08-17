@@ -204,13 +204,22 @@
       </details>`;
   }
 
+  function notificationMatchesId(item, notificationId) {
+    const id = String(notificationId || "").trim();
+    if (!id || !item) return false;
+    return String(item.id) === id
+      || (Array.isArray(item.memberIds) && item.memberIds.some((memberId) => String(memberId) === id));
+  }
+
   function filterNotificationItems(items = [], filters = {}) {
     const source = String(filters.source || "all");
     const state = String(filters.state || "all");
-    return (Array.isArray(items) ? items : []).filter((item) => (
-      (source === "all" || String(item.source) === source)
-      && (state === "all" || (state === "unread" ? Boolean(item.unread) : !item.unread))
-    ));
+    const pinnedId = filters.pinnedId;
+    return (Array.isArray(items) ? items : []).filter((item) => {
+      if (source !== "all" && String(item.source) !== source) return false;
+      if (notificationMatchesId(item, pinnedId)) return true;
+      return state === "all" || (state === "unread" ? Boolean(item.unread) : !item.unread);
+    });
   }
 
   function notificationSourceCounts(items = []) {
@@ -309,6 +318,7 @@
     renderDigestSummary,
     renderGroups,
     renderRawNotifications,
+    notificationMatchesId,
     filterNotificationItems,
     notificationSourceCounts,
     groupNotificationItemsByDate,

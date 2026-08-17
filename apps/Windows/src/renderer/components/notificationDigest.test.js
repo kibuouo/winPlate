@@ -77,6 +77,24 @@ test("red-alert acknowledgement consumes the manager contract", () => {
   }), false);
 });
 
+test("unread filter keeps the opened notification visible after it is marked read", () => {
+  const digest = loadNotificationDigest();
+  const items = [
+    { id: "mail:1", source: "mail", unread: false, memberIds: ["mail:1"] },
+    { id: "codex:2", source: "codex", unread: true, memberIds: ["codex:2"] }
+  ];
+  assert.deepEqual(
+    digest.filterNotificationItems(items, { state: "unread" }).map((item) => item.id),
+    ["codex:2"]
+  );
+  assert.deepEqual(
+    digest.filterNotificationItems(items, { state: "unread", pinnedId: "mail:1" }).map((item) => item.id),
+    ["mail:1", "codex:2"]
+  );
+  assert.equal(digest.notificationMatchesId(items[0], "mail:1"), true);
+  assert.equal(digest.notificationMatchesId({ id: "codex:new", memberIds: ["codex:new", "codex:old"] }, "codex:old"), true);
+});
+
 test("long notification titles truncate before fixed status badges", () => {
   const styles = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
   const titleRule = styles.match(/\.notification-timeline-title strong \{([^}]*)\}/)?.[1] || "";
