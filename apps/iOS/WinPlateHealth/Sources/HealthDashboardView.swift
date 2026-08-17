@@ -25,22 +25,6 @@ struct HealthDashboardView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await healthStore.refresh() }
-                    } label: {
-                        if healthStore.isLoading {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                    }
-                    .disabled(healthStore.isLoading)
-                    .accessibilityLabel("刷新健康数据")
-                }
-            }
             .refreshable {
                 await healthStore.refresh()
             }
@@ -55,13 +39,9 @@ struct HealthDashboardView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("健康概览")
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Winplate")
                     .font(.system(.largeTitle, design: .rounded, weight: .bold))
-
-                Text("今天，照顾好自己。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 12)
@@ -188,17 +168,30 @@ struct HealthDashboardView: View {
 
     private var healthHeroCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center) {
-                Label("最近心率", systemImage: "waveform.path.ecg")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.78))
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color(uiColor: .systemPink))
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Color(uiColor: .systemPink).opacity(0.13),
+                        in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    )
 
-                Spacer()
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("最近心率")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("来自 Apple 健康的最新采样")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
 
                 StatusPill(
                     title: healthStore.lastUpdated == nil ? "等待数据" : "数据已更新",
-                    color: healthStore.lastUpdated == nil ? .white.opacity(0.55) : .green,
-                    isOnDark: true
+                    color: healthStore.lastUpdated == nil ? .secondary : .green
                 )
             }
 
@@ -210,42 +203,23 @@ struct HealthDashboardView: View {
 
                 Text("BPM")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.65))
+                    .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.white)
-            .padding(.top, 22)
+            .foregroundStyle(.primary)
+            .padding(.top, 20)
 
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.shield.fill")
                 Text(lastUpdatedText)
             }
             .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.72))
-            .padding(.top, 16)
+            .foregroundStyle(.secondary)
+            .padding(.top, 14)
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            ZStack(alignment: .bottomTrailing) {
-                LinearGradient(
-                    colors: [Color(red: 0.12, green: 0.09, blue: 0.18), Color(red: 0.34, green: 0.12, blue: 0.25)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                Circle()
-                    .fill(Color.pink.opacity(0.35))
-                    .frame(width: 150, height: 150)
-                    .blur(radius: 12)
-                    .offset(x: 42, y: 50)
-            }
-        }
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        }
-        .shadow(color: .pink.opacity(0.12), radius: 16, y: 8)
     }
 
     private var connectionsSection: some View {
@@ -454,7 +428,7 @@ struct HealthDashboardView: View {
         if condition.localizedCaseInsensitiveContains("雨") { return "cloud.rain.fill" }
         if condition.localizedCaseInsensitiveContains("雪") { return "cloud.snow.fill" }
         if condition.localizedCaseInsensitiveContains("晴") { return "sun.max.fill" }
-        return healthStore.desktopStatus.weather?.temperature == nil ? "cloud.slash.fill" : "cloud.sun.fill"
+        return healthStore.desktopStatus.weather?.temperature == nil ? "cloud.fill" : "cloud.sun.fill"
     }
 
     private func quotaText(_ value: Double?) -> String {

@@ -26,8 +26,6 @@
 	<dict>
 		<key>UIColorName</key>
 		<string>LaunchScreenBackground</string>
-		<key>UIImageName</key>
-		<string>WinPlateMark</string>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>WinPlate 需要通过本地网络把 iPhone 健康概览同步到 Mac 或 Windows 上的 WinPlate。</string>
