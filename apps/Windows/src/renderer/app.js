@@ -3812,7 +3812,7 @@ async function syncMailReadStateInBackground(uid, requestId) {
     if (mailDetail.requestId !== requestId) return;
     notificationSummary = await window.winplate.getNotifications();
     await hydrateNotificationDigest();
-    updateMainStatusDom();
+    updateCurrentViewDom(["mail", "notifications"]);
   } catch (error) {
     console.error("Failed to sync mail read state:", error);
   }
@@ -4214,16 +4214,57 @@ function notificationAcknowledgementModal() {
   </div>`;
 }
 
-function dashboardContent(section) {
+function qweatherOfficialMarkup() {
   const failures = qweatherOfficialStats?.errors ?? 0;
   const official = qweatherOfficialStats
     ? `<div class="qweather-official"><span>过去24小时：${qweatherOfficialStats.total}次</span><span>成功：${qweatherOfficialStats.success}</span><span>错误：${qweatherOfficialStats.errors}</span><small>截至 ${qweatherOfficialStats.asOf}</small></div>`
     : `<small class="qweather-message">${qweatherUsageMessage || "官方数据可能延迟 1 小时或更久"}</small>`;
+  return { official, failures };
+}
+
+function sectionModuleId(section) {
+  return {
+    GitHub: "github",
+    Agent: "codex",
+    Codex: "codex",
+    Mail: "mail",
+    Notifications: "notifications",
+    Heart: "heart",
+    QWeather: "weather"
+  }[section] || null;
+}
+
+function renderDashboardModule(id) {
+  const { official, failures } = qweatherOfficialMarkup();
+  if (id === "github") return dashboardGithubCard();
+  if (id === "codex") return dashboardCodexCard();
+  if (id === "heart") return heartCard({ interactive: true });
+  if (id === "weather") return qweatherServiceCard(official, failures, { interactive: true });
+  return "";
+}
+
+function scopedModuleMarkup(moduleIds) {
+  const requested = [...new Set((Array.isArray(moduleIds) ? moduleIds : [moduleIds]).map(String).filter(Boolean))];
+  if (!requested.length) return "";
+  if (currentSection === "Dashboard") {
+    return requested.map((id) => renderDashboardModule(id)).filter(Boolean).join("");
+  }
+  if (currentSection === "QWeather" && requested.includes("weather")) {
+    const { official, failures } = qweatherOfficialMarkup();
+    return `${weatherDashboardCard()}${qweatherServiceCard(official, failures)}`;
+  }
+  const sectionId = sectionModuleId(currentSection);
+  if (sectionId && requested.includes(sectionId)) return dashboardContent(currentSection);
+  return "";
+}
+
+function dashboardContent(section) {
+  const { official, failures } = qweatherOfficialMarkup();
   const dashboardRenderers = {
-    github: () => dashboardGithubCard(),
-    codex: () => dashboardCodexCard(),
-    heart: () => heartCard({ interactive: true }),
-    weather: () => qweatherServiceCard(official, failures, { interactive: true })
+    github: () => renderDashboardModule("github"),
+    codex: () => renderDashboardModule("codex"),
+    heart: () => renderDashboardModule("heart"),
+    weather: () => renderDashboardModule("weather")
   };
   const dashboardModuleContext = {
     render: (id) => dashboardRenderers[id]?.() || "",
@@ -4964,12 +5005,15 @@ function updateMainStatusDom(moduleIds = null) {
     if (!moduleIds || requested.includes("heart")) updateHealthSettingsDom();
     return;
   }
-  const template = document.createElement("template");
-  template.innerHTML = dashboardContent(currentSection).trim();
-  const desiredChildren = Array.from(template.content.childNodes);
-  const currentChildren = Array.from(pageContent.childNodes);
 
   if (moduleIds) {
+    const markup = scopedModuleMarkup(requested);
+    if (!markup) {
+      updateModuleHealthDom(requested);
+      return;
+    }
+    const template = document.createElement("template");
+    template.innerHTML = markup.trim();
     const structureChanged = syncRequestedModuleNodes(pageContent, template.content, requested);
     if (structureChanged) {
       bindAvatarFallbacks(pageContent);
@@ -4987,6 +5031,11 @@ function updateMainStatusDom(moduleIds = null) {
     if (!moduleIds || requested.includes("mail")) bindMailPreviewFrame();
     return;
   }
+
+  const template = document.createElement("template");
+  template.innerHTML = dashboardContent(currentSection).trim();
+  const desiredChildren = Array.from(template.content.childNodes);
+  const currentChildren = Array.from(pageContent.childNodes);
 
   if (currentChildren.length !== desiredChildren.length) {
     const mainContent = document.querySelector(".main-content");
@@ -5146,7 +5195,7 @@ function bindQWeatherUsageControls() {
       qweatherUsageMessage = `校验失败：${error.message}`;
       qweatherOfficialStatus = /权限|401|403|凭据无效/.test(error.message) ? "permission" : "failed";
     }
-    updateMainStatusDom();
+    updateCurrentViewDom("weather");
   };
 }
 
@@ -6118,7 +6167,7 @@ function changeGithubContributionMonth(direction) {
   selectedContributionDate = null;
   selectedContributionRepository = null;
   githubContributionRequestId += 1;
-  updateMainStatusDom();
+  updateMainStatusDom("github");
 }
 
 function bindGithubControls() {
@@ -6428,12 +6477,7 @@ async function refreshStatus(options = {}) {
     force: Boolean(options.force),
     reason: options.reason || "status"
   });
-
-  if (view === "floating") {
-    updateFloatingStatusDom();
-  } else {
-    updateMainStatusDom();
-  }
+  // Each loader already patched its own module. Do not parse the whole page again.
   scheduleDesktopStatusPublish();
   return results;
 }

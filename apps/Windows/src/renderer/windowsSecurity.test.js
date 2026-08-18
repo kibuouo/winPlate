@@ -463,6 +463,24 @@ test("opening an unread notification paints detail before marking it read and ke
   assert.match(listSource, /pinnedId: notificationSelection\.id/);
 });
 
+test("scheduled status refresh patches modules instead of rebuilding the whole page", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const refreshStart = appSource.indexOf("async function refreshStatus(");
+  const refreshEnd = appSource.indexOf("function bindAgentTokenChartHover", refreshStart);
+  const refreshSource = appSource.slice(refreshStart, refreshEnd);
+  const updateStart = appSource.indexOf("function updateMainStatusDom(");
+  const updateEnd = appSource.indexOf("function updateFloatingStatusDom", updateStart);
+  const updateSource = appSource.slice(updateStart, updateEnd);
+
+  assert.match(appSource, /function scopedModuleMarkup\(/);
+  assert.match(appSource, /function renderDashboardModule\(/);
+  assert.match(refreshSource, /Each loader already patched its own module/);
+  assert.doesNotMatch(refreshSource, /updateMainStatusDom\(\)/);
+  assert.doesNotMatch(refreshSource, /updateFloatingStatusDom\(\)/);
+  assert.match(updateSource, /scopedModuleMarkup\(requested\)/);
+  assert.match(updateSource, /if \(!markup\) \{\s*updateModuleHealthDom\(requested\);/);
+});
+
 test("main renderer avoids rebuilding mail HTML and caches dashboard snapshots on a delay", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const effects = fs.readFileSync(path.join(__dirname, "weatherEffects.js"), "utf8");
