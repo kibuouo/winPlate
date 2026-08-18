@@ -952,12 +952,22 @@ function bindThemeControls() {
 }
 
 const SETTINGS_SERVICE_PRESENTATION = Object.freeze({
-  github: { target: "settings-github", title: "GitHub", description: "Profile, contributions, and repositories", icon: "github" },
-  weather: { target: "settings-weather", title: "QWeather", description: "Weather service and location", icon: "cloud-rain-alert" },
-  deepseek: { target: "settings-deepseek", title: "DeepSeek", description: "Account balance service", icon: "sparkles" },
-  mail: { target: "settings-mail", title: "QQ Mail", description: "IMAP inbox", icon: "mail" },
+  github: { target: "settings-github", title: "GitHub", description: "资料、贡献与仓库", icon: "github" },
+  weather: { target: "settings-weather", title: "QWeather", description: "天气服务与定位", icon: "cloud-rain-alert" },
+  deepseek: { target: "settings-deepseek", title: "DeepSeek", description: "账户余额服务", icon: "sparkles" },
+  mail: { target: "settings-mail", title: "QQ 邮箱", description: "IMAP 收件箱", icon: "mail" },
   health: { target: "settings-health", title: "健康", description: "iPhone 健康数据同步", icon: "monitor" }
 });
+
+const SETTINGS_HEALTH_ICON = `<svg class="settings-service-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12.6 12 20 4.5 12.6a5 5 0 1 1 7.5-6.6 5 5 0 1 1 7.5 6.6Z"></path></svg>`;
+
+function settingsServiceIconMarkup(service) {
+  if (service === "github") return githubIcon;
+  if (service === "deepseek") return deepseekBrandIcon;
+  if (service === "health") return SETTINGS_HEALTH_ICON;
+  const item = SETTINGS_SERVICE_PRESENTATION[service];
+  return window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(item.icon);
+}
 
 function settingsServiceStatusKind(text) {
   if (/读取失败|保存失败|连接失败|通信异常|连接超时|不可用|failed|unavailable/i.test(text)) return "error";
@@ -987,7 +997,7 @@ function settingsServiceNavButton(service, statusText) {
   const active = activeSettingsService === item.target;
   return `
     <button class="${active ? "active" : ""}" data-settings-service-target="${item.target}" type="button" role="tab" aria-selected="${active}">
-      <span class="settings-service-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon(item.icon)}</span>
+      <span class="settings-service-icon">${settingsServiceIconMarkup(service)}</span>
       <span class="settings-service-copy"><strong>${item.title}</strong><small>${item.description}</small></span>
       <b data-settings-service-status="${service}" data-state="${settingsServiceStatusKind(statusText)}">${statusText}</b>
     </button>`;
@@ -4322,22 +4332,22 @@ function dashboardContent(section) {
           <div class="settings-services-summary-copy">
             <span class="settings-services-summary-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("plug")}</span>
             <span>
-              <strong id="settings-services-summary-title">Local service connections</strong>
-              <small>Sensitive values stay blank and are stored encrypted for the current Windows user</small>
+              <strong id="settings-services-summary-title">本地服务连接</strong>
+              <small>敏感值保持空白，并以加密方式保存在当前 Windows 用户下</small>
             </span>
           </div>
           <dl class="settings-services-summary-metrics">
-            <div><dt data-settings-services-ready-count>0</dt><dd>Available</dd></div>
-            <div><dt>${Object.keys(SETTINGS_SERVICE_PRESENTATION).length}</dt><dd>All services</dd></div>
-            <div><dt>Local</dt><dd>Storage</dd></div>
-            <div><dt>Encrypted</dt><dd>Credentials</dd></div>
+            <div><dt data-settings-services-ready-count>0</dt><dd>可用</dd></div>
+            <div><dt>${Object.keys(SETTINGS_SERVICE_PRESENTATION).length}</dt><dd>全部服务</dd></div>
+            <div><dt>本地</dt><dd>存储</dd></div>
+            <div><dt>已加密</dt><dd>凭据</dd></div>
           </dl>
         </section>
-        <div class="settings-service-nav" role="tablist" aria-label="Connected services">
-          ${settingsServiceNavButton("github", appSettings.integrations.github?.hasToken ? "Configured" : "Public data")}
-          ${settingsServiceNavButton("weather", weatherSettings.hasApiKey ? "Configured" : "Not configured")}
-          ${settingsServiceNavButton("deepseek", deepseekSettings.hasApiKey ? "Configured" : "Not configured")}
-          ${settingsServiceNavButton("mail", mailSettings.connected ? "Connected" : mailSettings.configured ? "Configured" : "Not configured")}
+        <div class="settings-service-nav" role="tablist" aria-label="连接服务">
+          ${settingsServiceNavButton("github", appSettings.integrations.github?.hasToken ? "已配置" : "公开数据")}
+          ${settingsServiceNavButton("weather", weatherSettings.hasApiKey ? "已配置" : "未配置")}
+          ${settingsServiceNavButton("deepseek", deepseekSettings.hasApiKey ? "已配置" : "未配置")}
+          ${settingsServiceNavButton("mail", mailSettings.connected ? "已连接" : mailSettings.configured ? "已配置" : "未配置")}
           ${settingsServiceNavButton("health", healthServiceStatusLabel())}
         </div>
       <div class="settings-service-panel" id="settings-github" data-settings-service data-settings-service-label="GitHub">

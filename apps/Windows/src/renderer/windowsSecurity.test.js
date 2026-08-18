@@ -214,7 +214,11 @@ test("connected services use one status-led card system while preserving service
   assert.match(appSource, /settingsServiceNavButton\("health"/);
   assert.match(appSource, /id="settings-health" data-settings-service data-settings-service-label="健康"/);
   assert.match(appSource, /Object\.keys\(SETTINGS_SERVICE_PRESENTATION\)\.length/);
-  assert.match(appSource, /Sensitive values stay blank and are stored encrypted for the current Windows user/);
+  assert.match(appSource, /本地服务连接/);
+  assert.match(appSource, /敏感值保持空白，并以加密方式保存在当前 Windows 用户下/);
+  assert.match(appSource, /function settingsServiceIconMarkup/);
+  assert.match(appSource, /SETTINGS_HEALTH_ICON/);
+  assert.doesNotMatch(appSource, /Local service connections/);
   assert.match(appSource, /window\.winplate\.saveWeatherSettings/);
   assert.match(appSource, /window\.winplate\.saveDeepSeekSettings/);
   assert.match(appSource, /window\.winplate\.saveMailSettings/);

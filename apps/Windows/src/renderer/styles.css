@@ -2080,7 +2080,18 @@ html[data-theme="light"] .service-health.loading {
 .settings-service-nav button.active { color: var(--text); border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: color-mix(in srgb, var(--accent) 6%, var(--surface-card)); }
 .settings-service-icon { width: 38px; height: 38px; display: grid; place-items: center; color: var(--text-soft); border-radius: 11px; background: var(--surface-muted); }
 .settings-service-nav button.active .settings-service-icon { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface-muted)); }
-.settings-service-icon svg { width: 18px; height: 18px; margin: 0; }
+.settings-service-icon svg,
+.settings-service-icon img,
+.settings-service-icon .github-theme-icon,
+.settings-service-icon .agent-brand-icon {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: 0 0 18px;
+}
+.settings-service-icon .github-theme-icon { position: relative; display: block; }
+.settings-service-icon .github-theme-icon img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.settings-service-heart { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .settings-service-copy { min-width: 0; display: grid; gap: 4px; }
 .settings-service-copy strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-service-copy small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
