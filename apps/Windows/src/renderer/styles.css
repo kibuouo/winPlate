@@ -2055,6 +2055,8 @@ html[data-theme="light"] .service-health.loading {
   background: color-mix(in srgb, var(--accent) 11%, var(--surface-card));
 }
 .settings-services-summary-icon svg { width: 21px; height: 21px; margin: 0; }
+.settings-services-link { fill: none; stroke: currentColor; stroke-width: 1.85; stroke-linecap: round; stroke-linejoin: round; }
+.settings-services-link circle { fill: currentColor; stroke: none; }
 .settings-services-summary-metrics { display: grid; grid-template-columns: repeat(4, minmax(64px, auto)); gap: 6px; margin: 0; }
 .settings-services-summary-metrics > div { min-width: 64px; display: grid; gap: 3px; padding: 6px 9px; text-align: center; }
 .settings-services-summary-metrics dt { color: var(--text); font-size: 17px; font-weight: 760; line-height: 1; font-variant-numeric: tabular-nums; }

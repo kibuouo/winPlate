@@ -218,6 +218,8 @@ test("connected services use one status-led card system while preserving service
   assert.match(appSource, /敏感值保持空白，并以加密方式保存在当前 Windows 用户下/);
   assert.match(appSource, /function settingsServiceIconMarkup/);
   assert.match(appSource, /SETTINGS_HEALTH_ICON/);
+  assert.match(appSource, /SETTINGS_SERVICES_SUMMARY_ICON/);
+  assert.doesNotMatch(appSource, /settings-services-summary-icon\}?\$\{window\.WinPlateSmartNotificationIcons\.renderSmartNotificationIcon\("plug"\)/);
   assert.doesNotMatch(appSource, /Local service connections/);
   assert.match(appSource, /window\.winplate\.saveWeatherSettings/);
   assert.match(appSource, /window\.winplate\.saveDeepSeekSettings/);

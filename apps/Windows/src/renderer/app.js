@@ -960,6 +960,7 @@ const SETTINGS_SERVICE_PRESENTATION = Object.freeze({
 });
 
 const SETTINGS_HEALTH_ICON = `<svg class="settings-service-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12.6 12 20 4.5 12.6a5 5 0 1 1 7.5-6.6 5 5 0 1 1 7.5 6.6Z"></path></svg>`;
+const SETTINGS_SERVICES_SUMMARY_ICON = `<svg class="settings-services-link" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.75" y="6.75" width="7.5" height="10.5" rx="2"></rect><rect x="13.75" y="6.75" width="7.5" height="10.5" rx="2"></rect><path d="M10.25 12h3.5"></path><circle cx="6.5" cy="10" r=".85"></circle><circle cx="17.5" cy="10" r=".85"></circle></svg>`;
 
 function settingsServiceIconMarkup(service) {
   if (service === "github") return githubIcon;
@@ -4330,7 +4331,7 @@ function dashboardContent(section) {
         <div class="settings-section-heading"><div><p>连接</p><h2>连接服务</h2><small>集中管理模块使用的本地凭据与连接状态。</small></div></div>
         <section class="settings-services-summary" aria-labelledby="settings-services-summary-title">
           <div class="settings-services-summary-copy">
-            <span class="settings-services-summary-icon">${window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("plug")}</span>
+            <span class="settings-services-summary-icon">${SETTINGS_SERVICES_SUMMARY_ICON}</span>
             <span>
               <strong id="settings-services-summary-title">本地服务连接</strong>
               <small>敏感值保持空白，并以加密方式保存在当前 Windows 用户下</small>
