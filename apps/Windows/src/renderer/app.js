@@ -5512,11 +5512,10 @@ function bindHealthHeartRateChartHover(chartRoot) {
   const timeEl = chartRoot.querySelector("[data-health-heart-rate-hover-time]");
   if (!svg || !guide || !dot || !card || !valueEl || !timeEl) return;
 
-  const chartWidth = Number(chartRoot.dataset.healthChartWidth) || 560;
-  const nearestPoint = (clientX, points) => {
-    const rect = svg.getBoundingClientRect();
-    if (!rect.width) return points[0];
-    const x = ((clientX - rect.left) / rect.width) * chartWidth;
+  const nearestPoint = (clientX, clientY, points) => {
+    const point = svgChartPointFromClient(svg, clientX, clientY);
+    if (!Number.isFinite(point.x)) return points[0];
+    const x = point.x;
     return points.reduce((nearest, point) => (
       Math.abs(point.x - x) < Math.abs(nearest.x - x) ? point : nearest
     ), points[0]);
@@ -5534,9 +5533,8 @@ function bindHealthHeartRateChartHover(chartRoot) {
     valueEl.textContent = `${healthMetric(point.heartRate)} BPM`;
     card.hidden = false;
     const rootRect = chartRoot.getBoundingClientRect();
-    const svgRect = svg.getBoundingClientRect();
-    const scaleX = svgRect.width / chartWidth;
-    const localX = point.x * scaleX;
+    const clientPoint = svgChartClientPoint(svg, point.x, point.y);
+    const localX = clientPoint.x - rootRect.left;
     const halfWidth = 82;
     card.style.left = `${Math.min(Math.max(localX, halfWidth + 4), rootRect.width - halfWidth - 4)}px`;
   };
@@ -5550,7 +5548,7 @@ function bindHealthHeartRateChartHover(chartRoot) {
   chartRoot.dataset.hoverBound = "true";
   chartRoot.addEventListener("pointermove", (event) => {
     const points = readPoints();
-    if (points.length) showPoint(nearestPoint(event.clientX, points));
+    if (points.length) showPoint(nearestPoint(event.clientX, event.clientY, points));
   });
   chartRoot.addEventListener("pointerleave", hidePoint);
   chartRoot.addEventListener("pointercancel", hidePoint);
@@ -6475,6 +6473,44 @@ function configureRefreshTasks() {
   refreshController.configure("network", { intervalMs: view === "floating" && moduleEnabled("network") ? moduleRefreshSeconds("network") * 1000 : 0 });
 }
 
+function svgChartPointFromClient(svg, clientX, clientY) {
+  const matrix = typeof svg?.getScreenCTM === "function" ? svg.getScreenCTM() : null;
+  if (matrix && typeof matrix.inverse === "function" && typeof svg.createSVGPoint === "function") {
+    try {
+      const point = svg.createSVGPoint();
+      point.x = Number(clientX) || 0;
+      point.y = Number(clientY) || 0;
+      return point.matrixTransform(matrix.inverse());
+    } catch {
+      // Fall through to the viewBox geometry for detached or incomplete SVG implementations.
+    }
+  }
+
+  const geometry = (typeof window !== "undefined" ? window : globalThis).WinPlateSvgChartGeometry;
+  const rect = typeof svg?.getBoundingClientRect === "function" ? svg.getBoundingClientRect() : null;
+  const viewBox = svg?.viewBox?.baseVal;
+  return geometry?.clientToSvgPoint(clientX, clientY, rect, viewBox) || { x: 0, y: 0 };
+}
+
+function svgChartClientPoint(svg, svgX, svgY) {
+  const matrix = typeof svg?.getScreenCTM === "function" ? svg.getScreenCTM() : null;
+  if (matrix && typeof svg.createSVGPoint === "function") {
+    try {
+      const point = svg.createSVGPoint();
+      point.x = Number(svgX) || 0;
+      point.y = Number(svgY) || 0;
+      return point.matrixTransform(matrix);
+    } catch {
+      // Fall through to the viewBox geometry for detached or incomplete SVG implementations.
+    }
+  }
+
+  const geometry = (typeof window !== "undefined" ? window : globalThis).WinPlateSvgChartGeometry;
+  const rect = typeof svg?.getBoundingClientRect === "function" ? svg.getBoundingClientRect() : null;
+  const viewBox = svg?.viewBox?.baseVal;
+  return geometry?.svgPointToClient(svgX, svgY, rect, viewBox) || { x: 0, y: 0 };
+}
+
 async function refreshStatus(options = {}) {
   if (view === "tooltip") return [];
   const ids = [];
@@ -6513,11 +6549,10 @@ function bindAgentTokenChartHover(chartRoot) {
   const timeEl = chartRoot.querySelector("[data-agent-hover-time]");
   if (!svg || !guide || !dot || !card || !tokensEl || !timeEl) return;
 
-  const chartWidth = Number(chartRoot.dataset.agentChartWidth) || 560;
-  const nearestPoint = (clientX) => {
-    const rect = svg.getBoundingClientRect();
-    if (!rect.width) return points[0];
-    const x = ((clientX - rect.left) / rect.width) * chartWidth;
+  const nearestPoint = (clientX, clientY) => {
+    const point = svgChartPointFromClient(svg, clientX, clientY);
+    if (!Number.isFinite(point.x)) return points[0];
+    const x = point.x;
     let best = points[0];
     let bestDistance = Math.abs(best.x - x);
     for (const point of points) {
@@ -6543,9 +6578,8 @@ function bindAgentTokenChartHover(chartRoot) {
     tokensEl.textContent = `${Number(point.tokens || 0).toLocaleString("zh-CN")} tokens`;
     card.hidden = false;
     const rect = chartRoot.getBoundingClientRect();
-    const svgRect = svg.getBoundingClientRect();
-    const scaleX = svgRect.width / chartWidth;
-    const localX = (point.x * scaleX);
+    const clientPoint = svgChartClientPoint(svg, point.x, point.y);
+    const localX = clientPoint.x - rect.left;
     const halfWidth = 62;
     card.style.left = `${Math.min(Math.max(localX, halfWidth + 4), rect.width - halfWidth - 4)}px`;
   };
@@ -6558,7 +6592,7 @@ function bindAgentTokenChartHover(chartRoot) {
 
   chartRoot.dataset.hoverBound = "true";
   chartRoot.addEventListener("pointermove", (event) => {
-    showPoint(nearestPoint(event.clientX));
+    showPoint(nearestPoint(event.clientX, event.clientY));
   });
   chartRoot.addEventListener("pointerleave", hidePoint);
   chartRoot.addEventListener("pointercancel", hidePoint);
