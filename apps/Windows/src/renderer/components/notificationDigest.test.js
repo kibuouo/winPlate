@@ -108,3 +108,16 @@ test("long notification titles truncate before fixed status badges", () => {
   assert.match(unreadRule, /white-space:\s*nowrap/);
   assert.match(updateRule, /flex:\s*0 0 auto/);
 });
+
+test("expanded notification conversations keep every message readable", () => {
+  const styles = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  const bodyRule = styles.match(/\.notification-inline-summary-body \{([^}]*)\}/)?.[1] || "";
+  const detailBodyRule = styles.match(/\.notification-inline-summary-body \.notification-detail-body p \{([^}]*)\}/)?.[1] || "";
+  const updatesRule = styles.match(/\.notification-conversation-updates p \{([^}]*)\}/)?.[1] || "";
+
+  assert.doesNotMatch(bodyRule, /overflow:\s*hidden/);
+  assert.doesNotMatch(detailBodyRule, /max-height|line-clamp|overflow:\s*hidden/);
+  assert.doesNotMatch(updatesRule, /max-height|overflow:\s*hidden/);
+  assert.match(detailBodyRule, /overflow-wrap:\s*anywhere/);
+  assert.match(updatesRule, /overflow-wrap:\s*anywhere/);
+});

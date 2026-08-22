@@ -8,7 +8,8 @@
   const MAX_PIXEL_RATIO = 1;
   const MAX_PARTICLES = 64;
   const MAX_DROPLETS = 12;
-  const MIN_FRAME_MS = 50;
+  const MIN_FRAME_MS = 33;
+  const STATIC_SCENES = new Set(["clear-day", "clear-night", "unknown", "overcast"]);
   const activeEffects = new WeakMap();
   const liveEffects = new Set();
   let visibilityBound = false;
@@ -24,6 +25,30 @@
 
   function pageIsHidden() {
     return globalScope.document?.hidden === true;
+  }
+
+  function activeElementIsEditable() {
+    const active = globalScope.document?.activeElement;
+    if (!active) return false;
+    const tag = String(active.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
+    return Boolean(active.isContentEditable);
+  }
+
+  function pageShouldAnimate() {
+    if (pageIsHidden()) return false;
+    if (typeof globalScope.document?.hasFocus === "function" && !globalScope.document.hasFocus()) return false;
+    if (activeElementIsEditable()) return false;
+    return true;
+  }
+
+  function syncPageAnimationClass() {
+    globalScope.document?.documentElement?.classList?.toggle("weather-effects-paused", !pageShouldAnimate());
+  }
+
+  function sceneNeedsAnimation(config = {}) {
+    if (STATIC_SCENES.has(config.scene)) return false;
+    return particleBudget(config) > 0 || dropletBudget(config) > 0 || config.scene === "storm" || config.scene === "hot";
   }
 
   function canvasBitmapSize(cssWidth, cssHeight, devicePixelRatio = 1) {
@@ -240,18 +265,7 @@
         for (const drop of droplets) {
           drop.y += drop.speed * deltaSeconds;
           if (drop.y > height + drop.radius) drop.y = -drop.radius;
-          const gradient = context.createRadialGradient(
-            drop.x - drop.radius * .35,
-            drop.y - drop.radius * .4,
-            .2,
-            drop.x,
-            drop.y,
-            drop.radius
-          );
-          gradient.addColorStop(0, `rgba(255,255,255,${drop.alpha * 1.4})`);
-          gradient.addColorStop(.35, `rgba(205,225,238,${drop.alpha * .28})`);
-          gradient.addColorStop(1, "rgba(155,190,215,0)");
-          context.fillStyle = gradient;
+          context.fillStyle = `rgba(205,225,238,${drop.alpha * .45})`;
           context.beginPath();
           context.ellipse(drop.x, drop.y, drop.radius * .72, drop.radius, 0, 0, Math.PI * 2);
           context.fill();
@@ -282,7 +296,7 @@
         destroy();
         return;
       }
-      if (pageIsHidden() || !visible) {
+      if (!pageShouldAnimate() || !visible || !sceneNeedsAnimation(config)) {
         frameId = 0;
         return;
       }
@@ -295,7 +309,7 @@
     }
 
     function resume() {
-      if (destroyed || reducedMotion || frameId || pageIsHidden() || !visible) return;
+      if (destroyed || reducedMotion || frameId || !pageShouldAnimate() || !visible || !sceneNeedsAnimation(config)) return;
       frameId = globalScope.requestAnimationFrame(frame);
     }
 
@@ -334,13 +348,19 @@
     const documentRef = globalScope.document;
     if (visibilityBound || !documentRef?.addEventListener) return;
     visibilityBound = true;
-    documentRef.addEventListener("visibilitychange", () => {
-      if (pageIsHidden()) {
+    const syncAnimation = () => {
+      syncPageAnimationClass();
+      if (!pageShouldAnimate()) {
         for (const effect of liveEffects) effect.pause();
         return;
       }
       for (const effect of liveEffects) effect.resume();
-    });
+    };
+    documentRef.addEventListener("visibilitychange", syncAnimation);
+    documentRef.addEventListener("focusin", syncAnimation);
+    documentRef.addEventListener("focusout", syncAnimation);
+    globalScope.addEventListener?.("blur", syncAnimation);
+    globalScope.addEventListener?.("focus", syncAnimation);
   }
 
   function unmountWeatherEffects(root = globalScope.document) {
@@ -351,6 +371,7 @@
 
   function mountWeatherEffects(root = globalScope.document) {
     bindVisibilityPause();
+    syncPageAnimationClass();
     root?.querySelectorAll?.("canvas.weather-scene-canvas").forEach((canvas) => {
       const signature = effectSignature(canvas);
       const active = activeEffects.get(canvas);
@@ -365,6 +386,7 @@
     MAX_CANVAS_HEIGHT,
     MAX_PARTICLES,
     MAX_DROPLETS,
+    sceneNeedsAnimation,
     canvasBitmapSize,
     particleBudget,
     dropletBudget,

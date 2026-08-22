@@ -4176,7 +4176,7 @@ function notificationInlineDetail(conversation = notificationConversationForId(n
           : notification.unread ? "标记已读" : "已读"
       }))
     : [];
-  const updates = Number(conversation?.updateCount) > 1 && Array.isArray(conversation?.updates)
+  const updates = Array.isArray(conversation?.updates) && conversation.updates.length > 1
     ? `<section class="notification-conversation-updates" aria-label="本轮更新"><strong>本轮更新</strong><ol>${conversation.updates.map((item) => `<li><time>${escapeHtml(absoluteTimeLabel(item.createdAt))}</time><p>${escapeHtml(item.body || item.message || item.title || "暂无详细内容。").replaceAll("\n", "<br>")}</p></li>`).join("")}</ol></section>`
     : "";
   const resolvedNotification = { ...(conversation || {}), ...(notification || {}) };

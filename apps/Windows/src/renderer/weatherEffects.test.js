@@ -8,7 +8,8 @@ const {
   canvasBitmapSize,
   particleBudget,
   dropletBudget,
-  effectSignature
+  effectSignature,
+  sceneNeedsAnimation
 } = require("./weatherEffects");
 
 test("weather canvas bitmaps stay within a fixed memory budget", () => {
@@ -38,4 +39,13 @@ test("weather effects remount only when scene or density changes", () => {
   assert.equal(effectSignature(canvas), "rain|1");
   canvas.dataset.scene = "snow";
   assert.equal(effectSignature(canvas), "snow|1");
+});
+
+test("static weather scenes skip the animation loop", () => {
+  assert.equal(sceneNeedsAnimation({ scene: "clear-day" }), false);
+  assert.equal(sceneNeedsAnimation({ scene: "clear-night" }), false);
+  assert.equal(sceneNeedsAnimation({ scene: "overcast" }), false);
+  assert.equal(sceneNeedsAnimation({ scene: "unknown" }), false);
+  assert.equal(sceneNeedsAnimation({ scene: "rain", intensity: 1, density: 1 }), true);
+  assert.equal(sceneNeedsAnimation({ scene: "storm", intensity: 1, density: 1 }), true);
 });

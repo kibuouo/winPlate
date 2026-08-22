@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const Module = require("node:module");
 const test = require("node:test");
@@ -23,11 +25,15 @@ class FakeBrowserWindow extends EventEmitter {
     this.webContents = new FakeWebContents();
     this.backgroundColors = [];
     this.moveTopCalls = 0;
+    this.alwaysOnTop = Boolean(options.alwaysOnTop);
+    this.alwaysOnTopCalls = [];
     this.ignoreMouseEvents = [];
     this.bounds = { x: 0, y: 0, width: options.width, height: options.height };
   }
 
   isDestroyed() { return false; }
+  isVisible() { return true; }
+  isAlwaysOnTop() { return this.alwaysOnTop; }
   loadFile() {}
   setBackgroundColor(color) { this.backgroundColors.push(color); }
   show() {}
@@ -36,7 +42,10 @@ class FakeBrowserWindow extends EventEmitter {
   setPosition(x, y) { this.bounds = { ...this.bounds, x, y }; }
   setBounds(bounds) { this.bounds = { ...this.bounds, ...bounds }; }
   getBounds() { return { ...this.bounds }; }
-  setAlwaysOnTop() {}
+  setAlwaysOnTop(flag, level, relativeLevel) {
+    this.alwaysOnTop = Boolean(flag);
+    this.alwaysOnTopCalls.push({ flag, level, relativeLevel });
+  }
   moveTop() { this.moveTopCalls += 1; }
   setIgnoreMouseEvents(ignore, options) { this.ignoreMouseEvents.push({ ignore, options }); }
 }
@@ -118,6 +127,10 @@ test("floating window is keyboard-inert, resists accidental close, docks, and re
     payload: { docked: true }
   });
   assert.ok(window.moveTopCalls > 0);
+  assert.equal(window.alwaysOnTopCalls.at(-1)?.level, "status");
+  const moveTopAfterDock = window.moveTopCalls;
+  window.emit("blur");
+  assert.equal(window.moveTopCalls, moveTopAfterDock);
   assert.deepEqual(window.ignoreMouseEvents.at(-1), {
     ignore: true,
     options: { forward: true }
@@ -152,4 +165,17 @@ test("floating window is keyboard-inert, resists accidental close, docks, and re
     ignore: false,
     options: { forward: true }
   });
+});
+
+test("floating capsule stays at status z-order and does not raise on a timer", () => {
+  const source = fs.readFileSync(path.join(__dirname, "windows.js"), "utf8");
+  assert.match(source, /FLOATING_TOPMOST_LEVEL = "status"/);
+  assert.match(source, /setInterval\(\(\) => enforceFloatingAlwaysOnTop\(\{ raise: false \}\), 5_000\)/);
+  assert.match(source, /on\("blur", \(\) => enforceFloatingAlwaysOnTop\(\{ raise: false \}\)\)/);
+  assert.doesNotMatch(source, /screen-saver/);
+
+  const windows = loadWindows();
+  const tooltip = windows.createTooltipWindow();
+  assert.equal(tooltip.alwaysOnTopCalls.at(-1)?.level, "status");
+  assert.equal(tooltip.alwaysOnTopCalls.at(-1)?.relativeLevel, 2);
 });

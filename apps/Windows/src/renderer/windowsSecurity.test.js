@@ -464,6 +464,7 @@ test("opening an unread notification paints detail before marking it read and ke
   assert.match(selectSource, /updateMainStatusDom\(\);\s*focusNotificationDrawerControl\("\.notification-detail-back"\);\s*if \(conversation\?\.unread \|\| payload\?\.notification\?\.unread\) \{\s*scheduleOpenedNotificationRead/);
   assert.doesNotMatch(selectSource, /await markConversationRead\(conversation \|\| payload\?\.notification/);
   assert.match(inlineSource, /notificationSelection\.loading\s*\n\s*\? `<div class="notification-detail-body">/);
+  assert.match(inlineSource, /Array\.isArray\(conversation\?\.updates\) && conversation\.updates\.length > 1/);
   assert.doesNotMatch(inlineSource, /正在加载通知详情/);
   assert.match(listSource, /visibleNotificationConversations\(\)/);
   assert.match(listSource, /pinnedId: notificationSelection\.id/);
@@ -509,7 +510,12 @@ test("main renderer avoids rebuilding mail HTML and caches dashboard snapshots o
   assert.match(effects, /MAX_CANVAS_WIDTH = 720/);
   assert.match(effects, /MAX_PARTICLES = 64/);
   assert.match(effects, /document\?\.hidden/);
+  assert.match(effects, /hasFocus\(\)/);
+  assert.match(effects, /activeElementIsEditable/);
+  assert.match(effects, /sceneNeedsAnimation/);
+  assert.match(effects, /weather-effects-paused/);
   assert.match(effects, /canvas\.width = 1/);
+  assert.match(styles, /weather-effects-paused/);
   assert.doesNotMatch(styles, /will-change:\s*transform/);
 });
 

@@ -1626,6 +1626,9 @@ html:not([data-theme="light"]) .weather-scene-photo { opacity: .68; }
 @keyframes weather-mist-drift { from { translate: -10% 0; opacity: .18; } to { translate: 32% 0; opacity: .62; } }
 @keyframes weather-dust-drift { from { translate: -90px 10px; opacity: 0; } 18% { opacity: .72; } to { translate: 180px -24px; opacity: 0; } }
 @keyframes weather-heat-rise { from { translate: 0 0; opacity: 0; } 25% { opacity: .4; } to { translate: 22px -760%; opacity: 0; } }
+html.weather-effects-paused .weather-scene * {
+  animation-play-state: paused !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .weather-scene * { animation: none !important; }
 }
@@ -2821,14 +2824,14 @@ html[data-theme="light"] .notification-detail-state.error { color: #b91c1c; bord
 .notification-inline-summary-meta dt { color: var(--text-soft); }
 .notification-inline-summary-meta dd { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .notification-inline-summary-content { min-width: 0; display: grid; align-content: start; gap: 10px; }
-.notification-inline-summary-body { min-height: 0; overflow: hidden; color: var(--text-muted); font-size: 13px; line-height: 1.65; }
-.notification-inline-summary-body .notification-detail-body p { max-height: 3.3em; margin: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notification-inline-summary-body { min-height: 0; color: var(--text-muted); font-size: 13px; line-height: 1.65; }
+.notification-inline-summary-body .notification-detail-body p { margin: 0; overflow-wrap: anywhere; }
 .notification-conversation-updates { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent); }
 .notification-conversation-updates > strong { color: var(--text); font-size: 12px; }
 .notification-conversation-updates ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .notification-conversation-updates li { display: grid; gap: 3px; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .notification-conversation-updates time { color: var(--text-soft); font-size: 11px; }
-.notification-conversation-updates p { max-height: 4.8em; margin: 0; overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.notification-conversation-updates p { margin: 0; overflow-wrap: anywhere; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .notification-inline-summary-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .notification-timeline-empty { min-height: 240px; display: grid; place-content: center; gap: 8px; color: var(--text-muted); text-align: center; }
 .notifications-page .notification-test-button { color: var(--text); border: 1px solid var(--border-strong); background: var(--surface); box-shadow: none; }

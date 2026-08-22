@@ -19,6 +19,8 @@ const FLOATING_DOCK_WIDTH = 392;
 const FLOATING_DOCK_HEIGHT = 44;
 const FLOATING_DOCK_THRESHOLD = 18;
 const FLOATING_RESTORE_HITBOX = { right: 10, top: 6, width: 32, height: 32 };
+// status stays above normal windows without covering IME or restacking input.
+const FLOATING_TOPMOST_LEVEL = "status";
 // Taller to fit peer Codex + SuperGrok sections without clipping.
 const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
@@ -71,20 +73,24 @@ function secureWebPreferences() {
   };
 }
 
-function enforceFloatingAlwaysOnTop() {
+function enforceFloatingAlwaysOnTop({ raise = true } = {}) {
   if (!isLiveNativeSurface(floatingWindow)) {
     return;
   }
   if (typeof floatingWindow.isVisible === "function" && !floatingWindow.isVisible()) {
     return;
   }
-  floatingWindow.setAlwaysOnTop(true, "screen-saver", 1);
-  floatingWindow.moveTop?.();
+  const alreadyTop = typeof floatingWindow.isAlwaysOnTop === "function" && floatingWindow.isAlwaysOnTop();
+  if (alreadyTop && !raise) {
+    return;
+  }
+  floatingWindow.setAlwaysOnTop(true, FLOATING_TOPMOST_LEVEL, 1);
+  if (raise) floatingWindow.moveTop?.();
 }
 
 function startFloatingTopmostWatchdog() {
   clearInterval(floatingTopmostTimer);
-  floatingTopmostTimer = setInterval(enforceFloatingAlwaysOnTop, 1_000);
+  floatingTopmostTimer = setInterval(() => enforceFloatingAlwaysOnTop({ raise: false }), 5_000);
   floatingTopmostTimer.unref?.();
 }
 
@@ -246,11 +252,11 @@ function createFloatingWindow() {
     }
   });
   floatingWindow.on("move", handleFloatingWindowMove);
-  floatingWindow.on("blur", enforceFloatingAlwaysOnTop);
+  floatingWindow.on("blur", () => enforceFloatingAlwaysOnTop({ raise: false }));
   floatingWindow.on("show", enforceFloatingAlwaysOnTop);
   floatingWindow.on("always-on-top-changed", (_event, alwaysOnTop) => {
     if (!alwaysOnTop) {
-      setImmediate(enforceFloatingAlwaysOnTop);
+      setImmediate(() => enforceFloatingAlwaysOnTop({ raise: false }));
     }
   });
   floatingWindow.on("close", (event) => {
@@ -297,7 +303,7 @@ function createTooltipWindow() {
     webPreferences: secureWebPreferences()
   });
 
-  tooltipWindow.setAlwaysOnTop(true, "screen-saver");
+  tooltipWindow.setAlwaysOnTop(true, FLOATING_TOPMOST_LEVEL, 2);
   tooltipWindow.setIgnoreMouseEvents(true);
   tooltipWindow.loadFile(rendererPath, { query: { view: "tooltip" } });
   const createdWindow = tooltipWindow;
