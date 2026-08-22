@@ -84,6 +84,8 @@ test("sensitive business IPC handlers require the live main-window sender", () =
     "mail:get-message",
     "email:read-message",
     "mail:refresh",
+    "mail:mark-all-read",
+    "mail:mark-unread",
     "notifications:get-detail",
     "notifications:mark-read",
     "notifications:mark-read-many",

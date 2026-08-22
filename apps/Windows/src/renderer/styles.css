@@ -1815,7 +1815,8 @@ html[data-theme="light"] .service-health.loading {
 .module-refresh-button,
 .dashboard-heading-actions .dashboard-refresh-button,
 .github-heading-actions .github-refresh-button,
-.mail-actions .mail-refresh-button {
+.mail-actions .mail-refresh-button,
+.mail-actions .mail-mark-all-read-button {
   min-height: 34px;
   padding: 8px 13px;
   border-radius: 11px;
@@ -2219,6 +2220,21 @@ html[data-theme="light"] .service-health.loading {
 .mail-actions .mail-connect-button {
   min-height: 34px;
   padding: 8px 13px;
+}
+.mail-mark-all-read-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mail-mark-all-read-button .smart-notification-icon {
+  width: 15px;
+  height: 15px;
+}
+.mail-mark-all-read-button:disabled {
+  cursor: default;
+}
+.mail-mark-all-read-button.marking:disabled {
+  cursor: wait;
 }
 .mail-status-bar {
   min-height: 42px;

@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld("winplate", {
   connectMail: () => ipcRenderer.invoke("mail:connect"),
   getMailMessage: (uid) => ipcRenderer.invoke("mail:get-message", uid),
   "email:read-message": (uid) => ipcRenderer.invoke("email:read-message", uid),
+  markAllMailRead: () => ipcRenderer.invoke("mail:mark-all-read"),
+  markMailUnread: (uid) => ipcRenderer.invoke("mail:mark-unread", uid),
   openMail: () => ipcRenderer.invoke("mail:open"),
   getNotifications: (options = {}) => ipcRenderer.invoke("notifications:get", options),
   getNotificationDigest: () => ipcRenderer.invoke("notification:get-digest"),

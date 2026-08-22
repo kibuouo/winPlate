@@ -88,6 +88,7 @@ const WEATHER_ALERT_CACHE_TTL_MS = 10 * 60_000;
 const MAIL_CACHE_TTL_MS = 60_000;
 const NOTIFICATION_CACHE_TTL_MS = 5_000;
 const LOCAL_API_TIMEOUT_MS = 12_000;
+const MAIL_MARK_ALL_READ_TIMEOUT_MS = 45_000;
 const MAX_RESPONSE_CACHE_ENTRIES = 16;
 const responseCaches = new Map();
 const processServiceEnvironment = Object.freeze({
@@ -178,6 +179,43 @@ async function fetchMailMessageByUid(uid, { markRead = false } = {}) {
     scheduleNotificationDigestRefresh();
   }
   return message;
+}
+
+async function markAllMailRead() {
+  const response = await fetchWithTimeout(
+    "http://127.0.0.1:8765/api/mail/read-all",
+    { method: "POST" },
+    MAIL_MARK_ALL_READ_TIMEOUT_MS
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `全部已读失败: HTTP ${response.status}`);
+  }
+  const outline = await readJsonWithTimeout(response, "Mail mark all read", MAIL_MARK_ALL_READ_TIMEOUT_MS);
+  clearMailCaches();
+  clearNotificationCaches();
+  scheduleNotificationDigestRefresh();
+  return outline;
+}
+
+async function markMailUnreadByUid(uid) {
+  const messageUid = typeof uid === "string" || typeof uid === "number" ? String(uid).trim() : "";
+  if (!messageUid) {
+    throw new Error("邮件 UID 不能为空");
+  }
+  const response = await fetchWithTimeout(
+    `http://127.0.0.1:8765/api/mail/messages/${encodeURIComponent(messageUid)}/unread`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail || `标记未读失败: HTTP ${response.status}`);
+  }
+  const payload = await readJsonWithTimeout(response, "Mail mark unread");
+  clearMailCaches();
+  clearNotificationCaches();
+  scheduleNotificationDigestRefresh();
+  return payload;
 }
 
 async function fetchWeatherAlertById(alertId) {
@@ -637,6 +675,12 @@ if (!gotLock) {
       requireMainWindowSender(event);
       return fetchMailMessageByUid(uid, { markRead: false });
     });
+    ipcMain.handle("mail:mark-unread", async (event, uid) => {
+      requireMainWindowSender(event);
+      const result = await markMailUnreadByUid(uid);
+      await notificationManager?.sourceChanged("mail");
+      return result;
+    });
     ipcMain.handle("github:refresh", async () => {
       const response = await fetchWithTimeout("http://127.0.0.1:8765/api/github/refresh", { method: "POST" });
       if (!response.ok) {
@@ -855,6 +899,12 @@ if (!gotLock) {
       }
       const outline = await readJsonWithTimeout(response, "Mail refresh");
       clearMailCaches();
+      await notificationManager?.sourceChanged("mail");
+      return outline;
+    });
+    ipcMain.handle("mail:mark-all-read", async (event) => {
+      requireMainWindowSender(event);
+      const outline = await markAllMailRead();
       await notificationManager?.sourceChanged("mail");
       return outline;
     });

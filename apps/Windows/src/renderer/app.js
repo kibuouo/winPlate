@@ -429,6 +429,10 @@ let deepseekSettings = { hasApiKey: false, baseUrl: "https://api.deepseek.com" }
 let mailSettings = { configured: false, connected: false, windowDays: 30 };
 let mailOutline = { source: "loading", availability: "loading", items: [], updatedAt: null };
 let mailRefreshInFlight = false;
+let mailMarkAllReadInFlight = false;
+let mailMarkUnreadInFlight = false;
+let mailReadSyncInFlight = null;
+const mailUnreadIntentUids = new Set();
 let mailDetail = { open: false, loading: false, uid: null, message: null, error: "" };
 let mailHighlightedUid = null;
 const MAIL_DETAIL_READ_TIMEOUT_MS = 8_000;
@@ -3813,19 +3817,117 @@ async function readMailMessageWithFallback(uid) {
   }
 }
 
+function applyLocalMailReadState(uid = null) {
+  const matches = (item) => {
+    if (uid == null) return true;
+    const itemUid = item?.uid || item?.messageId || item?.threadId;
+    return String(itemUid) === String(uid);
+  };
+  const items = Array.isArray(mailOutline.items) ? mailOutline.items : [];
+  const changed = items.filter((item) => {
+    const labels = Array.isArray(item?.labels) ? item.labels : [];
+    return matches(item) && (Boolean(item?.unread) || labels.includes("UNREAD"));
+  }).length;
+  mailOutline = {
+    ...mailOutline,
+    unreadCount: uid == null
+      ? 0
+      : Number.isFinite(Number(mailOutline.unreadCount))
+        ? Math.max(0, Number(mailOutline.unreadCount) - changed)
+        : mailOutline.unreadCount,
+    items: items.map((item) => {
+      if (!matches(item)) return item;
+      const labels = Array.isArray(item.labels) ? item.labels.filter((label) => label !== "UNREAD") : [];
+      return {
+        ...item,
+        labels,
+        unread: false,
+        action: "归档参考"
+      };
+    })
+  };
+  if (mailDetail.open && mailDetail.message && (uid == null || String(mailDetail.uid) === String(uid))) {
+    mailDetail = {
+      ...mailDetail,
+      message: { ...mailDetail.message, unread: false, markedRead: true }
+    };
+  }
+}
+
+function applyLocalMailUnreadState(uid) {
+  const safeUid = String(uid || "");
+  if (!safeUid) return;
+  const items = Array.isArray(mailOutline.items) ? mailOutline.items : [];
+  const alreadyUnread = items.some((item) => {
+    const itemUid = item?.uid || item?.messageId || item?.threadId;
+    if (String(itemUid) !== safeUid) return false;
+    const labels = Array.isArray(item?.labels) ? item.labels : [];
+    return Boolean(item?.unread) || labels.includes("UNREAD");
+  });
+  mailOutline = {
+    ...mailOutline,
+    unreadCount: Number.isFinite(Number(mailOutline.unreadCount))
+      ? Number(mailOutline.unreadCount) + (alreadyUnread ? 0 : 1)
+      : mailOutline.unreadCount,
+    items: items.map((item) => {
+      const itemUid = item?.uid || item?.messageId || item?.threadId;
+      if (String(itemUid) !== safeUid) return item;
+      const labels = Array.isArray(item.labels) ? item.labels.filter((label) => label !== "UNREAD") : [];
+      labels.push("UNREAD");
+      return {
+        ...item,
+        labels,
+        unread: true,
+        action: "查看"
+      };
+    })
+  };
+  if (mailDetail.open && mailDetail.message && String(mailDetail.uid) === safeUid) {
+    mailDetail = {
+      ...mailDetail,
+      message: { ...mailDetail.message, unread: true, markedRead: false }
+    };
+  }
+}
+
 async function syncMailReadStateInBackground(uid, requestId) {
+  mailReadSyncInFlight = { uid: String(uid), requestId };
   try {
     await withTimeout(
       window.winplate["email:read-message"](uid),
       MAIL_DETAIL_READ_TIMEOUT_MS,
       "邮件已读同步超时"
     );
+    if (mailUnreadIntentUids.has(String(uid))) {
+      try {
+        await withTimeout(
+          window.winplate.markMailUnread(uid),
+          MAIL_DETAIL_READ_TIMEOUT_MS,
+          "邮件未读同步超时"
+        );
+        applyLocalMailUnreadState(uid);
+        mailUnreadIntentUids.delete(String(uid));
+        notificationSummary = await window.winplate.getNotifications();
+        await hydrateNotificationDigest();
+        updateCurrentViewDom(["mail", "notifications"]);
+      } catch (error) {
+        mailUnreadIntentUids.delete(String(uid));
+        applyLocalMailReadState(uid);
+        showRefreshNotice("error", "标记未读失败", error.message || "标记未读失败");
+        console.error("Failed to keep mail unread after open:", error);
+        updateCurrentViewDom(["mail", "notifications"]);
+      }
+      return;
+    }
     if (mailDetail.requestId !== requestId) return;
+    applyLocalMailReadState(uid);
     notificationSummary = await window.winplate.getNotifications();
     await hydrateNotificationDigest();
     updateCurrentViewDom(["mail", "notifications"]);
   } catch (error) {
     console.error("Failed to sync mail read state:", error);
+  } finally {
+    if (mailReadSyncInFlight?.requestId === requestId) mailReadSyncInFlight = null;
   }
 }
 
@@ -3929,7 +4031,11 @@ function mailDetailSheet() {
         <section class="mail-detail-body">${body}</section>
         ${attachments}
         <footer class="mail-detail-sheet-footer">
-          <button class="mail-mark-read-button" type="button" disabled>${message.unread ? "标记已读" : "已读"}</button>
+          <button
+            class="mail-mark-unread-button"
+            type="button"
+            ${!mailDetail.loading && !mailDetail.error && message && !message.unread && !mailMarkUnreadInFlight ? "" : "disabled"}
+          >${message.unread ? "未读" : mailMarkUnreadInFlight ? "标记中" : "标记未读"}</button>
           <button class="mail-open-external-button" type="button">在 QQ 邮箱中打开</button>
         </footer>
       </section>
@@ -4045,6 +4151,11 @@ function mailItemCard(item) {
 
 function mailContent() {
   const items = Array.isArray(mailOutline.items) ? mailOutline.items.slice(0, 20) : [];
+  const unreadCount = Number.isFinite(Number(mailOutline.unreadCount))
+    ? Number(mailOutline.unreadCount)
+    : dockedUnreadMailCount(mailOutline);
+  const canMarkAllRead = unreadCount > 0 && mailSettings.configured && !mailMarkAllReadInFlight;
+  const markReadIcon = window.WinPlateSmartNotificationIcons.renderSmartNotificationIcon("check-circle");
   const stateNotice = mailOutline.error
     ? `<div class="mail-state-notice state-${escapeHtml(mailOutline.availability)}">${escapeHtml(mailOutline.error)}</div>`
     : "";
@@ -4064,6 +4175,16 @@ function mailContent() {
         className: "mail-page-heading",
         actions: `<div class="mail-heading-actions">
           <div class="mail-actions">
+            <button
+              class="refresh-button module-refresh-button mail-mark-all-read-button ${mailMarkAllReadInFlight ? "marking" : ""}"
+              id="mark-all-mail-read"
+              type="button"
+              aria-label="全部已读"
+              ${canMarkAllRead ? "" : "disabled"}
+            >
+              ${markReadIcon}
+              <span>${mailMarkAllReadInFlight ? "标记中" : "全部已读"}</span>
+            </button>
             <button
               class="refresh-button module-refresh-button mail-refresh-button ${mailRefreshInFlight ? "refreshing" : ""}"
               id="refresh-mail"
@@ -5350,6 +5471,28 @@ function bindMailControls() {
       }
     };
   });
+  const markAllButton = document.querySelector("#mark-all-mail-read");
+  if (markAllButton) {
+    markAllButton.onclick = async () => {
+      if (mailMarkAllReadInFlight || markAllButton.disabled) return;
+      mailMarkAllReadInFlight = true;
+      try {
+        updateMainStatusDom();
+        mailOutline = await window.winplate.markAllMailRead();
+        applyLocalMailReadState();
+        showRefreshNotice("success", "邮件已全部标为已读", "收件箱未读邮件已同步为已读。");
+        hydrateNotifications().then(() => {
+          updateCurrentViewDom("notifications");
+        });
+      } catch (error) {
+        const message = error.message || "全部已读失败";
+        showRefreshNotice("error", "全部已读失败", message);
+      } finally {
+        mailMarkAllReadInFlight = false;
+        updateMainStatusDom();
+      }
+    };
+  }
   const refreshButton = document.querySelector("#refresh-mail");
   if (!refreshButton) return;
   refreshButton.onclick = async () => {
@@ -5393,20 +5536,7 @@ async function openMailDetail(uid) {
     const message = await readMailMessageWithFallback(uid);
     if (mailDetail.requestId !== requestId) return;
     mailDetail = { open: true, loading: false, uid, requestId, message, error: "" };
-    mailOutline = {
-      ...mailOutline,
-      items: (mailOutline.items || []).map((item) => {
-        const itemUid = item.uid || item.messageId || item.threadId;
-        if (String(itemUid) !== String(uid)) return item;
-        const labels = Array.isArray(item.labels) ? item.labels.filter((label) => label !== "UNREAD") : [];
-        return {
-          ...item,
-          labels,
-          unread: false,
-          action: message.action || "归档参考"
-        };
-      })
-    };
+    applyLocalMailReadState(uid);
     updateMainStatusDom();
     syncMailReadStateInBackground(uid, requestId);
   } catch (error) {
@@ -5424,6 +5554,36 @@ async function openMailDetail(uid) {
   }
 }
 
+async function markOpenedMailUnread() {
+  const uid = mailDetail.uid;
+  if (!uid || mailMarkUnreadInFlight || mailDetail.message?.unread) return;
+  mailMarkUnreadInFlight = true;
+  mailUnreadIntentUids.add(String(uid));
+  applyLocalMailUnreadState(uid);
+  updateMainStatusDom();
+  try {
+    if (mailReadSyncInFlight?.uid === String(uid)) return;
+    await withTimeout(
+      window.winplate.markMailUnread(uid),
+      MAIL_DETAIL_READ_TIMEOUT_MS,
+      "邮件未读同步超时"
+    );
+    mailUnreadIntentUids.delete(String(uid));
+    notificationSummary = await window.winplate.getNotifications();
+    await hydrateNotificationDigest();
+    updateCurrentViewDom(["mail", "notifications"]);
+  } catch (error) {
+    mailUnreadIntentUids.delete(String(uid));
+    applyLocalMailReadState(uid);
+    showRefreshNotice("error", "标记未读失败", error.message || "标记未读失败");
+    console.error("Failed to mark mail unread:", error);
+    updateCurrentViewDom(["mail", "notifications"]);
+  } finally {
+    mailMarkUnreadInFlight = false;
+    updateMainStatusDom();
+  }
+}
+
 async function handleMailPageClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target || !target.closest(".mail-page")) return;
@@ -5436,6 +5596,11 @@ async function handleMailPageClick(event) {
 
   // Clicks inside the open sheet (footer actions etc.) should not re-open list items.
   if (target.closest(".mail-detail-sheet")) {
+    const markUnreadButton = target.closest(".mail-mark-unread-button");
+    if (markUnreadButton && !markUnreadButton.disabled && mailDetail.uid) {
+      await markOpenedMailUnread();
+      return;
+    }
     const externalButton = target.closest(".mail-open-external-button");
     if (externalButton) {
       externalButton.disabled = true;

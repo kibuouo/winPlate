@@ -4,7 +4,7 @@ const IPC_BY_MODULE = Object.freeze({
   github: ["github:refresh", "github:open-profile"],
   codex: ["codex:usage", "codex:token-usage", "deepseek:usage", "supergrok:usage", "supergrok:token-usage"],
   notifications: ["notifications:get", "notification:get-digest", "notifications:get-detail", "notifications:navigate", "notifications:copy"],
-  mail: ["mail:get-outline", "mail:refresh", "mail:get-message", "email:read-message"],
+  mail: ["mail:get-outline", "mail:refresh", "mail:mark-all-read", "mail:mark-unread", "mail:get-message", "email:read-message"],
   weather: ["status:get", "weather:refresh", "weather:set-location", "weather:get-usage", "weather:get-alert"],
   heart: ["status:get"],
   network: ["network:speed"]

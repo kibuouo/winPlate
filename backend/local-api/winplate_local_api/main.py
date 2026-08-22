@@ -72,6 +72,8 @@ MAIL_QUERY = "IMAP INBOX SINCE 30 days"
 MAIL_WINDOW_DAYS = 30
 MAIL_MAX_RESULTS = 20
 MAIL_CANDIDATE_RESULTS = 50
+MAIL_UID_PATTERN = re.compile(r"[0-9A-Za-z._:-]{1,80}")
+MAIL_SEEN_STORE_CHUNK = 80
 QQ_IMAP_HOST = "imap.qq.com"
 QQ_IMAP_PORT = 993
 QQ_IMAP_SECURE = True
@@ -980,9 +982,76 @@ def apply_mail_seen_flag(connection: imaplib.IMAP4_SSL, uid: str, seen: bool) ->
         raise RuntimeError("邮件已读状态同步失败")
 
 
+def apply_mail_seen_flags(connection: imaplib.IMAP4_SSL, uids: list[str]) -> None:
+    valid = [uid for uid in uids if MAIL_UID_PATTERN.fullmatch(str(uid or "").strip())]
+    if not valid:
+        return
+    for index in range(0, len(valid), MAIL_SEEN_STORE_CHUNK):
+        chunk = ",".join(valid[index:index + MAIL_SEEN_STORE_CHUNK])
+        status, _ = connection.uid("STORE", chunk, "+FLAGS.SILENT", r"(\Seen)")
+        if status != "OK":
+            raise RuntimeError("邮件已读状态同步失败")
+
+
+def mark_cached_mail_all_read() -> None:
+    items = cached_mail_outline()
+    if not items:
+        return
+    persist_mail_outline([
+        {
+            **item,
+            "labels": [label for label in (item.get("labels") or []) if label != "UNREAD"],
+            "action": "归档参考",
+            "unread": False,
+        }
+        for item in items
+    ])
+
+
+def mark_mail_notifications_read() -> None:
+    mail_ids = notification_manager.unread_ids(source="mail")
+    if mail_ids:
+        notification_manager.mark_many_read(mail_ids)
+
+
+def mark_all_mail_read() -> dict:
+    if not mail_configured():
+        raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
+    connection = qq_imap_connection()
+    unseen_ids: list[str] = []
+    try:
+        status, _ = connection.select("INBOX", readonly=False)
+        if status != "OK":
+            raise RuntimeError("QQ 邮箱 INBOX 打开失败")
+        unread_status, unread_payload = connection.uid("SEARCH", None, "UNSEEN")
+        if unread_status != "OK":
+            raise RuntimeError("QQ 邮箱未读邮件查询失败")
+        unseen_ids = imap_ids(unread_payload)
+        apply_mail_seen_flags(connection, unseen_ids)
+    except (imaplib.IMAP4.error, OSError, TimeoutError) as error:
+        raise RuntimeError(f"QQ 邮箱 IMAP 读取失败：{error}") from error
+    finally:
+        try:
+            connection.logout()
+        except imaplib.IMAP4.error:
+            pass
+    mark_cached_mail_all_read()
+    mark_mail_notifications_read()
+    return {
+        "source": "qq-mail",
+        "availability": "live",
+        "query": MAIL_QUERY,
+        "windowDays": MAIL_WINDOW_DAYS,
+        "items": cached_mail_outline(),
+        "unreadCount": 0,
+        "markedCount": len(unseen_ids),
+        "updatedAt": utc_epoch_seconds() * 1000,
+    }
+
+
 def mark_mail_notification_read(uid: str) -> None:
     safe_uid = str(uid or "").strip()
-    if not safe_uid or not re.fullmatch(r"[0-9A-Za-z._:-]{1,80}", safe_uid):
+    if not safe_uid or not MAIL_UID_PATTERN.fullmatch(safe_uid):
         raise RuntimeError("邮件 UID 无效")
     if not mail_configured():
         raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
@@ -1001,6 +1070,45 @@ def mark_mail_notification_read(uid: str) -> None:
             connection.logout()
         except imaplib.IMAP4.error:
             pass
+
+
+def restore_mail_unread_notification(uid: str) -> None:
+    item = next(
+        (
+            cached
+            for cached in cached_mail_outline()
+            if str(cached.get("uid") or cached.get("messageId") or "") == str(uid)
+        ),
+        None,
+    )
+    if item:
+        sync_mail_notifications([{ **item, "messageId": item.get("messageId") or uid, "unread": True }])
+        return
+    set_mail_notification_unread_state(uid, unread=True)
+
+
+def mark_mail_unread(uid: str) -> dict:
+    safe_uid = str(uid or "").strip()
+    if not safe_uid or not MAIL_UID_PATTERN.fullmatch(safe_uid):
+        raise RuntimeError("邮件 UID 无效")
+    if not mail_configured():
+        raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
+    connection = qq_imap_connection()
+    try:
+        status, _ = connection.select("INBOX", readonly=False)
+        if status != "OK":
+            raise RuntimeError("QQ 邮箱 INBOX 打开失败")
+        apply_mail_seen_flag(connection, safe_uid, False)
+        update_cached_mail_read_state(safe_uid, unread=True)
+        restore_mail_unread_notification(safe_uid)
+    except (imaplib.IMAP4.error, OSError, TimeoutError) as error:
+        raise RuntimeError(f"QQ 邮箱 IMAP 读取失败：{error}") from error
+    finally:
+        try:
+            connection.logout()
+        except imaplib.IMAP4.error:
+            pass
+    return {"uid": safe_uid, "unread": True, "markedUnread": True}
 
 
 def mark_notification_read(notification_id: str) -> dict:
@@ -1182,7 +1290,7 @@ def read_mail_outline_from_qq() -> tuple[list[dict], int]:
 
 def read_mail_message(uid: str, mark_read: bool = False) -> dict:
     safe_uid = str(uid or "").strip()
-    if not safe_uid or not re.fullmatch(r"[0-9A-Za-z._:-]{1,80}", safe_uid):
+    if not safe_uid or not MAIL_UID_PATTERN.fullmatch(safe_uid):
         raise RuntimeError("邮件 UID 无效")
     if not mail_configured():
         raise RuntimeError("请先配置 QQ 邮箱地址和授权码")
@@ -3081,10 +3189,26 @@ def refresh_mail_outline() -> dict:
     return mail_outline(force=True)
 
 
+@api.post("/api/mail/read-all")
+def mark_mail_messages_read() -> dict:
+    try:
+        return mark_all_mail_read()
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @api.post("/api/mail/messages/{uid}/read")
 def read_mail_message_detail(uid: str) -> dict:
     try:
         return read_mail_message(uid, mark_read=True)
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@api.post("/api/mail/messages/{uid}/unread")
+def mark_mail_message_unread(uid: str) -> dict:
+    try:
+        return mark_mail_unread(uid)
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

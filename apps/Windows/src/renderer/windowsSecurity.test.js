@@ -363,6 +363,36 @@ test("top-docked status derives alert color and unread mail from source-owned st
   }), 2);
 });
 
+test("mail workspace exposes mark-all-read and a per-message mark-unread control", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const mailStart = appSource.indexOf("function mailContent()");
+  const mailEnd = appSource.indexOf("function notificationContent()", mailStart);
+  const mailSource = appSource.slice(mailStart, mailEnd);
+  const detailStart = appSource.indexOf("function mailDetailSheet()");
+  const detailEnd = appSource.indexOf("function notificationDetailValue", detailStart);
+  const detailSource = appSource.slice(detailStart, detailEnd);
+  const bindStart = appSource.indexOf("function bindMailControls()");
+  const bindEnd = appSource.indexOf("async function openMailDetail", bindStart);
+  const bindSource = appSource.slice(bindStart, bindEnd);
+  const clickStart = appSource.indexOf("async function handleMailPageClick");
+  const clickEnd = appSource.indexOf("function handleMailPageKeydown", clickStart);
+  const clickSource = appSource.slice(clickStart, clickEnd);
+
+  assert.match(mailSource, /id="mark-all-mail-read"/);
+  assert.match(mailSource, /全部已读/);
+  assert.match(bindSource, /window\.winplate\.markAllMailRead\(\)/);
+  assert.match(preload, /markAllMailRead: \(\) => ipcRenderer\.invoke\("mail:mark-all-read"\)/);
+  assert.match(preload, /markMailUnread: \(uid\) => ipcRenderer\.invoke\("mail:mark-unread", uid\)/);
+  assert.match(detailSource, /mail-mark-unread-button/);
+  assert.match(detailSource, /标记未读/);
+  assert.match(clickSource, /markOpenedMailUnread\(\)/);
+  assert.doesNotMatch(detailSource, /mail-mark-read-button/);
+  assert.doesNotMatch(clickSource, /mail-mark-read-button/);
+  assert.match(styles, /\.mail-mark-all-read-button\s*\{/);
+});
+
 test("scheduled mail refreshes force an IMAP pull instead of rereading the outline cache", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const start = appSource.indexOf("async function refreshMailData(");

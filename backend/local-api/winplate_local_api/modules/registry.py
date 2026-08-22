@@ -5,7 +5,7 @@ MODULES = (
     {"id": "github", "title": "GitHub", "service": "github", "routes": ("/api/status", "/api/github/refresh")},
     {"id": "codex", "title": "Codex", "service": "electron", "routes": ()},
     {"id": "notifications", "title": "Notifications", "service": "notifications", "routes": ("/api/notifications",)},
-    {"id": "mail", "title": "Mail", "service": "mail", "routes": ("/api/mail/outline", "/api/mail/refresh")},
+    {"id": "mail", "title": "Mail", "service": "mail", "routes": ("/api/mail/outline", "/api/mail/refresh", "/api/mail/read-all")},
     {"id": "weather", "title": "QWeather", "service": "weather", "routes": ("/api/status", "/api/weather/refresh")},
     {"id": "heart", "title": "Health", "service": "status", "routes": ("/api/status",)},
     {"id": "network", "title": "Network", "service": "electron", "routes": ()},
