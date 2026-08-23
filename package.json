@@ -21,12 +21,14 @@
     "macos:test": "apps/macOS/WinPlate/scripts/test.sh",
     "macos:app": "apps/macOS/WinPlate/scripts/make-app.sh",
     "precheck": "npm run precheck --workspace @winplate/windows-electron",
-    "check": "npm run check --workspace @winplate/windows-electron && npm run test:layout && npm test --workspace @winplate/core --workspace @winplate/shared-types --workspace @winplate/icons",
+    "check": "npm run test:tooling && npm run check --workspace @winplate/windows-electron && npm run test:layout && npm test --workspace @winplate/core --workspace @winplate/shared-types --workspace @winplate/icons",
     "test:layout": "node --test scripts/workspaceLayout.test.js",
     "check:syntax": "npm run check:syntax --workspace @winplate/windows-electron && node --check scripts/venvPython.js",
-    "test:unit": "node --test scripts/venvPython.test.js && npm run test:unit --workspace @winplate/windows-electron",
+    "test:tooling": "node --check scripts/venvPython.js && node --check scripts/checkJavaScriptSyntax.js && node --test scripts/venvPython.test.js scripts/checkJavaScriptSyntax.test.js",
+    "test:unit": "npm run test:tooling && npm run test:unit --workspace @winplate/windows-electron",
     "venv:create": "python -m venv .venv",
     "backend:install": "node scripts/venvPython.js -m pip install -r backend/local-api/requirements.txt",
-    "backend:test": "node scripts/venvPython.js -m unittest discover -s backend/local-api/tests -t backend/local-api -p \"test_*.py\""
+    "backend:check-deps": "node scripts/venvPython.js -m pip install --dry-run --no-deps --no-index --disable-pip-version-check -r backend/local-api/requirements.txt",
+    "backend:test": "npm run backend:check-deps && node scripts/venvPython.js -m unittest discover -s backend/local-api/tests -t backend/local-api -p \"test_*.py\""
   }
 }

@@ -11,11 +11,13 @@ class FakeWebContents extends EventEmitter {
   constructor() {
     super();
     this.sent = [];
+    this.windowOpenHandler = null;
   }
 
   isDestroyed() { return false; }
   isLoading() { return false; }
   send(channel, payload) { this.sent.push({ channel, payload }); }
+  setWindowOpenHandler(handler) { this.windowOpenHandler = handler; }
 }
 
 class FakeBrowserWindow extends EventEmitter {
@@ -81,6 +83,26 @@ test("Windows main window has the custom titlebar and secure preload", () => {
   assert.equal(window.options.webPreferences.contextIsolation, true);
   assert.equal(window.options.webPreferences.sandbox, true);
   assert.equal(window.options.backgroundColor, "#202123");
+});
+
+test("every renderer surface denies new windows and page-initiated navigation", () => {
+  const windows = loadWindows();
+  const surfaces = [
+    windows.createMainWindow("dark"),
+    windows.createFloatingWindow(),
+    windows.createTooltipWindow()
+  ];
+
+  for (const surface of surfaces) {
+    assert.deepEqual(surface.webContents.windowOpenHandler(), { action: "deny" });
+    for (const eventName of ["will-navigate", "will-redirect"]) {
+      let prevented = false;
+      surface.webContents.emit(eventName, {
+        preventDefault() { prevented = true; }
+      });
+      assert.equal(prevented, true, `${eventName} must be prevented`);
+    }
+  }
 });
 
 test("Windows theme changes update the main window background", () => {

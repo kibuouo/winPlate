@@ -73,6 +73,13 @@ function secureWebPreferences() {
   };
 }
 
+function hardenWindowNavigation(window) {
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  ["will-navigate", "will-redirect"].forEach((eventName) => {
+    window.webContents.on(eventName, (event) => event.preventDefault());
+  });
+}
+
 function enforceFloatingAlwaysOnTop({ raise = true } = {}) {
   if (!isLiveNativeSurface(floatingWindow)) {
     return;
@@ -243,6 +250,8 @@ function createFloatingWindow() {
   });
   const createdWindow = floatingWindow;
 
+  hardenWindowNavigation(floatingWindow);
+
   floatingWindow.loadFile(rendererPath, { query: { view: "floating" } });
   floatingWindow.once("ready-to-show", () => {
     if (isLiveNativeSurface(createdWindow)) {
@@ -303,6 +312,7 @@ function createTooltipWindow() {
     webPreferences: secureWebPreferences()
   });
 
+  hardenWindowNavigation(tooltipWindow);
   tooltipWindow.setAlwaysOnTop(true, FLOATING_TOPMOST_LEVEL, 2);
   tooltipWindow.setIgnoreMouseEvents(true);
   tooltipWindow.loadFile(rendererPath, { query: { view: "tooltip" } });
@@ -405,6 +415,8 @@ function createMainWindow(initialTheme = "dark") {
     webPreferences: secureWebPreferences()
   }));
   const createdWindow = mainWindow;
+
+  hardenWindowNavigation(mainWindow);
 
   mainWindow.loadFile(rendererPath, { query: { view: "main" } });
   mainWindow.once("ready-to-show", () => {
