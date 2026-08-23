@@ -59,16 +59,21 @@ enum HealthOverviewCache {
             github: merged.desktopStatus?.github.flatMap { $0.hasContent ? $0 : nil },
             mail: merged.desktopStatus?.mail
         )
-        guard let data = try? JSONEncoder().encode(stored) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-        UserDefaults.standard.synchronize()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(stored) else { return }
+        if UserDefaults.standard.data(forKey: defaultsKey) != data {
+            UserDefaults.standard.set(data, forKey: defaultsKey)
+        }
         if let cacheURL {
             do {
                 try FileManager.default.createDirectory(
                     at: cacheURL.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                try data.write(to: cacheURL, options: .atomic)
+                if (try? Data(contentsOf: cacheURL)) != data {
+                    try data.write(to: cacheURL, options: .atomic)
+                }
             } catch {
                 // UserDefaults already holds a copy for the next launch.
             }
@@ -139,7 +144,12 @@ enum HealthOverviewCache {
                 at: samplesURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try JSONEncoder().encode(samples.map(StoredSample.init)).write(to: samplesURL, options: .atomic)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(samples.map(StoredSample.init))
+            if (try? Data(contentsOf: samplesURL)) != data {
+                try data.write(to: samplesURL, options: .atomic)
+            }
         } catch {
             return
         }
@@ -747,6 +757,16 @@ private struct WindowsHealthSyncResponse: Decodable {
 enum WindowsHealthLink {
     private static let endpointKey = "winplate.windowsHealthEndpoint"
     private static let tokenAccount = "windows-health-token-v1"
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 12
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration)
+    }()
 
     static var savedEndpoint: String {
         migrateLegacyEndpointIfNeeded()
@@ -779,7 +799,9 @@ enum WindowsHealthLink {
               let scheme = components.scheme?.lowercased(),
               ["http", "https", "winplate"].contains(scheme),
               let host = components.host,
-              !host.isEmpty else {
+              !host.isEmpty,
+              components.user == nil,
+              components.password == nil else {
             return nil
         }
 
@@ -787,7 +809,7 @@ enum WindowsHealthLink {
             ?? components.queryItems?.first(where: { $0.name == "token" })?.value
             ?? ""
         let port = components.port ?? (scheme == "https" ? 443 : 8766)
-        components.scheme = "http"
+        components.scheme = scheme == "https" ? "https" : "http"
         components.host = host
         components.port = port
         components.path = "/api/health/sync"
@@ -846,13 +868,8 @@ enum WindowsHealthLink {
         components.path = "/api/health/status"
         guard let url = components.url else { throw URLError(.badURL) }
 
-        var request = authorizedRequest(url: url, method: "GET")
+        let request = authorizedRequest(url: url, method: "GET")
 
-        let configuration = URLSessionConfiguration.default
-        configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 12
-        let session = URLSession(configuration: configuration)
         let data: Data
         let response: URLResponse
         do {
@@ -903,11 +920,6 @@ enum WindowsHealthLink {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(payload)
 
-        let configuration = URLSessionConfiguration.default
-        configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 12
-        let session = URLSession(configuration: configuration)
         let data: Data
         let response: URLResponse
         do {

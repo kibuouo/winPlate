@@ -3,9 +3,41 @@ import Combine
 import HealthKit
 import UIKit
 
-private struct HealthMetricValue {
+private struct HealthMetricValue: Sendable {
     let value: Double?
     let sampleAt: Date?
+}
+
+private struct HealthReadResult: Sendable {
+    let metric: HealthMetricValue
+    let heartRateSamples: [HeartRateSample]
+    let error: String?
+}
+
+private struct HealthSnapshotFingerprint: Equatable {
+    let permissionGranted: Bool
+    let healthUpdatedAt: Date?
+    let heartRate: Double?
+    let heartRateSampleAt: Date?
+    let latestSeriesSample: HeartRateSample?
+    let seriesCount: Int
+    let stepCount: Double?
+    let stepCountSampleAt: Date?
+    let activeEnergy: Double?
+    let activeEnergySampleAt: Date?
+
+    init(_ payload: HealthSyncPayload) {
+        permissionGranted = payload.permissionGranted
+        healthUpdatedAt = payload.healthUpdatedAt
+        heartRate = payload.heartRate
+        heartRateSampleAt = payload.heartRateSampleAt
+        latestSeriesSample = payload.heartRateSamples.last
+        seriesCount = payload.heartRateSamples.count
+        stepCount = payload.stepCount
+        stepCountSampleAt = payload.stepCountSampleAt
+        activeEnergy = payload.activeEnergy
+        activeEnergySampleAt = payload.activeEnergySampleAt
+    }
 }
 
 @MainActor
@@ -43,8 +75,9 @@ final class HealthStore: ObservableObject {
     private var lastActiveEnergySampleAt: Date?
     private var syncTask: Task<Void, Never>?
     private var desktopStatusTask: Task<Void, Never>?
-    private var resignObserver: NSObjectProtocol?
-    private var backgroundObserver: NSObjectProtocol?
+    private var refreshOperation: (id: UUID, task: Task<Void, Never>)?
+    private var lastSentSnapshotFingerprint: HealthSnapshotFingerprint?
+    private var isAppActive = true
 
     private init() {
         peerLink = HealthPeerLink(
@@ -106,26 +139,13 @@ final class HealthStore: ObservableObject {
             backgroundUploader.resumePending(to: windowsEndpoint)
             startDesktopStatusPolling()
         }
-        observeLifecycleForPersistence()
-
-        syncTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                guard !Task.isCancelled else { return }
-                await self?.refresh(reason: .foregroundTimer)
-            }
-        }
+        startForegroundRefreshLoop()
     }
 
     deinit {
         syncTask?.cancel()
         desktopStatusTask?.cancel()
-        if let resignObserver {
-            NotificationCenter.default.removeObserver(resignObserver)
-        }
-        if let backgroundObserver {
-            NotificationCenter.default.removeObserver(backgroundObserver)
-        }
+        refreshOperation?.task.cancel()
         peerLink.stop()
     }
 
@@ -180,6 +200,33 @@ final class HealthStore: ObservableObject {
         peerLink.restartIfNeeded()
     }
 
+    func sceneDidBecomeActive() {
+        guard !isAppActive else { return }
+        isAppActive = true
+        restoreIfNeeded()
+        peerLink.restartIfNeeded()
+        startForegroundRefreshLoop()
+        if !windowsEndpoint.isEmpty {
+            backgroundUploader.resumePending(to: windowsEndpoint)
+            startDesktopStatusPolling()
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await refresh(reason: .foregroundTimer)
+            await pollDesktopStatus()
+        }
+    }
+
+    func sceneWillResignActive() {
+        guard isAppActive else { return }
+        isAppActive = false
+        syncTask?.cancel()
+        syncTask = nil
+        desktopStatusTask?.cancel()
+        desktopStatusTask = nil
+        persistForBackground()
+    }
+
     func persistForBackground() {
         let task = UIApplication.shared.beginBackgroundTask(withName: "winplate.overview-cache")
         persistOverviewCache()
@@ -193,6 +240,24 @@ final class HealthStore: ObservableObject {
     }
 
     func refresh(reason: HealthRefreshReason) async {
+        if let refreshOperation {
+            await refreshOperation.task.value
+            return
+        }
+
+        let operationID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await performRefresh(reason: reason)
+        }
+        refreshOperation = (operationID, task)
+        await task.value
+        if refreshOperation?.id == operationID {
+            refreshOperation = nil
+        }
+    }
+
+    private func performRefresh(reason: HealthRefreshReason) async {
         guard isHealthDataAvailable else {
             message = "当前设备不支持 Apple 健康数据。"
             return
@@ -202,48 +267,48 @@ final class HealthStore: ObservableObject {
         if showsProgress {
             isLoading = true
         }
+        defer {
+            if showsProgress {
+                isLoading = false
+            }
+        }
         message = nil
 
-        var heartRate: HealthMetricValue?
-        var heartRateSamples: [HeartRateSample] = lastHeartRateSamples
-        var steps: HealthMetricValue?
-        var energy: HealthMetricValue?
-        var readError: String?
-        do {
-            let sampledHeartRate = try await recentHeartRateSamples()
-            heartRateSamples = sampledHeartRate.series
-            heartRate = sampledHeartRate.latest
-        } catch {
-            heartRate = (try? await latestHeartRateSample())
-                ?? HealthMetricValue(value: latestHeartRate, sampleAt: lastHeartRateSampleAt)
-            readError = error.localizedDescription
-        }
-        do {
-            steps = try await todayTotal(for: stepCountType, unit: .count())
-            energy = try await todayTotal(for: activeEnergyType, unit: .kilocalorie())
-        } catch {
-            steps = HealthMetricValue(value: stepCount, sampleAt: lastStepCountSampleAt)
-            energy = HealthMetricValue(value: activeEnergy, sampleAt: lastActiveEnergySampleAt)
-            readError = readError ?? error.localizedDescription
-        }
+        async let heartRateRead = readHeartRateMetrics()
+        async let stepRead = readTodayMetric(
+            for: stepCountType,
+            unit: .count(),
+            fallback: HealthMetricValue(value: stepCount, sampleAt: lastStepCountSampleAt)
+        )
+        async let energyRead = readTodayMetric(
+            for: activeEnergyType,
+            unit: .kilocalorie(),
+            fallback: HealthMetricValue(value: activeEnergy, sampleAt: lastActiveEnergySampleAt)
+        )
+        let (heartResult, stepResult, energyResult) = await (heartRateRead, stepRead, energyRead)
+        let heartRate = heartResult.metric
+        let heartRateSamples = heartResult.heartRateSamples
+        let steps = stepResult.metric
+        let energy = energyResult.metric
+        let readError = heartResult.error ?? stepResult.error ?? energyResult.error
 
-        latestHeartRate = heartRate?.value ?? latestHeartRate
-        stepCount = steps?.value ?? stepCount
-        activeEnergy = energy?.value ?? activeEnergy
-        lastHeartRateSampleAt = heartRate?.sampleAt ?? lastHeartRateSampleAt
+        latestHeartRate = heartRate.value ?? latestHeartRate
+        stepCount = steps.value ?? stepCount
+        activeEnergy = energy.value ?? activeEnergy
+        lastHeartRateSampleAt = heartRate.sampleAt ?? lastHeartRateSampleAt
         if !heartRateSamples.isEmpty {
             lastHeartRateSamples = heartRateSamples
         }
-        lastStepCountSampleAt = steps?.sampleAt ?? lastStepCountSampleAt
-        lastActiveEnergySampleAt = energy?.sampleAt ?? lastActiveEnergySampleAt
-        if heartRate?.value != nil || steps?.value != nil || energy?.value != nil {
+        lastStepCountSampleAt = steps.sampleAt ?? lastStepCountSampleAt
+        lastActiveEnergySampleAt = energy.sampleAt ?? lastActiveEnergySampleAt
+        if heartRate.value != nil || steps.value != nil || energy.value != nil {
             hasRequestedAccess = true
         }
 
         let sampleDates = [
-            heartRate?.sampleAt ?? lastHeartRateSampleAt,
-            steps?.sampleAt ?? lastStepCountSampleAt,
-            energy?.sampleAt ?? lastActiveEnergySampleAt
+            heartRate.sampleAt ?? lastHeartRateSampleAt,
+            steps.sampleAt ?? lastStepCountSampleAt,
+            energy.sampleAt ?? lastActiveEnergySampleAt
         ].compactMap { $0 }
         if let newest = sampleDates.max() {
             lastUpdated = newest
@@ -257,9 +322,6 @@ final class HealthStore: ObservableObject {
                 : "开启健康数据后，这里会显示本机的健康概览。"
         }
 
-        if showsProgress {
-            isLoading = false
-        }
         persistOverviewCache()
         sendCurrentSnapshot(
             reason: reason,
@@ -268,7 +330,6 @@ final class HealthStore: ObservableObject {
             steps: steps,
             energy: energy
         )
-        await pollDesktopStatus()
     }
 
     func saveMacPairingCode(_ value: String) {
@@ -294,8 +355,19 @@ final class HealthStore: ObservableObject {
         await pollDesktopStatus()
     }
 
+    private func startForegroundRefreshLoop() {
+        guard isAppActive, syncTask == nil else { return }
+        syncTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                await self?.refresh(reason: .foregroundTimer)
+            }
+        }
+    }
+
     private func startDesktopStatusPolling() {
-        guard desktopStatusTask == nil else { return }
+        guard isAppActive, !windowsEndpoint.isEmpty, desktopStatusTask == nil else { return }
         desktopStatusTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
@@ -372,27 +444,6 @@ final class HealthStore: ObservableObject {
         )
     }
 
-    private func observeLifecycleForPersistence() {
-        resignObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.willResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.persistForBackground()
-            }
-        }
-        backgroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.persistForBackground()
-            }
-        }
-    }
-
     private func currentPayload(
         reason: HealthRefreshReason = .manual,
         heartRate: HealthMetricValue? = nil,
@@ -441,6 +492,11 @@ final class HealthStore: ObservableObject {
             steps: steps,
             energy: energy
         )
+        let fingerprint = HealthSnapshotFingerprint(payload)
+        if reason == .foregroundTimer, fingerprint == lastSentSnapshotFingerprint {
+            return
+        }
+        lastSentSnapshotFingerprint = fingerprint
         peerLink.send(payload)
         guard !windowsEndpoint.isEmpty else {
             windowsSyncState = .notConfigured
@@ -455,10 +511,19 @@ final class HealthStore: ObservableObject {
     }
 
     private func sendWindowsSnapshot(_ payload: HealthSyncPayload, to endpoint: String) async {
-        await backgroundUploader.enqueue(payload, to: endpoint)
+        if !isAppActive || payload.reason == .healthKitObserver {
+            await backgroundUploader.enqueue(payload, to: endpoint)
+            refreshPendingCount()
+            return
+        }
+
+        guard await backgroundUploader.stage(payload) else {
+            refreshPendingCount()
+            return
+        }
         do {
             let desktopStatus = try await WindowsHealthLink.send(payload, to: endpoint)
-            backgroundUploader.markDelivered(payload.snapshotId)
+            await backgroundUploader.markDelivered(payload.snapshotId)
             windowsSyncState = .connected
             lastWindowsSyncSentAt = Date()
             syncError = nil
@@ -467,6 +532,7 @@ final class HealthStore: ObservableObject {
             }
         } catch {
             windowsSyncState = .error("Windows 同步失败：\(error.localizedDescription)")
+            backgroundUploader.resumePending(to: endpoint)
         }
         refreshPendingCount()
     }
@@ -487,6 +553,45 @@ final class HealthStore: ObservableObject {
             return HealthMetricValue(value: nil, sampleAt: nil)
         }
         return HealthMetricValue(value: value, sampleAt: sample.endDate)
+    }
+
+    private func readHeartRateMetrics() async -> HealthReadResult {
+        do {
+            let sampled = try await recentHeartRateSamples()
+            return HealthReadResult(
+                metric: sampled.latest,
+                heartRateSamples: sampled.series,
+                error: nil
+            )
+        } catch {
+            let fallback = (try? await latestHeartRateSample())
+                ?? HealthMetricValue(value: latestHeartRate, sampleAt: lastHeartRateSampleAt)
+            return HealthReadResult(
+                metric: fallback,
+                heartRateSamples: lastHeartRateSamples,
+                error: error.localizedDescription
+            )
+        }
+    }
+
+    private func readTodayMetric(
+        for type: HKQuantityType,
+        unit: HKUnit,
+        fallback: HealthMetricValue
+    ) async -> HealthReadResult {
+        do {
+            return HealthReadResult(
+                metric: try await todayTotal(for: type, unit: unit),
+                heartRateSamples: [],
+                error: nil
+            )
+        } catch {
+            return HealthReadResult(
+                metric: fallback,
+                heartRateSamples: [],
+                error: error.localizedDescription
+            )
+        }
     }
 
     private func recentHeartRateSamples() async throws -> (latest: HealthMetricValue, series: [HeartRateSample]) {

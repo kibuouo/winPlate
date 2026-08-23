@@ -7,12 +7,13 @@ from pathlib import Path
 
 
 TAXONOMY_FILENAME = "notification-taxonomy.v1.json"
+SOURCE_TAXONOMY_PATH = Path(__file__).resolve().parents[3] / "packages" / "shared-types" / TAXONOMY_FILENAME
 
 
 def _taxonomy_path() -> Path:
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "winplate_shared" / TAXONOMY_FILENAME
-    return Path(__file__).resolve().parents[3] / "packages" / "shared-types" / TAXONOMY_FILENAME
+    return SOURCE_TAXONOMY_PATH
 
 
 @lru_cache(maxsize=1)

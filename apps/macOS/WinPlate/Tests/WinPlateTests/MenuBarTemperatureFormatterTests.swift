@@ -194,6 +194,19 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertTrue(message.unread)
     }
 
+    func testMailPreviewBlocksRemoteContentAndKeepsInlineStyles() {
+        let document = MailHTMLPreview.makePreviewDocument(
+            from: "<html><head><style>.title{color:red}</style></head><body><img src=\"https://tracker.example/pixel\"><p class=\"title\">Hello</p></body></html>",
+            isDark: false
+        )
+
+        XCTAssertTrue(document.contains("Content-Security-Policy"))
+        XCTAssertTrue(document.contains("default-src 'none'"))
+        XCTAssertTrue(document.contains("img-src data: blob:"))
+        XCTAssertTrue(document.contains("form-action 'none'"))
+        XCTAssertTrue(document.contains(".title{color:red}"))
+    }
+
     func testDecodesMailMessageWithoutHTMLBody() throws {
         let payload = """
         {

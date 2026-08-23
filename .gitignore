@@ -12,6 +12,7 @@ dist/
 **/.build/
 **/.swiftpm/
 **/xcuserdata/
+apps/iOS/WinPlateHealth/build/
 docs/superpowers/plans/
 .env
 *.pem

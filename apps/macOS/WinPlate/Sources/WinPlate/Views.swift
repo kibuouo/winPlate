@@ -189,7 +189,7 @@ private struct MenuBarOverview: View {
                     detail: providerDetail(status: superGrok.status, resetText: superGrok.resetText),
                     value: superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
                     available: superGrok.isAvailable,
-                    accent: .orange
+                    accent: .green
                 )
                 MenuBarAccountRow(
                     name: "DeepSeek",
@@ -242,11 +242,11 @@ private struct UsageRings: View {
     var body: some View {
         ZStack {
             UsageRing(progress: codex, color: .blue, lineWidth: stroke)
-            UsageRing(progress: grok, color: .orange, lineWidth: stroke)
+            UsageRing(progress: grok, color: .green, lineWidth: stroke)
                 .padding(stroke + gap)
             VStack(alignment: .leading, spacing: 5) {
                 ringLegend(color: .blue, value: codex)
-                ringLegend(color: .orange, value: grok)
+                ringLegend(color: .green, value: grok)
             }
         }
         .padding(stroke / 2)
@@ -261,9 +261,6 @@ private struct UsageRings: View {
             Capsule()
                 .fill(color)
                 .frame(width: 7, height: 3)
-            Text("7d")
-                .font(.system(size: 9, weight: .bold, design: .rounded))
-                .foregroundStyle(color.opacity(0.9))
             Text(value.map { "\(Int($0.rounded()))%" } ?? "--%")
                 .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.primary)
@@ -927,7 +924,7 @@ private struct MailDetail: View {
 }
 
 /// Renders email HTML while preserving embedded `<style>` / inline CSS.
-private struct MailHTMLPreview: NSViewRepresentable {
+struct MailHTMLPreview: NSViewRepresentable {
     let html: String
     var isDark: Bool = false
 
@@ -968,11 +965,20 @@ private struct MailHTMLPreview: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            if navigationAction.navigationType == .other || navigationAction.navigationType == .reload {
+            let url = navigationAction.request.url
+            let isLocalDocumentNavigation = navigationAction.navigationType == .reload
+                || (navigationAction.navigationType == .other && url?.scheme == "about")
+            if isLocalDocumentNavigation {
                 decisionHandler(.allow)
                 return
             }
-            if let url = navigationAction.request.url {
+
+            let allowedExternalSchemes = Set(["http", "https", "mailto"])
+            if navigationAction.navigationType == .linkActivated,
+               let url,
+               let scheme = url.scheme?.lowercased(),
+               allowedExternalSchemes.contains(scheme)
+            {
                 NSWorkspace.shared.open(url)
             }
             decisionHandler(.cancel)
@@ -980,6 +986,9 @@ private struct MailHTMLPreview: NSViewRepresentable {
     }
 
     static func makePreviewDocument(from rawHTML: String, isDark: Bool) -> String {
+        let securityMeta = """
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; connect-src 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'">
+        """
         // Dark mode uses the same smart-invert approach as Windows so white HTML
         // emails become dark without rewriting message CSS.
         let baseCSS: String
@@ -1031,7 +1040,7 @@ private struct MailHTMLPreview: NSViewRepresentable {
         let trimmed = rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return """
-            <!doctype html><html><head><meta charset="utf-8"><style>\(baseCSS)</style></head><body></body></html>
+            <!doctype html><html><head><meta charset="utf-8">\(securityMeta)<style>\(baseCSS)</style></head><body></body></html>
             """
         }
 
@@ -1039,15 +1048,15 @@ private struct MailHTMLPreview: NSViewRepresentable {
         if lower.contains("<html") {
             var document = trimmed
             if let range = document.range(of: "</head>", options: [.caseInsensitive, .diacriticInsensitive]) {
-                document.insert(contentsOf: "<style>\(baseCSS)</style>", at: range.lowerBound)
+                document.insert(contentsOf: "\(securityMeta)<style>\(baseCSS)</style>", at: range.lowerBound)
             } else if let range = document.range(of: "<body", options: [.caseInsensitive, .diacriticInsensitive]) {
                 document.insert(
-                    contentsOf: "<head><meta charset=\"utf-8\"><style>\(baseCSS)</style></head>",
+                    contentsOf: "<head><meta charset=\"utf-8\">\(securityMeta)<style>\(baseCSS)</style></head>",
                     at: range.lowerBound
                 )
             } else {
                 document = """
-                <!doctype html><html><head><meta charset="utf-8"><style>\(baseCSS)</style></head><body>\(document)</body></html>
+                <!doctype html><html><head><meta charset="utf-8">\(securityMeta)<style>\(baseCSS)</style></head><body>\(document)</body></html>
                 """
             }
             if !document.lowercased().contains("charset") {
@@ -1065,6 +1074,7 @@ private struct MailHTMLPreview: NSViewRepresentable {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
+          \(securityMeta)
           <style>\(baseCSS)</style>
         </head>
         <body>\(trimmed)</body>

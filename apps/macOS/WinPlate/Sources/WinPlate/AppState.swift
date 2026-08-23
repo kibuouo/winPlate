@@ -72,6 +72,8 @@ final class AppState: ObservableObject {
     private let grokTokenClient = GrokTokenUsageClient()
     private let backend = LocalBackendSupervisor()
     private var refreshTask: Task<Void, Never>?
+    private var refreshLoopTask: Task<Void, Never>?
+    private var refreshRequestID = 0
     private var notificationStartupTask: Task<Void, Never>?
     private var weatherAlertsUpdatedAt: Date?
     private var hasStarted = false
@@ -246,9 +248,11 @@ final class AppState: ObservableObject {
         refreshWhenLocalAPIReady()
         refreshMailWhenLocalAPIReady()
         refreshNotificationsWhenLocalAPIReady()
-        refreshTask = Task { [weak self] in
+        refreshLoopTask?.cancel()
+        refreshLoopTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
                 self?.refresh()
                 self?.loadNotifications()
             }
@@ -285,8 +289,12 @@ final class AppState: ObservableObject {
     }
 
     func stop() {
+        refreshRequestID += 1
         refreshTask?.cancel()
         refreshTask = nil
+        refreshLoopTask?.cancel()
+        refreshLoopTask = nil
+        isRefreshing = false
         notificationStartupTask?.cancel()
         notificationStartupTask = nil
         healthPeerLink.stop()
@@ -295,6 +303,7 @@ final class AppState: ObservableObject {
 
     deinit {
         refreshTask?.cancel()
+        refreshLoopTask?.cancel()
         notificationStartupTask?.cancel()
         backend.stop()
     }
@@ -418,22 +427,22 @@ final class AppState: ObservableObject {
     }
 
     func refresh(force: Bool = false) {
-        // Force refresh can recover from a previous hung request that left the flag set.
-        if isRefreshing {
-            if force {
-                refreshTask?.cancel()
-            } else {
-                return
-            }
-        }
+        guard force || !isRefreshing else { return }
+        refreshTask?.cancel()
+        refreshRequestID += 1
+        let requestID = refreshRequestID
         isRefreshing = true
         lastError = nil
         let deepSeekConfiguration = settings.deepSeekConfiguration
 
-        refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            defer { Task { @MainActor in self.isRefreshing = false } }
+            defer {
+                if self.refreshRequestID == requestID {
+                    self.isRefreshing = false
+                    self.refreshTask = nil
+                }
+            }
 
             // Bound the whole usage fan-out so one slow source cannot pin the spinner forever.
             let collected: (
@@ -513,7 +522,7 @@ final class AppState: ObservableObject {
                 grokTokenUsageResult
             ) = collected
 
-            if Task.isCancelled { return }
+            guard !Task.isCancelled, refreshRequestID == requestID else { return }
 
             if let statusValue = status.value {
                 snapshot = statusValue

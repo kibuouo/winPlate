@@ -14,8 +14,8 @@ final class MenuBarController: NSObject {
 
     init(state: AppState) {
         self.state = state
-        // Codex 7d + SuperGrok remaining (dual mini progress rows).
-        statusItem = NSStatusBar.system.statusItem(withLength: 182)
+        // Codex + SuperGrok remaining (dual mini progress rows).
+        statusItem = NSStatusBar.system.statusItem(withLength: 166)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 408, height: 392),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -216,8 +216,8 @@ final class MenuBarController: NSObject {
 private final class MenuBarStatusSummary: NSView {
     private let temperatureLabel = MenuBarStatusSummary.label(size: 11, weight: .semibold, color: .labelColor)
     private let weatherIconView = NSImageView()
-    private let sevenDayRow = MenuBarQuotaRow(label: "7d", tint: .systemBlue)
-    private let superGrokRow = MenuBarQuotaRow(label: "7d", tint: .systemOrange)
+    private let sevenDayRow = MenuBarQuotaRow(tint: .systemBlue)
+    private let superGrokRow = MenuBarQuotaRow(tint: .systemGreen)
     private static var weatherIcons = [String: NSImage]()
 
     init(icon: NSImage?) {
@@ -312,22 +312,15 @@ private final class MenuBarStatusSummary: NSView {
 private final class MenuBarQuotaRow: NSView {
     private let percentageLabel = MenuBarStatusSummary.label(size: 9, weight: .semibold, color: .labelColor)
     private let resetLabel = MenuBarStatusSummary.label(size: 9, weight: .regular, color: .secondaryLabelColor)
-    private let progress = NSProgressIndicator()
+    private let progress: MenuBarQuotaBar
 
-    init(label: String, tint: NSColor = .secondaryLabelColor) {
+    init(tint: NSColor) {
+        progress = MenuBarQuotaBar(tint: tint)
         super.init(frame: .zero)
 
-        let labelView = MenuBarStatusSummary.label(size: 9, weight: .semibold, color: tint)
-        labelView.stringValue = label
-
-        progress.isIndeterminate = false
-        progress.minValue = 0
-        progress.maxValue = 100
-        progress.style = .bar
-        progress.controlSize = .mini
         progress.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [labelView, progress, percentageLabel, resetLabel])
+        let stack = NSStackView(views: [progress, percentageLabel, resetLabel])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 3
@@ -347,8 +340,39 @@ private final class MenuBarQuotaRow: NSView {
     required init?(coder: NSCoder) { nil }
 
     func update(percentage: Double?, resetText: String?) {
-        progress.doubleValue = max(0, min(percentage ?? 0, 100))
+        progress.progress = max(0, min(percentage ?? 0, 100))
         percentageLabel.stringValue = percentage.map { "\(Int($0.rounded()))%" } ?? "--%"
         resetLabel.stringValue = resetText ?? "--"
+    }
+}
+
+private final class MenuBarQuotaBar: NSView {
+    private let tint: NSColor
+    var progress: Double = 0 {
+        didSet { needsDisplay = true }
+    }
+
+    init(tint: NSColor) {
+        self.tint = tint
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 25, height: 4)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let track = NSBezierPath(roundedRect: bounds, xRadius: 2, yRadius: 2)
+        tint.withAlphaComponent(0.18).setFill()
+        track.fill()
+
+        let width = bounds.width * CGFloat(progress / 100)
+        guard width > 0 else { return }
+        let fillRect = NSRect(x: bounds.minX, y: bounds.minY, width: max(width, 3), height: bounds.height)
+        let fill = NSBezierPath(roundedRect: fillRect, xRadius: 2, yRadius: 2)
+        tint.setFill()
+        fill.fill()
     }
 }

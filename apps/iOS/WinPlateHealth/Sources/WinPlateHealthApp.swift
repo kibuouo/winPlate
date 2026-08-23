@@ -50,10 +50,9 @@ struct WinPlateHealthApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                healthStore.restoreIfNeeded()
-                healthStore.reconnectPeerIfNeeded()
+                healthStore.sceneDidBecomeActive()
             case .inactive, .background:
-                healthStore.persistForBackground()
+                healthStore.sceneWillResignActive()
             @unknown default:
                 break
             }

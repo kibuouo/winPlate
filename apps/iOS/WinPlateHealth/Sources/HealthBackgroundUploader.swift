@@ -24,6 +24,16 @@ final class HealthBackgroundUploader: NSObject {
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
     }
 
+    func stage(_ payload: HealthSyncPayload) async -> Bool {
+        do {
+            _ = try await outbox.enqueue(payload)
+            return true
+        } catch {
+            onFailure?("无法保存健康快照：\(error.localizedDescription)")
+            return false
+        }
+    }
+
     func enqueue(_ payload: HealthSyncPayload, to endpoint: String) async {
         do {
             let uploadURL = try await outbox.enqueue(payload)
@@ -48,11 +58,8 @@ final class HealthBackgroundUploader: NSObject {
         }
     }
 
-    func markDelivered(_ snapshotId: UUID) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await outbox.markDelivered(snapshotId: snapshotId)
-        }
+    func markDelivered(_ snapshotId: UUID) async {
+        try? await outbox.markDelivered(snapshotId: snapshotId)
     }
 
     func pendingCount() async -> Int {
@@ -124,8 +131,11 @@ final class HealthBackgroundUploader: NSObject {
             return
         }
 
-        markDelivered(snapshotId)
-        onSuccess?(snapshotId, Date())
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await markDelivered(snapshotId)
+            onSuccess?(snapshotId, Date())
+        }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

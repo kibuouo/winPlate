@@ -50,6 +50,18 @@ enum AppearanceTheme: String, CaseIterable, Identifiable {
 
 actor LocalAPIClient {
     private let baseURL = URL(string: "http://127.0.0.1:8765")!
+    private let session: URLSession
+
+    init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 15
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        session = URLSession(configuration: configuration)
+    }
 
     func status(force: Bool) async -> ResultValue<StatusSnapshot> {
         await request(path: "/api/status", force: force)
@@ -149,13 +161,14 @@ actor LocalAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 12
-        request.cachePolicy = force ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.httpShouldHandleCookies = false
         if let payload {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try? JSONEncoder().encode(payload)
         }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 let reason = (try? JSONDecoder().decode(APIError.self, from: data).detail) ?? "请求失败"
                 return ResultValue(value: nil, error: reason)
