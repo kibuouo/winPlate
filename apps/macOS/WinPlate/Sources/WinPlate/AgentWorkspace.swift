@@ -135,7 +135,7 @@ struct AgentUsageItem: Identifiable, Equatable {
         if let reset = seven?.resetText, !reset.isEmpty {
             chatSecondaryParts.append("重置 \(reset)")
         }
-        if let codexError, !codex.isAvailable {
+        if let codexError, (!codex.isAvailable || codex.isCached) {
             chatSecondaryParts.append(codexError)
         }
 
@@ -144,8 +144,8 @@ struct AgentUsageItem: Identifiable, Equatable {
         if let deepSeekUpdatedAt {
             deepSecondary += " · \(relativeTime(deepSeekUpdatedAt))"
         }
-        if let deepSeekError, !deepSeek.isAvailable {
-            deepSecondary = deepSeekError
+        if let deepSeekError, (!deepSeek.isAvailable || deepSeek.isCached) {
+            deepSecondary += " · \(deepSeekError)"
         }
 
         let grokRemaining = superGrok.remainingPct
@@ -154,8 +154,8 @@ struct AgentUsageItem: Identifiable, Equatable {
         if let reset = superGrok.resetText, !reset.isEmpty {
             grokSecondary += " · 重置 \(reset)"
         }
-        if let superGrokError, !superGrok.isAvailable {
-            grokSecondary = superGrokError
+        if let superGrokError, (!superGrok.isAvailable || superGrok.isCached) {
+            grokSecondary += " · \(superGrokError)"
         }
 
         return [
@@ -210,6 +210,7 @@ struct AgentUsageItem: Identifiable, Equatable {
     private static func statusKind(_ usage: UsageSnapshot) -> StatusKind {
         switch usage.status {
         case "Normal": return .ok
+        case "Cached": return .warn
         case "Unconfigured": return .muted
         default: return .warn
         }
@@ -218,6 +219,7 @@ struct AgentUsageItem: Identifiable, Equatable {
     private static func statusText(_ usage: UsageSnapshot) -> String {
         switch usage.status {
         case "Normal": return "正常"
+        case "Cached": return "缓存"
         case "Unconfigured": return "未配置"
         default: return menuBarStatus(usage.status)
         }

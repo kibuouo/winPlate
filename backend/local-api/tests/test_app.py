@@ -294,6 +294,62 @@ class DatabaseTests(unittest.TestCase):
             },
         )
 
+    def test_github_status_ttl_hit_stays_live(self):
+        original_cache = main._github_cache
+        try:
+            main._github_cache = (
+                100.0,
+                {
+                    "source": "github",
+                    "status": "Live",
+                    "username": "@octocat",
+                    "repos": 8,
+                },
+            )
+            with (
+                patch.object(main, "github_username", return_value="octocat"),
+                patch.object(main.time, "monotonic", return_value=101.0),
+                patch.object(main, "build_github_status") as build_github_status,
+            ):
+                result = main.github_status()
+            build_github_status.assert_not_called()
+            self.assertEqual(result["source"], "github")
+            self.assertEqual(result["status"], "Live")
+            self.assertEqual(result["repos"], 8)
+            self.assertNotIn("stateMessage", result)
+            self.assertEqual(main._github_cache[1]["status"], "Live")
+        finally:
+            main._github_cache = original_cache
+
+    def test_github_status_force_bypasses_ttl(self):
+        original_cache = main._github_cache
+        try:
+            main._github_cache = (
+                100.0,
+                {
+                    "source": "github",
+                    "status": "Live",
+                    "username": "@octocat",
+                    "repos": 8,
+                },
+            )
+            live = {
+                "source": "github",
+                "status": "Live",
+                "username": "@octocat",
+                "repos": 9,
+            }
+            with (
+                patch.object(main, "github_username", return_value="octocat"),
+                patch.object(main.time, "monotonic", return_value=101.0),
+                patch.object(main, "build_github_status", return_value=live),
+                patch.object(main, "persist_github_status"),
+            ):
+                result = main.github_status(force=True)
+            self.assertEqual(result["repos"], 9)
+        finally:
+            main._github_cache = original_cache
+
     def test_github_status_persists_and_restores_last_known_good_data(self):
         original_path = main.DATABASE_PATH
         original_cache = main._github_cache
@@ -431,6 +487,50 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["condition"], "请配置天气位置")
         build_weather_status.assert_not_called()
 
+    def test_weather_status_ttl_hit_stays_live(self):
+        original_cache = main._weather_cache
+        try:
+            main._weather_cache = {
+                "101020100": (
+                    100.0,
+                    {"source": "qweather", "location": "上海", "temperature": 30},
+                )
+            }
+            with (
+                patch.object(main.time, "monotonic", return_value=101.0),
+                patch.object(main, "build_weather_status") as build_weather_status,
+            ):
+                result = main.weather_status("101020100")
+            build_weather_status.assert_not_called()
+            self.assertEqual(result["source"], "qweather")
+            self.assertEqual(result["temperature"], 30)
+            self.assertEqual(main._weather_cache["101020100"][1]["source"], "qweather")
+        finally:
+            main._weather_cache = original_cache
+
+    def test_weather_status_force_bypasses_ttl(self):
+        original_cache = main._weather_cache
+        try:
+            main._weather_cache = {
+                "101020100": (
+                    100.0,
+                    {"source": "qweather", "location": "上海", "temperature": 30},
+                )
+            }
+            with (
+                patch.object(main.time, "monotonic", return_value=101.0),
+                patch.object(
+                    main,
+                    "build_weather_status",
+                    return_value={"source": "qweather", "location": "上海", "temperature": 31},
+                ) as build_weather_status,
+            ):
+                result = main.weather_status("101020100", force=True)
+            build_weather_status.assert_called_once()
+            self.assertEqual(result["temperature"], 31)
+        finally:
+            main._weather_cache = original_cache
+
     def test_status_does_not_reuse_stale_location_when_fallback_is_empty(self):
         original_path = main.DATABASE_PATH
         with tempfile.TemporaryDirectory() as directory:
@@ -469,6 +569,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["weather"], {"source": "qweather", "location": "武汉"})
         weather_status.assert_called_once_with(
             "114.31,30.59",
+            force=False,
             display_location="武汉",
             location_source="system",
             latitude=30.5928,
@@ -538,6 +639,7 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["weather"]["location"], "广州")
         weather_status.assert_called_once_with(
             "101280101",
+            force=False,
             display_location="广州, 广东省",
             location_source="manual",
             latitude=23.13,
@@ -1166,7 +1268,8 @@ class DatabaseTests(unittest.TestCase):
                 result = main.mail_outline()
         main.DATABASE_PATH = original_path
         read_mail_outline.assert_not_called()
-        self.assertEqual(result["availability"], "cached")
+        self.assertEqual(result["availability"], "live")
+        self.assertEqual(result["source"], "qq-mail")
         self.assertEqual(result["items"][0]["subject"], "Cached")
 
     def test_read_mail_outline_surfaces_imap_search_failure(self):

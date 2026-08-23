@@ -526,7 +526,7 @@ final class AppState: ObservableObject {
 
             if let statusValue = status.value {
                 snapshot = statusValue
-                if statusValue.weather.isAvailable { weatherUpdatedAt = Date() }
+                if statusValue.weather.isAvailable && !statusValue.weather.isCached { weatherUpdatedAt = Date() }
                 weatherError = statusValue.weather.error
                 if let github = statusValue.github {
                     if selectedGitHubMonthKey == nil
@@ -562,12 +562,14 @@ final class AppState: ObservableObject {
             if let codexValue = codexUsage.value {
                 if codexValue.isAvailable {
                     codex = codexValue
-                    codexUpdatedAt = Date()
+                    if !codexValue.isCached { codexUpdatedAt = Date() }
                 } else {
                     codex = codexValue.status == "Unconfigured"
                         ? codexValue
-                        : codex.preservingValues(status: "Unavailable")
+                        : (codex.isAvailable ? codex.markingCached() : codexValue)
                 }
+            } else if codex.isAvailable {
+                codex = codex.markingCached()
             }
             codexError = codexUsage.error
             if let tokenUsage = codexTokenUsageResult.value {
@@ -576,23 +578,27 @@ final class AppState: ObservableObject {
             if let deepSeekValue = deepSeekUsage.value {
                 if deepSeekValue.isAvailable {
                     deepSeek = deepSeekValue
-                    deepSeekUpdatedAt = Date()
+                    if !deepSeekValue.isCached { deepSeekUpdatedAt = Date() }
                 } else {
                     deepSeek = deepSeekValue.status == "Unconfigured"
                         ? deepSeekValue
-                        : deepSeek.preservingValues(status: "Unavailable")
+                        : (deepSeek.isAvailable ? deepSeek.markingCached() : deepSeekValue)
                 }
+            } else if deepSeek.isAvailable {
+                deepSeek = deepSeek.markingCached()
             }
             deepSeekError = deepSeekUsage.error
             if let grokValue = grokUsage.value {
                 if grokValue.isAvailable {
                     superGrok = grokValue
-                    superGrokUpdatedAt = Date()
+                    if !grokValue.isCached { superGrokUpdatedAt = Date() }
                 } else {
                     superGrok = grokValue.status == "Unconfigured"
                         ? grokValue
-                        : superGrok.preservingValues(status: "Unavailable")
+                        : (superGrok.isAvailable ? superGrok.markingCached() : grokValue)
                 }
+            } else if superGrok.isAvailable {
+                superGrok = superGrok.markingCached()
             }
             superGrokError = grokUsage.error
             if let grokTokenUsage = grokTokenUsageResult.value {
@@ -862,7 +868,7 @@ final class AppState: ObservableObject {
                 let result = await self.api.status(force: true)
                 if let status = result.value {
                     self.snapshot = status
-                    if status.weather.isAvailable { self.weatherUpdatedAt = Date() }
+                    if status.weather.isAvailable && !status.weather.isCached { self.weatherUpdatedAt = Date() }
                     self.weatherError = status.weather.error
                     self.lastError = status.weather.error ?? result.error
                     if status.weather.isAvailable {
@@ -1099,7 +1105,7 @@ final class AppState: ObservableObject {
             let result = await api.selectWeatherLocation(location)
             if let weather = result.value {
                 snapshot = StatusSnapshot(weather: weather, github: snapshot.github)
-                if weather.isAvailable { weatherUpdatedAt = Date() }
+                if weather.isAvailable && !weather.isCached { weatherUpdatedAt = Date() }
                 weatherError = nil
                 weatherAlerts = .empty
                 weatherAlertError = nil

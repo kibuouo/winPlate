@@ -64,7 +64,7 @@ actor LocalAPIClient {
     }
 
     func status(force: Bool) async -> ResultValue<StatusSnapshot> {
-        await request(path: "/api/status", force: force)
+        await request(path: force ? "/api/status?force=true" : "/api/status")
     }
 
     func refreshGitHub() async -> ResultValue<GitHubSnapshot> {
@@ -152,7 +152,7 @@ actor LocalAPIClient {
         await request(path: "/api/weather/alerts")
     }
 
-    private func request<T: Decodable>(path: String, method: String = "GET", force: Bool = false, payload: AnyEncodable? = nil) async -> ResultValue<T> {
+    private func request<T: Decodable>(path: String, method: String = "GET", payload: AnyEncodable? = nil) async -> ResultValue<T> {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             return ResultValue(value: nil, error: "本地服务地址无效")
         }
@@ -191,7 +191,10 @@ actor DeepSeekUsageClient {
     private var cached: (UsageSnapshot, Date)?
 
     func read(configuration: DeepSeekConfiguration, force: Bool) async -> ResultValue<UsageSnapshot> {
-        if !force, let cached, Date().timeIntervalSince(cached.1) < 300 { return .init(value: cached.0, error: nil) }
+        if !force, let cached, cached.0.isAvailable, Date().timeIntervalSince(cached.1) < 300 {
+            // In-TTL reuse is still live. Cached is only for failed-fetch fallback.
+            return .init(value: cached.0, error: nil)
+        }
         guard let key = configuration.apiKey, !key.isEmpty else { return .init(value: .unconfigured, error: nil) }
         guard let url = URL(string: configuration.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/user/balance") else {
             return .init(value: .unavailable(source: "deepseek-api"), error: "DeepSeek 地址无效")
@@ -203,7 +206,7 @@ actor DeepSeekUsageClient {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                return .init(value: .unavailable(source: "deepseek-api"), error: "DeepSeek 响应无效")
+                return cachedFallback(error: "DeepSeek 响应无效")
             }
             guard http.statusCode == 200 else {
                 let message: String
@@ -212,17 +215,27 @@ actor DeepSeekUsageClient {
                 case 429: message = "DeepSeek 请求过于频繁，请稍后重试"
                 default: message = "DeepSeek 返回 HTTP \(http.statusCode)"
                 }
-                return .init(value: .unavailable(source: "deepseek-api"), error: message)
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    return .init(value: .unavailable(source: "deepseek-api"), error: message)
+                }
+                return cachedFallback(error: message)
             }
             let payload = try JSONDecoder().decode(DeepSeekBalanceResponse.self, from: data)
             let usage = UsageSnapshot(source: "deepseek-api", status: payload.isAvailable && !payload.balances.isEmpty ? "Normal" : "Unavailable", remainingPct: nil, resetText: nil, windows: nil, balances: payload.balances)
-            cached = (usage, Date())
+            if usage.status == "Normal" { cached = (usage, Date()) }
             return .init(value: usage, error: nil)
         } catch let error as URLError {
-            return .init(value: .unavailable(source: "deepseek-api"), error: "DeepSeek 网络错误：\(error.localizedDescription)")
+            return cachedFallback(error: "DeepSeek 网络错误：\(error.localizedDescription)")
         } catch {
-            return .init(value: .unavailable(source: "deepseek-api"), error: "DeepSeek 响应无法解析")
+            return cachedFallback(error: "DeepSeek 响应无法解析")
         }
+    }
+
+    private func cachedFallback(error: String) -> ResultValue<UsageSnapshot> {
+        if let cached, cached.0.isAvailable {
+            return .init(value: cached.0.markingCached(), error: error)
+        }
+        return .init(value: .unavailable(source: "deepseek-api"), error: error)
     }
 }
 
@@ -242,10 +255,19 @@ actor CodexUsageClient {
     private var cached: (UsageSnapshot, Date)?
 
     func read(force: Bool) async -> ResultValue<UsageSnapshot> {
-        if !force, let cached, Date().timeIntervalSince(cached.1) < 900 { return .init(value: cached.0, error: nil) }
+        if !force, let cached, Date().timeIntervalSince(cached.1) < 900 {
+            // In-TTL reuse is still live. Cached is only for failed-fetch fallback.
+            return .init(value: cached.0, error: nil)
+        }
         let usage = await ProcessCodexReader.read()
-        if usage.status == "Normal" { cached = (usage, Date()) }
-        return .init(value: usage, error: usage.status == "Normal" ? nil : "Codex 用量不可用")
+        if usage.status == "Normal" {
+            cached = (usage, Date())
+            return .init(value: usage, error: nil)
+        }
+        if let cached, cached.0.isAvailable {
+            return .init(value: cached.0.markingCached(), error: "Codex 用量暂时不可用")
+        }
+        return .init(value: usage, error: "Codex 用量不可用")
     }
 }
 
@@ -706,6 +728,7 @@ actor GrokUsageClient {
 
     func read(force: Bool) async -> ResultValue<UsageSnapshot> {
         if !force, let cached, Date().timeIntervalSince(cached.1) < 900 {
+            // In-TTL reuse is still live. Cached is only for failed-fetch fallback.
             return .init(value: cached.0, error: nil)
         }
         let usage = await ProcessGrokUsageReader.read()
@@ -718,7 +741,7 @@ actor GrokUsageClient {
         }
         // Preserve last good snapshot when a forced refresh times out / fails.
         if let cached, cached.0.isAvailable {
-            return .init(value: cached.0, error: "SuperGrok 用量暂时不可用")
+            return .init(value: cached.0.markingCached(), error: "SuperGrok 用量暂时不可用")
         }
         return .init(value: usage, error: "SuperGrok 用量不可用")
     }

@@ -330,7 +330,7 @@ struct OverviewWorkspace: View {
 
     private var footerDetail: String {
         var parts: [String] = []
-        parts.append(codexOK ? "Codex 可用" : "Codex 离线")
+        parts.append(state.codex.isCached ? "Codex 缓存" : (codexOK ? "Codex 正常" : "Codex 离线"))
         parts.append(weatherOK ? "天气正常" : "天气待配置")
         parts.append(githubOK ? "GitHub 已同步" : "GitHub 待同步")
         return parts.joined(separator: " · ")
@@ -340,23 +340,26 @@ struct OverviewWorkspace: View {
         guard let github = state.snapshot.github, github.isAvailable else {
             return .muted("未同步")
         }
-        return .ok(github.status == "Live" ? "Live" : "正常")
+        return github.status == "Cached" ? .warn("缓存") : .ok("正常")
     }
 
     private var codexStatus: OverviewCardStatus {
-        state.codex.isAvailable ? .ok("正常") : .muted(menuBarStatus(state.codex.status))
+        if state.codex.isCached { return .warn("缓存") }
+        return state.codex.isAvailable ? .ok("正常") : .muted(menuBarStatus(state.codex.status))
     }
 
     private var deepSeekStatus: OverviewCardStatus {
         switch state.deepSeek.status {
         case "Normal": return .ok("正常")
+        case "Cached": return .warn("缓存")
         case "Unconfigured": return .muted("未配置")
         default: return .warn(menuBarStatus(state.deepSeek.status))
         }
     }
 
     private var weatherStatus: OverviewCardStatus {
-        weatherOK ? .ok("服务正常") : .muted("不可用")
+        if state.snapshot.weather.isCached { return .warn("缓存") }
+        return weatherOK ? .ok("正常") : .muted("不可用")
     }
 
     private var healthStatus: OverviewCardStatus {
@@ -386,6 +389,7 @@ struct OverviewWorkspace: View {
 
     private var mailStatus: OverviewCardStatus {
         if state.mail.availability == "live" || state.isMailConnected { return .ok("已连接") }
+        if state.mail.availability == "cached" { return .warn("缓存") }
         if state.mail.availability == "unconfigured" { return .muted("未配置") }
         return .muted(state.mail.error == nil ? "待机" : "异常")
     }
@@ -393,6 +397,7 @@ struct OverviewWorkspace: View {
     private var mailAvailabilityLabel: String {
         switch state.mail.availability {
         case "live": return "在线"
+        case "cached": return "缓存"
         case "unconfigured": return "未配置"
         default: return state.isMailConnected ? "已测" : "离线"
         }

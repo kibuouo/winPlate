@@ -100,9 +100,9 @@ private struct WeatherDashboard: View {
                 Spacer(minLength: 10)
 
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(weather.isAvailable ? "QWeather 实时数据" : "等待天气数据")
+                    Text(weather.isCached ? "QWeather 缓存数据" : (weather.isAvailable ? "QWeather 正常" : "等待天气数据"))
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(weather.isCached ? Color.orange : Color.secondary)
                     Text(updatedAt.map { "更新于 \($0.formatted(date: .omitted, time: .shortened))" } ?? "尚无成功更新")
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)

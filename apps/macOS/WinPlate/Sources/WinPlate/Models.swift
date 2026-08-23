@@ -71,7 +71,12 @@ struct WeatherSnapshot: Decodable {
         location: "--",
         icon: nil
     )
-    var isAvailable: Bool { source == "qweather" && temperature?.isFinite == true }
+    /// True only for last-known-good fallback after a failed live fetch.
+    /// In-TTL reuse of a successful snapshot keeps `source == "qweather"`.
+    var isCached: Bool { source.localizedCaseInsensitiveContains("cache") }
+    var isAvailable: Bool {
+        (source == "qweather" || isCached) && temperature?.isFinite == true
+    }
 
     init(
         source: String,
@@ -291,7 +296,12 @@ struct UsageSnapshot: Decodable {
         UsageSnapshot(source: source, status: "Unavailable", remainingPct: nil, resetText: nil, windows: nil, balances: [])
     }
 
-    var isAvailable: Bool { status == "Normal" }
+    /// True only for last-known-good fallback after a failed live fetch.
+    /// In-TTL reuse of a successful snapshot stays `Normal`.
+    var isCached: Bool {
+        status == "Cached" || source.localizedCaseInsensitiveContains("cache")
+    }
+    var isAvailable: Bool { status == "Normal" || isCached }
     /// Session-style window (~5h). Nil when the plan only exposes a weekly limit.
     var fiveHour: UsageWindow? { windows?.fiveHour }
     /// Weekly window (~7d). Falls back to top-level remaining when only one quota exists.
@@ -308,6 +318,18 @@ struct UsageSnapshot: Decodable {
         UsageSnapshot(
             source: source,
             status: status,
+            remainingPct: remainingPct,
+            resetText: resetText,
+            windows: windows,
+            balances: balances
+        )
+    }
+
+    /// Marks a previously live snapshot as degraded fallback, not TTL reuse.
+    func markingCached() -> UsageSnapshot {
+        UsageSnapshot(
+            source: source.localizedCaseInsensitiveContains("cache") ? source : "\(source)-cache",
+            status: "Cached",
             remainingPct: remainingPct,
             resetText: resetText,
             windows: windows,

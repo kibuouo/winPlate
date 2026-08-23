@@ -182,6 +182,7 @@ private struct MenuBarOverview: View {
                     detail: providerDetail(status: codex.status, resetText: codex.sevenDay?.resetText),
                     value: codex.sevenDay?.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
                     available: codex.isAvailable,
+                    cached: codex.isCached,
                     accent: .blue
                 )
                 MenuBarAccountRow(
@@ -189,6 +190,7 @@ private struct MenuBarOverview: View {
                     detail: providerDetail(status: superGrok.status, resetText: superGrok.resetText),
                     value: superGrok.remainingPct.map { "\(Int($0.rounded()))%" } ?? "--%",
                     available: superGrok.isAvailable,
+                    cached: superGrok.isCached,
                     accent: .green
                 )
                 MenuBarAccountRow(
@@ -196,6 +198,7 @@ private struct MenuBarOverview: View {
                     detail: menuBarStatus(deepSeek.status),
                     value: deepSeek.cnyBalance.map { "¥\($0)" } ?? "¥--",
                     available: deepSeek.isAvailable,
+                    cached: deepSeek.isCached,
                     accent: .purple
                 )
                 if deepSeek.status == "Unconfigured" {
@@ -207,6 +210,10 @@ private struct MenuBarOverview: View {
                     .font(.system(size: 11, weight: .semibold))
                     .padding(.top, 1)
                 }
+                Text("正常：当前有效数据 · 缓存：请求失败后的回退值")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -302,6 +309,7 @@ private struct MenuBarAccountRow: View {
     let detail: String
     let value: String
     let available: Bool
+    let cached: Bool
     var accent: Color = .secondary
 
     var body: some View {
@@ -310,7 +318,7 @@ private struct MenuBarAccountRow: View {
         } label: {
             HStack(spacing: 7) {
                 Circle()
-                    .fill(available ? accent : Color.secondary)
+                    .fill(cached ? Color.orange : (available ? accent : Color.secondary))
                     .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(name).font(.system(size: 13, weight: .semibold))
@@ -350,6 +358,11 @@ private struct MenuBarWeatherOverview: View {
                         Text(weather.condition)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                        Text(weather.isCached ? "缓存" : (weather.isAvailable ? "正常" : "不可用"))
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(
+                                weather.isCached ? Color.orange : Color(nsColor: .tertiaryLabelColor)
+                            )
                     }
                 }
                 Spacer()
@@ -517,11 +530,20 @@ private struct ForecastCell: View {
 
 func menuBarStatus(_ status: String) -> String {
     switch status {
-    case "Normal": return "可用"
+    case "Normal": return "正常"
+    case "Cached": return "缓存"
     case "Unconfigured": return "未配置"
     case "Insufficient": return "余额不足"
     default: return "不可用"
     }
+}
+
+func statusBarStatusSuffix(_ status: String) -> String {
+    status == "Normal" ? "" : "（\(menuBarStatus(status))）"
+}
+
+func statusBarStatusSpokenSuffix(_ status: String) -> String {
+    status == "Normal" ? "" : "，\(menuBarStatus(status))"
 }
 
 private struct WeatherSection: View {

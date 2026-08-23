@@ -710,6 +710,9 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.id), ["chatgpt", "deepseek", "supergrok"])
         XCTAssertEqual(items[0].name, "ChatGPT")
+        XCTAssertEqual(items[0].statusText, "正常")
+        XCTAssertEqual(items[1].statusText, "正常")
+        XCTAssertEqual(items[2].statusText, "正常")
         XCTAssertEqual(items[0].primary, "49%")
         XCTAssertEqual(items[0].polarity, .remaining)
         XCTAssertTrue(items[0].secondary.contains("7d 剩余"))
@@ -723,6 +726,87 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertFalse(items[2].secondary.contains("账期"))
         XCTAssertTrue(items[2].tokenUsage.isAvailable)
         XCTAssertEqual(items[2].tokenUsage.totalTokens, 42)
+    }
+
+    func testUsageSnapshotMarksRetainedValuesAsCache() {
+        let live = UsageSnapshot(
+            source: "grok-cli",
+            status: "Normal",
+            remainingPct: 41,
+            resetText: "1d 2h",
+            windows: nil,
+            balances: []
+        )
+
+        let cached = live.markingCached()
+
+        XCTAssertEqual(cached.status, "Cached")
+        XCTAssertEqual(cached.source, "grok-cli-cache")
+        XCTAssertEqual(cached.remainingPct, 41)
+        XCTAssertEqual(cached.resetText, "1d 2h")
+        XCTAssertTrue(cached.isCached)
+        XCTAssertTrue(cached.isAvailable)
+        XCTAssertEqual(menuBarStatus(live.status), "正常")
+        XCTAssertEqual(menuBarStatus(cached.status), "缓存")
+        XCTAssertEqual(statusBarStatusSuffix(live.status), "")
+        XCTAssertEqual(statusBarStatusSuffix(cached.status), "（缓存）")
+        XCTAssertEqual(statusBarStatusSpokenSuffix(live.status), "")
+        XCTAssertEqual(statusBarStatusSpokenSuffix(cached.status), "，缓存")
+        XCTAssertFalse(live.isCached)
+        XCTAssertTrue(live.isAvailable)
+    }
+
+    func testLiveWeatherIsNotTreatedAsCache() {
+        let weather = WeatherSnapshot(
+            source: "qweather",
+            temperature: 30,
+            condition: "晴",
+            location: "上海",
+            icon: "100"
+        )
+
+        XCTAssertTrue(weather.isAvailable)
+        XCTAssertFalse(weather.isCached)
+    }
+
+    func testWeatherCacheRemainsDisplayableButIsExplicitlyMarked() {
+        let weather = WeatherSnapshot(
+            source: "qweather-cache",
+            temperature: 30,
+            condition: "晴",
+            location: "上海",
+            icon: "100"
+        )
+
+        XCTAssertTrue(weather.isAvailable)
+        XCTAssertTrue(weather.isCached)
+    }
+
+    func testAgentUsageItemsExposeCachedGrokQuota() {
+        let cachedGrok = UsageSnapshot(
+            source: "grok-cli-cache",
+            status: "Cached",
+            remainingPct: 41,
+            resetText: "1d 2h",
+            windows: nil,
+            balances: []
+        )
+        let items = AgentUsageItem.build(
+            codex: .unavailable(source: "codex-app-server"),
+            codexError: nil,
+            deepSeek: .unavailable(source: "deepseek-api"),
+            deepSeekError: nil,
+            deepSeekUpdatedAt: nil,
+            superGrok: cachedGrok,
+            superGrokError: "SuperGrok 用量暂时不可用",
+            relativeTime: { _ in "刚刚" }
+        )
+        let grok = items.first { $0.id == "supergrok" }
+
+        XCTAssertEqual(grok?.statusKind, .warn)
+        XCTAssertEqual(grok?.statusText, "缓存")
+        XCTAssertEqual(grok?.primary, "41%")
+        XCTAssertTrue(grok?.secondary.contains("暂时不可用") == true)
     }
 
     func testCodexRateLimitsParserMapsPrimaryWeeklyWindowToSevenDay() {

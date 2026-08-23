@@ -14,8 +14,8 @@ final class MenuBarController: NSObject {
 
     init(state: AppState) {
         self.state = state
-        // Codex + SuperGrok remaining (dual mini progress rows).
-        statusItem = NSStatusBar.system.statusItem(withLength: 166)
+        // Weather + heart rate + Codex/SuperGrok remaining.
+        statusItem = NSStatusBar.system.statusItem(withLength: 218)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 408, height: 392),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -30,13 +30,7 @@ final class MenuBarController: NSObject {
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold, scale: .small)
-        let image = NSImage(
-            systemSymbolName: "square.grid.2x2.fill",
-            accessibilityDescription: "WinPlate"
-        )?.withSymbolConfiguration(configuration)
-        image?.isTemplate = true
-        let summary = MenuBarStatusSummary(icon: image)
+        let summary = MenuBarStatusSummary()
         summary.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(summary)
         NSLayoutConstraint.activate([
@@ -69,10 +63,20 @@ final class MenuBarController: NSObject {
     }
 
     private func observeState() {
-        state.$snapshot
-            .combineLatest(state.$codex, state.$superGrok)
-            .sink { [weak self] snapshot, codex, superGrok in
-                self?.updateStatusItem(weather: snapshot.weather, codex: codex, superGrok: superGrok)
+        let serviceSummary = state.$snapshot.combineLatest(state.$codex, state.$superGrok)
+        let healthSummary = state.$healthSnapshot.combineLatest(state.$heartRateHistory)
+        serviceSummary
+            .combineLatest(healthSummary)
+            .sink { [weak self] services, health in
+                let (snapshot, codex, superGrok) = services
+                let (healthSnapshot, heartRateHistory) = health
+                let heartRate = healthSnapshot.heartRate ?? heartRateHistory.last?.bpm
+                self?.updateStatusItem(
+                    weather: snapshot.weather,
+                    codex: codex,
+                    superGrok: superGrok,
+                    heartRate: heartRate
+                )
             }
             .store(in: &cancellables)
 
@@ -91,7 +95,12 @@ final class MenuBarController: NSObject {
             .store(in: &cancellables)
     }
 
-    private func updateStatusItem(weather: WeatherSnapshot, codex: UsageSnapshot, superGrok: UsageSnapshot) {
+    private func updateStatusItem(
+        weather: WeatherSnapshot,
+        codex: UsageSnapshot,
+        superGrok: UsageSnapshot,
+        heartRate: Double?
+    ) {
         guard let button = statusItem.button else { return }
         let temperature = MenuBarTemperatureFormatter.title(
             for: weather.isAvailable ? weather.temperature : nil
@@ -101,13 +110,15 @@ final class MenuBarController: NSObject {
         statusSummary?.update(
             temperature: temperature,
             weatherIcon: weather.isAvailable ? weather.icon : nil,
-            sevenDay: codex.sevenDay,
-            superGrok: superGrok
+            codex: codex,
+            superGrok: superGrok,
+            heartRate: heartRate
         )
+        let heartRateValue = heartRate.map { "\(Int($0.rounded())) BPM" } ?? "-- BPM"
         button.toolTip =
-            "天气 \(temperature) · Codex 7d \(sevenDayQuota) · SuperGrok \(grokQuota)"
+            "天气 \(temperature) · 心率 \(heartRateValue) · Codex 7d \(sevenDayQuota)\(statusBarStatusSuffix(codex.status)) · SuperGrok \(grokQuota)\(statusBarStatusSuffix(superGrok.status))"
         button.setAccessibilityLabel(
-            "WinPlate，天气 \(temperature)，Codex 7 天剩余 \(sevenDayQuota)，SuperGrok 剩余 \(grokQuota)"
+            "WinPlate，天气 \(temperature)，心率 \(heartRateValue)，Codex 7 天剩余 \(sevenDayQuota)\(statusBarStatusSpokenSuffix(codex.status))，SuperGrok 剩余 \(grokQuota)\(statusBarStatusSpokenSuffix(superGrok.status))"
         )
     }
 
@@ -216,17 +227,13 @@ final class MenuBarController: NSObject {
 private final class MenuBarStatusSummary: NSView {
     private let temperatureLabel = MenuBarStatusSummary.label(size: 11, weight: .semibold, color: .labelColor)
     private let weatherIconView = NSImageView()
+    private let heartRateLabel = MenuBarStatusSummary.label(size: 10, weight: .semibold, color: .labelColor)
     private let sevenDayRow = MenuBarQuotaRow(tint: .systemBlue)
     private let superGrokRow = MenuBarQuotaRow(tint: .systemGreen)
     private static var weatherIcons = [String: NSImage]()
 
-    init(icon: NSImage?) {
+    init() {
         super.init(frame: .zero)
-
-        let iconView = NSImageView(image: icon ?? NSImage())
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .labelColor
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         weatherIconView.translatesAutoresizingMaskIntoConstraints = false
         weatherIconView.contentTintColor = .labelColor
@@ -238,11 +245,23 @@ private final class MenuBarStatusSummary: NSView {
         usageStack.alignment = .leading
         usageStack.spacing = 0
 
-        let divider = NSBox()
-        divider.boxType = .separator
-        divider.translatesAutoresizingMaskIntoConstraints = false
+        let heartIcon = NSImageView(
+            image: NSImage(
+                systemSymbolName: "heart.fill",
+                accessibilityDescription: "心率"
+            ) ?? NSImage()
+        )
+        heartIcon.translatesAutoresizingMaskIntoConstraints = false
+        heartIcon.contentTintColor = .systemPink
+        heartIcon.setAccessibilityElement(false)
 
-        let stack = NSStackView(views: [iconView, weatherIconView, temperatureLabel, divider, usageStack])
+        let usageDivider = NSBox()
+        usageDivider.boxType = .separator
+        usageDivider.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(
+            views: [weatherIconView, temperatureLabel, heartIcon, heartRateLabel, usageDivider, usageStack]
+        )
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 5
@@ -250,12 +269,12 @@ private final class MenuBarStatusSummary: NSView {
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: 15),
-            iconView.heightAnchor.constraint(equalToConstant: 15),
             weatherIconView.widthAnchor.constraint(equalToConstant: 13),
             weatherIconView.heightAnchor.constraint(equalToConstant: 13),
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 15),
+            heartIcon.widthAnchor.constraint(equalToConstant: 11),
+            heartIcon.heightAnchor.constraint(equalToConstant: 11),
+            usageDivider.widthAnchor.constraint(equalToConstant: 1),
+            usageDivider.heightAnchor.constraint(equalToConstant: 15),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
@@ -270,13 +289,23 @@ private final class MenuBarStatusSummary: NSView {
     func update(
         temperature: String,
         weatherIcon: String?,
-        sevenDay: UsageWindow?,
-        superGrok: UsageSnapshot
+        codex: UsageSnapshot,
+        superGrok: UsageSnapshot,
+        heartRate: Double?
     ) {
         temperatureLabel.stringValue = temperature
         weatherIconView.image = Self.weatherIcon(for: weatherIcon)
-        sevenDayRow.update(percentage: sevenDay?.remainingPct, resetText: sevenDay?.resetText)
-        superGrokRow.update(percentage: superGrok.remainingPct, resetText: superGrok.resetText)
+        heartRateLabel.stringValue = heartRate.map { "\(Int($0.rounded()))" } ?? "--"
+        sevenDayRow.update(
+            percentage: codex.sevenDay?.remainingPct,
+            resetText: codex.sevenDay?.resetText,
+            status: codex.status
+        )
+        superGrokRow.update(
+            percentage: superGrok.remainingPct,
+            resetText: superGrok.resetText,
+            status: superGrok.status
+        )
     }
 
     private static func weatherIcon(for code: String?) -> NSImage? {
@@ -312,6 +341,7 @@ private final class MenuBarStatusSummary: NSView {
 private final class MenuBarQuotaRow: NSView {
     private let percentageLabel = MenuBarStatusSummary.label(size: 9, weight: .semibold, color: .labelColor)
     private let resetLabel = MenuBarStatusSummary.label(size: 9, weight: .regular, color: .secondaryLabelColor)
+    private let sourceLabel = MenuBarStatusSummary.label(size: 8, weight: .semibold, color: .secondaryLabelColor)
     private let progress: MenuBarQuotaBar
 
     init(tint: NSColor) {
@@ -320,7 +350,7 @@ private final class MenuBarQuotaRow: NSView {
 
         progress.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [progress, percentageLabel, resetLabel])
+        let stack = NSStackView(views: [progress, percentageLabel, resetLabel, sourceLabel])
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 3
@@ -339,10 +369,17 @@ private final class MenuBarQuotaRow: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    func update(percentage: Double?, resetText: String?) {
+    func update(percentage: Double?, resetText: String?, status: String) {
         progress.progress = max(0, min(percentage ?? 0, 100))
         percentageLabel.stringValue = percentage.map { "\(Int($0.rounded()))%" } ?? "--%"
         resetLabel.stringValue = resetText ?? "--"
+        let showStatus = status != "Normal"
+        sourceLabel.stringValue = showStatus ? menuBarStatus(status) : ""
+        sourceLabel.isHidden = !showStatus
+        switch status {
+        case "Cached": sourceLabel.textColor = .systemOrange
+        default: sourceLabel.textColor = .secondaryLabelColor
+        }
     }
 }
 

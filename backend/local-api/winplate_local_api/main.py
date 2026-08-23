@@ -1352,9 +1352,11 @@ def mail_outline(force: bool = False) -> dict:
     if not force:
         cached = cached_mail_outline()
         if cached:
+            # Serving the last successful outline is still live. "cached"
+            # is reserved for IMAP failure fallback below.
             return {
-                "source": "qq-mail-cache",
-                "availability": "cached",
+                "source": "qq-mail",
+                "availability": "live",
                 "query": MAIL_QUERY,
                 "windowDays": MAIL_WINDOW_DAYS,
                 "items": cached,
@@ -2089,7 +2091,8 @@ def weather_status(
     with _weather_cache_lock:
         cached = _weather_cache.get(query)
     if not force and cached and now - cached[0] < QWEATHER_CACHE_SECONDS:
-        return cached[1]
+        # In-TTL reuse is still live. Do not advertise a successful snapshot as cache.
+        return {**cached[1]}
     data = build_weather_status(
         query,
         display_location=display_location,
@@ -2948,7 +2951,8 @@ def github_status(force: bool = False) -> dict:
         cached = _github_cache
     if (not force and cached and now - cached[0] < GITHUB_CACHE_SECONDS
             and cached[1].get("username") == f"@{username}"):
-        return cached[1]
+        # In-TTL reuse is still live. Cached is only for failed-fetch fallback.
+        return {**cached[1]}
     try:
         data = build_github_status(username)
         persist_github_status(data)
@@ -2998,13 +3002,13 @@ def modules() -> dict[str, list[dict]]:
 
 
 @api.get("/api/status")
-def status() -> dict[str, dict]:
+def status(force: bool = False) -> dict[str, dict]:
     with closing(connect()) as connection:
         rows = connection.execute(
             "SELECT module, payload FROM status_modules ORDER BY module"
         ).fetchall()
     result = {row["module"]: json.loads(row["payload"]) for row in rows}
-    result["github"] = github_status()
+    result["github"] = github_status(force=force)
     if environment_setting("QWEATHER_API_KEY"):
         stored_weather_location = read_weather_location()
         weather_query = stored_weather_location.get("query") if stored_weather_location else QWEATHER_LOCATION
@@ -3014,6 +3018,7 @@ def status() -> dict[str, dict]:
             try:
                 result["weather"] = weather_status(
                     weather_query,
+                    force=force,
                     display_location=weather_display,
                     location_source=weather_source,
                     latitude=stored_weather_location.get("latitude") if stored_weather_location else None,
