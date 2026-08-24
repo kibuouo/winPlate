@@ -2,7 +2,6 @@ import Combine
 import CryptoKit
 import Foundation
 import MultipeerConnectivity
-import Security
 
 enum HealthRefreshReason: String, Codable, Equatable {
     case appLaunch
@@ -13,16 +12,8 @@ enum HealthRefreshReason: String, Codable, Equatable {
 }
 
 enum HealthPeerPairing {
-    private static let service = "com.kiko.winplate"
-    private static let account = "health-peer-pairing-v1"
-
-    static func loadOrCreateCode() -> String {
-        if let stored = read(), HealthPeerPairing.normalize(stored) != nil {
-            return stored
-        }
-        let code = String(format: "%06d", Int.random(in: 0...999_999))
-        save(code)
-        return code
+    static func makeCode() -> String {
+        String(format: "%06d", Int.random(in: 0...999_999))
     }
 
     static func normalize(_ value: String) -> String? {
@@ -42,39 +33,6 @@ enum HealthPeerPairing {
     static func matches(_ context: Data?, expectedCode: String?) -> Bool {
         guard let expectedCode, !expectedCode.isEmpty else { return false }
         return context == invitationContext(for: expectedCode)
-    }
-
-    private static func read() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private static func save(_ value: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        let attributes: [String: Any] = [
-            kSecValueData as String: Data(value.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
-        ]
-        if SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecItemNotFound {
-            var item = query
-            item.merge(attributes) { _, new in new }
-            SecItemAdd(item as CFDictionary, nil)
-        }
     }
 }
 

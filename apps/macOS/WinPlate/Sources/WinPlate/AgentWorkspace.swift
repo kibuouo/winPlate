@@ -286,7 +286,7 @@ private struct AgentBrandIconView: View {
     @ViewBuilder
     private func brandImage(_ brand: NSImage) -> some View {
         if isFullColorBrand {
-            // Official full-color marks keep their palette (ChatGPT / Codex).
+            // Official full-color marks keep their palette (ChatGPT).
             Image(nsImage: brand)
                 .resizable()
                 .interpolation(.high)
@@ -311,8 +311,7 @@ private struct AgentBrandIconView: View {
     }
 
     private var isFullColorBrand: Bool {
-        // chatgpt-icon / codex-icon ship with their own color treatment.
-        item.brandIconName == "chatgpt-icon" || item.brandIconName == "codex-icon"
+        item.brandIconName == "chatgpt-icon"
     }
 
     private var glyphSize: CGFloat {

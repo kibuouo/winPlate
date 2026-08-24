@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import LocalAuthentication
 import Security
@@ -1089,6 +1090,7 @@ final class AppSettingsStore: ObservableObject {
     @Published var qqMailAuthCode: String? { didSet { if !isLoadingSensitiveValues, oldValue != qqMailAuthCode { saveSensitiveValues() } } }
     @Published var githubUsername: String { didSet { defaults.set(githubUsername, forKey: "githubUsername") } }
     @Published var githubToken: String? { didSet { if !isLoadingSensitiveValues, oldValue != githubToken { saveSensitiveValues() } } }
+    private(set) var healthPeerPairingCode: String?
     private let defaults = UserDefaults.standard
     private var isLoadingSensitiveValues = false
     private var hasLoadedSensitiveValues = false
@@ -1109,25 +1111,25 @@ final class AppSettingsStore: ObservableObject {
         qqMailAuthCode = nil
         githubUsername = defaults.string(forKey: "githubUsername") ?? "kibuouo"
         githubToken = nil
+        healthPeerPairingCode = nil
         AppearanceTheme.apply(appearanceTheme)
+    }
+
+    func preloadSensitiveValuesAndPairingCode() -> String {
+        if hasLoadedSensitiveValues, let existing = HealthPeerPairing.normalize(healthPeerPairingCode ?? "") {
+            return existing
+        }
+        hasLoadedSensitiveValues = true
+        isLoadingSensitiveValues = true
+        let bundle = Keychain.loadSensitiveBundle()
+        applySensitiveValues(bundle.values)
+        healthPeerPairingCode = bundle.pairingCode
+        isLoadingSensitiveValues = false
+        return bundle.pairingCode
     }
 
     func applyAppearanceTheme() {
         AppearanceTheme.apply(appearanceTheme)
-    }
-
-    func loadSensitiveValues() async -> Bool {
-        guard !hasLoadedSensitiveValues else { return false }
-        hasLoadedSensitiveValues = true
-        isLoadingSensitiveValues = true
-        let values = await Task.detached(priority: .userInitiated) {
-            Keychain.readSensitiveValues(context: LAContext())
-        }.value
-        if let values {
-            applySensitiveValues(values)
-        }
-        isLoadingSensitiveValues = false
-        return values != nil
     }
 
     private func applySensitiveValues(_ values: SensitiveValues) {
@@ -1138,6 +1140,7 @@ final class AppSettingsStore: ObservableObject {
         weatherPrivateKey = values.weatherPrivateKey
         qqMailAuthCode = values.qqMailAuthCode
         githubToken = values.githubToken
+        healthPeerPairingCode = HealthPeerPairing.normalize(values.healthPeerPairingCode ?? "")
     }
 
     private func saveSensitiveValues() {
@@ -1149,7 +1152,8 @@ final class AppSettingsStore: ObservableObject {
                 weatherCredentialID: weatherCredentialID,
                 weatherPrivateKey: weatherPrivateKey,
                 qqMailAuthCode: qqMailAuthCode,
-                githubToken: githubToken
+                githubToken: githubToken,
+                healthPeerPairingCode: healthPeerPairingCode
             )
         )
     }
@@ -1164,75 +1168,208 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var hasWeatherAlertCredentials: Bool {
-        [weatherProjectID, weatherCredentialID, weatherPrivateKey].allSatisfy { value in
-            guard let value else { return false }
-            return !value.isEmpty
-        }
+        SensitiveValues(
+            weatherProjectID: weatherProjectID,
+            weatherCredentialID: weatherCredentialID,
+            weatherPrivateKey: weatherPrivateKey
+        ).hasWeatherAlertCredentials
     }
 }
 
-private struct SensitiveValues: Codable, Sendable {
-    let deepSeekAPIKey: String?
-    let weatherAPIKey: String?
-    let weatherProjectID: String?
-    let weatherCredentialID: String?
-    let weatherPrivateKey: String?
-    let qqMailAuthCode: String?
-    let githubToken: String?
+struct SensitiveValues: Codable, Sendable, Equatable {
+    var deepSeekAPIKey: String? = nil
+    var weatherAPIKey: String? = nil
+    var weatherProjectID: String? = nil
+    var weatherCredentialID: String? = nil
+    var weatherPrivateKey: String? = nil
+    var qqMailAuthCode: String? = nil
+    var githubToken: String? = nil
+    var healthPeerPairingCode: String? = nil
 
     var hasValue: Bool {
-        [deepSeekAPIKey, weatherAPIKey, weatherProjectID, weatherCredentialID, weatherPrivateKey, qqMailAuthCode, githubToken].contains { value in
-            guard let value else { return false }
-            return !value.isEmpty
+        [deepSeekAPIKey, weatherAPIKey, weatherProjectID, weatherCredentialID, weatherPrivateKey, qqMailAuthCode, githubToken, healthPeerPairingCode].contains { value in
+            !(value ?? "").isEmpty
         }
+    }
+
+    var hasWeatherAlertCredentials: Bool {
+        [weatherProjectID, weatherCredentialID, weatherPrivateKey].allSatisfy { value in
+            !(value ?? "").isEmpty
+        }
+    }
+
+    mutating func fillMissing(from other: SensitiveValues) {
+        if (deepSeekAPIKey ?? "").isEmpty { deepSeekAPIKey = other.deepSeekAPIKey }
+        if (weatherAPIKey ?? "").isEmpty { weatherAPIKey = other.weatherAPIKey }
+        if (weatherProjectID ?? "").isEmpty { weatherProjectID = other.weatherProjectID }
+        if (weatherCredentialID ?? "").isEmpty { weatherCredentialID = other.weatherCredentialID }
+        if (weatherPrivateKey ?? "").isEmpty { weatherPrivateKey = other.weatherPrivateKey }
+        if (qqMailAuthCode ?? "").isEmpty { qqMailAuthCode = other.qqMailAuthCode }
+        if (githubToken ?? "").isEmpty { githubToken = other.githubToken }
+        if (healthPeerPairingCode ?? "").isEmpty { healthPeerPairingCode = other.healthPeerPairingCode }
     }
 }
 
-private enum Keychain {
+enum Keychain {
     private static let accessibility = kSecAttrAccessibleAfterFirstUnlock
     private static let service = "com.kiko.winplate"
     private static let sensitiveValuesAccount = "sensitive-values-v1"
+    private static let leftoverAccounts = [
+        "health-peer-pairing-v1",
+        "qweather-api-key",
+        "deepseek-api-key",
+        "qq-mail-auth-code"
+    ]
 
-    static func read(account: String, context: LAContext? = nil) -> String? {
-        guard let data = readData(account: account, context: context) else { return nil }
-        return String(data: data, encoding: .utf8)
+    struct SensitiveBundle {
+        var values: SensitiveValues
+        var pairingCode: String
     }
 
-    static func readSensitiveValues(context: LAContext) -> SensitiveValues? {
-        guard let data = readData(account: sensitiveValuesAccount, context: context) else { return nil }
+    static func loadSensitiveBundle() -> SensitiveBundle {
+        let stored = decodeValues(from: readData(account: sensitiveValuesAccount, dataProtection: false, allowPrompt: false))
+            ?? SensitiveValues()
+        var values = stored
+        values.fillMissing(from: decodeValues(from: readData(account: sensitiveValuesAccount, dataProtection: true, allowPrompt: false)) ?? SensitiveValues())
+        absorbLeftovers(into: &values)
+
+        let pairing = HealthPeerPairing.normalize(values.healthPeerPairingCode ?? "")
+            ?? HealthPeerPairing.makeCode()
+        values.healthPeerPairingCode = pairing
+        let persisted = values == stored || saveSensitiveValues(values)
+        if persisted {
+            deleteAbsorbedLeftovers(for: values)
+        }
+        return SensitiveBundle(values: values, pairingCode: pairing)
+    }
+
+    @discardableResult
+    static func saveSensitiveValues(_ values: SensitiveValues) -> Bool {
+        guard values.hasValue, let data = try? JSONEncoder().encode(values) else { return false }
+        return write(data: data, account: sensitiveValuesAccount, dataProtection: false, allowPrompt: false)
+    }
+
+    private static func query(
+        account: String,
+        dataProtection: Bool,
+        allowPrompt: Bool,
+        returningData: Bool = false
+    ) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        if dataProtection {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        if returningData {
+            query[kSecReturnData as String] = true
+        }
+        if !allowPrompt {
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
+        }
+        return query
+    }
+
+    private static func absorbLeftovers(into values: inout SensitiveValues) {
+        for account in leftoverAccounts {
+            guard let raw = readString(account: account), !raw.isEmpty else { continue }
+            applyLeftover(account, raw: raw, into: &values)
+        }
+    }
+
+    private static func leftoverValue(in values: SensitiveValues, account: String) -> String? {
+        switch account {
+        case "qweather-api-key": return values.weatherAPIKey
+        case "deepseek-api-key": return values.deepSeekAPIKey
+        case "qq-mail-auth-code": return values.qqMailAuthCode
+        case "health-peer-pairing-v1": return values.healthPeerPairingCode
+        default: return nil
+        }
+    }
+
+    private static func applyLeftover(_ account: String, raw: String, into values: inout SensitiveValues) {
+        switch account {
+        case "qweather-api-key":
+            if (values.weatherAPIKey ?? "").isEmpty { values.weatherAPIKey = raw }
+        case "deepseek-api-key":
+            if (values.deepSeekAPIKey ?? "").isEmpty { values.deepSeekAPIKey = raw }
+        case "qq-mail-auth-code":
+            if (values.qqMailAuthCode ?? "").isEmpty { values.qqMailAuthCode = raw }
+        case "health-peer-pairing-v1":
+            if (values.healthPeerPairingCode ?? "").isEmpty {
+                values.healthPeerPairingCode = HealthPeerPairing.normalize(raw)
+            }
+        default:
+            break
+        }
+    }
+
+    private static func deleteAbsorbedLeftovers(for values: SensitiveValues) {
+        for account in leftoverAccounts where !(leftoverValue(in: values, account: account) ?? "").isEmpty {
+            delete(account: account, dataProtection: false)
+            delete(account: account, dataProtection: true)
+        }
+        delete(account: sensitiveValuesAccount, dataProtection: true)
+    }
+
+    private static func decodeValues(from data: Data?) -> SensitiveValues? {
+        guard let data else { return nil }
         return try? JSONDecoder().decode(SensitiveValues.self, from: data)
     }
 
-    static func saveSensitiveValues(_ values: SensitiveValues) {
-        guard values.hasValue, let data = try? JSONEncoder().encode(values) else {
-            delete(account: sensitiveValuesAccount)
-            return
-        }
-        save(data: data, account: sensitiveValuesAccount)
+    private static func readString(account: String) -> String? {
+        guard let data = readData(account: account, dataProtection: false, allowPrompt: false) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
-    private static func readData(account: String, context: LAContext?) -> Data? {
-        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true]
-        if let context { query[kSecUseAuthenticationContext as String] = context }
-        var result: CFTypeRef?; guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+    private static func readData(account: String, dataProtection: Bool, allowPrompt: Bool) -> Data? {
+        let query = query(account: account, dataProtection: dataProtection, allowPrompt: allowPrompt, returningData: true)
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
         return data
     }
 
-    private static func save(data: Data, account: String) {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    @discardableResult
+    private static func write(data: Data, account: String, dataProtection: Bool, allowPrompt: Bool) -> Bool {
+        let query = query(account: account, dataProtection: dataProtection, allowPrompt: allowPrompt)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            // The app may refresh in the background after login.  Permit the
-            // item's owner to read it after the user has unlocked the Mac once,
-            // without weakening the item's Keychain protection at rest.
-            kSecAttrAccessible as String: accessibility
+            kSecAttrAccessible as String: accessibility,
+            kSecAttrLabel as String: "WinPlate"
         ]
-        if SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecItemNotFound { var item = query; item.merge(attributes) { _, new in new }; SecItemAdd(item as CFDictionary, nil) }
+        let updated = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if updated == errSecSuccess { return true }
+        if updated != errSecItemNotFound {
+            delete(account: account, dataProtection: dataProtection)
+        }
+        var item = query
+        item.merge(attributes) { _, new in new }
+        let added = SecItemAdd(item as CFDictionary, nil)
+        if added != errSecSuccess {
+            fputs("WinPlate keychain save failed: \(added)\n", stderr)
+            return false
+        }
+        return true
     }
 
-    private static func delete(account: String) {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        SecItemDelete(query as CFDictionary)
+    private static func delete(account: String, dataProtection: Bool) {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        if dataProtection {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound { return }
+        SecItemDelete(self.query(account: account, dataProtection: dataProtection, allowPrompt: false) as CFDictionary)
     }
 }
 
@@ -1242,23 +1379,24 @@ final class LocalBackendSupervisor {
     func startIfAvailable(
         weatherAPIKey: String? = nil,
         weatherAPIHost: String? = nil,
-        overrideWeatherAPIKey: Bool = false,
         weatherProjectID: String? = nil,
         weatherCredentialID: String? = nil,
         weatherPrivateKey: String? = nil,
-        overrideWeatherAlertCredentials: Bool = false,
         qqMailAddress: String? = nil,
         qqMailAuthCode: String? = nil,
-        overrideQQMailConfiguration: Bool = false,
         githubToken: String? = nil,
-        overrideGitHubToken: Bool = false,
         githubUsername: String? = nil
     ) {
         guard ProcessInfo.processInfo.environment["WINPLATE_SKIP_LOCAL_API"] != "1" else {
             fputs("WinPlate local API startup skipped by WINPLATE_SKIP_LOCAL_API\n", stderr)
             return
         }
-        guard process?.isRunning != true else { return }
+        if process?.isRunning == true {
+            process?.terminate()
+            process?.waitUntilExit()
+            process = nil
+        }
+        freeLocalAPIPort()
         guard let backend = Bundle.main.resourceURL?.appendingPathComponent(
             "LocalAPI",
             isDirectory: true
@@ -1285,45 +1423,19 @@ final class LocalBackendSupervisor {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["PYTHONPATH"] = pythonPackages.path
-        if overrideWeatherAPIKey {
-            if let weatherAPIKey = weatherAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines), !weatherAPIKey.isEmpty {
-                environment["QWEATHER_API_KEY"] = weatherAPIKey
-            } else {
-                environment.removeValue(forKey: "QWEATHER_API_KEY")
-            }
-            if let weatherAPIHost = weatherAPIHost?.trimmingCharacters(in: .whitespacesAndNewlines), !weatherAPIHost.isEmpty {
-                environment["QWEATHER_API_HOST"] = weatherAPIHost
-            } else {
-                environment.removeValue(forKey: "QWEATHER_API_HOST")
-            }
-        }
-        if overrideWeatherAlertCredentials {
-            environment["QWEATHER_PROJECT_ID"] = weatherProjectID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            environment["QWEATHER_CREDENTIAL_ID"] = weatherCredentialID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            environment["QWEATHER_PRIVATE_KEY"] = weatherPrivateKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        if overrideQQMailConfiguration {
-            if let qqMailAddress = qqMailAddress?.trimmingCharacters(in: .whitespacesAndNewlines), !qqMailAddress.isEmpty {
-                environment["QQ_MAIL_ADDRESS"] = qqMailAddress
-            } else {
-                environment.removeValue(forKey: "QQ_MAIL_ADDRESS")
-            }
-            if let qqMailAuthCode = qqMailAuthCode?.trimmingCharacters(in: .whitespacesAndNewlines), !qqMailAuthCode.isEmpty {
-                environment["QQ_MAIL_AUTH_CODE"] = qqMailAuthCode
-            } else {
-                environment.removeValue(forKey: "QQ_MAIL_AUTH_CODE")
-            }
-        }
-        if overrideGitHubToken {
-            if let githubToken = githubToken?.trimmingCharacters(in: .whitespacesAndNewlines), !githubToken.isEmpty {
-                environment["GITHUB_TOKEN"] = githubToken
-            } else {
-                environment.removeValue(forKey: "GITHUB_TOKEN")
-            }
-        }
-        if let githubUsername = githubUsername?.trimmingCharacters(in: .whitespacesAndNewlines), !githubUsername.isEmpty {
-            environment["WINPLATE_GITHUB_USERNAME"] = githubUsername.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-        }
+        assign(&environment, "QWEATHER_API_KEY", weatherAPIKey)
+        assign(&environment, "QWEATHER_API_HOST", weatherAPIHost)
+        assign(&environment, "QWEATHER_PROJECT_ID", weatherProjectID)
+        assign(&environment, "QWEATHER_CREDENTIAL_ID", weatherCredentialID)
+        assign(&environment, "QWEATHER_PRIVATE_KEY", weatherPrivateKey)
+        assign(&environment, "QQ_MAIL_ADDRESS", qqMailAddress)
+        assign(&environment, "QQ_MAIL_AUTH_CODE", qqMailAuthCode)
+        assign(&environment, "GITHUB_TOKEN", githubToken)
+        assign(
+            &environment,
+            "WINPLATE_GITHUB_USERNAME",
+            githubUsername?.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+        )
         process.environment = environment
         process.currentDirectoryURL = backend
         outputLog?.closeFile()
@@ -1333,8 +1445,40 @@ final class LocalBackendSupervisor {
         do {
             try process.run()
             self.process = process
+            Thread.sleep(forTimeInterval: 0.2)
+            if !process.isRunning {
+                fputs("WinPlate local API exited immediately after launch\n", stderr)
+                self.process = nil
+            }
         } catch {
             fputs("WinPlate local API failed to start: \(error)\n", stderr)
+        }
+    }
+
+    private func freeLocalAPIPort() {
+        let lsof = Process()
+        lsof.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        lsof.arguments = ["-nP", "-iTCP:8765", "-sTCP:LISTEN", "-t"]
+        let pipe = Pipe()
+        lsof.standardOutput = pipe
+        lsof.standardError = FileHandle.nullDevice
+        do {
+            try lsof.run()
+            lsof.waitUntilExit()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let pids = output.split(whereSeparator: \.isNewline).compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
+            let current = ProcessInfo.processInfo.processIdentifier
+            for pid in pids where pid > 1 && pid != current {
+                kill(pid, SIGTERM)
+            }
+            if !pids.isEmpty {
+                Thread.sleep(forTimeInterval: 0.2)
+                for pid in pids where pid > 1 && pid != current {
+                    kill(pid, SIGKILL)
+                }
+            }
+        } catch {
+            fputs("WinPlate could not free local API port 8765: \(error)\n", stderr)
         }
     }
     func restart(
@@ -1343,32 +1487,20 @@ final class LocalBackendSupervisor {
         weatherProjectID: String? = nil,
         weatherCredentialID: String? = nil,
         weatherPrivateKey: String? = nil,
-        overrideWeatherAlertCredentials: Bool = false,
         qqMailAddress: String? = nil,
         qqMailAuthCode: String? = nil,
-        overrideQQMailConfiguration: Bool = false,
         githubToken: String? = nil,
-        overrideGitHubToken: Bool = false,
         githubUsername: String? = nil
     ) {
-        if let process, process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        }
-        process = nil
         startIfAvailable(
             weatherAPIKey: weatherAPIKey,
             weatherAPIHost: weatherAPIHost,
-            overrideWeatherAPIKey: true,
             weatherProjectID: weatherProjectID,
             weatherCredentialID: weatherCredentialID,
             weatherPrivateKey: weatherPrivateKey,
-            overrideWeatherAlertCredentials: overrideWeatherAlertCredentials,
             qqMailAddress: qqMailAddress,
             qqMailAuthCode: qqMailAuthCode,
-            overrideQQMailConfiguration: overrideQQMailConfiguration,
             githubToken: githubToken,
-            overrideGitHubToken: overrideGitHubToken,
             githubUsername: githubUsername
         )
     }
@@ -1382,6 +1514,15 @@ final class LocalBackendSupervisor {
         outputLog = nil
     }
 
+    private func assign(_ environment: inout [String: String], _ key: String, _ value: String?) {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            environment.removeValue(forKey: key)
+        } else {
+            environment[key] = trimmed
+        }
+    }
+
     private func localAPILogFile() -> FileHandle? {
         guard let directory = FileManager.default.urls(
             for: .libraryDirectory,
@@ -1392,7 +1533,9 @@ final class LocalBackendSupervisor {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appendingPathComponent("local-api.log")
-            FileManager.default.createFile(atPath: file.path, contents: nil)
+            if !FileManager.default.fileExists(atPath: file.path) {
+                FileManager.default.createFile(atPath: file.path, contents: nil)
+            }
             let handle = try FileHandle(forWritingTo: file)
             try handle.seekToEnd()
             return handle

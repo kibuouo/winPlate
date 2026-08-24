@@ -63,5 +63,6 @@ QQ Mail authorization code (not the account password); WinPlate then tests the
 IMAP connection and shows its exact result in Settings.
 The menu bar and dashboard degrade independently when a source is unavailable.
 
-Health-data implementation remains outside this client until its privacy and
-synchronization design is approved.
+Health pairing uses a six-digit code stored in the same Keychain item as the
+other secrets. This Mac browses for the iPhone WinPlate Health app on the
+local network and receives the live health overview from it.

@@ -86,7 +86,7 @@ final class AppState: ObservableObject {
     private var lastSentDesktopStatus: DesktopStatusSnapshot?
 
     init() {
-        let pairingCode = HealthPeerPairing.loadOrCreateCode()
+        let pairingCode = settings.preloadSensitiveValuesAndPairingCode()
         healthPairingCode = pairingCode
         healthPeerLink = HealthPeerLink(
             role: .browser,
@@ -231,16 +231,12 @@ final class AppState: ObservableObject {
         backend.startIfAvailable(
             weatherAPIKey: settings.weatherAPIKey,
             weatherAPIHost: settings.weatherAPIHost,
-            overrideWeatherAPIKey: settings.weatherAPIKey != nil,
             weatherProjectID: settings.weatherProjectID,
             weatherCredentialID: settings.weatherCredentialID,
             weatherPrivateKey: settings.weatherPrivateKey,
-            overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
             qqMailAddress: settings.qqMailAddress,
             qqMailAuthCode: settings.qqMailAuthCode,
-            overrideQQMailConfiguration: settings.qqMailAuthCode != nil,
             githubToken: settings.githubToken,
-            overrideGitHubToken: settings.hasGitHubToken,
             githubUsername: settings.githubUsername
         )
         healthPeerLink.start()
@@ -266,26 +262,11 @@ final class AppState: ObservableObject {
             weatherProjectID: settings.weatherProjectID,
             weatherCredentialID: settings.weatherCredentialID,
             weatherPrivateKey: settings.weatherPrivateKey,
-            overrideWeatherAlertCredentials: settings.hasWeatherAlertCredentials,
             qqMailAddress: settings.qqMailAddress,
             qqMailAuthCode: settings.qqMailAuthCode,
-            overrideQQMailConfiguration: settings.qqMailAuthCode != nil,
             githubToken: settings.githubToken,
-            overrideGitHubToken: true,
             githubUsername: settings.githubUsername
         )
-    }
-
-    func loadSensitiveSettings() {
-        Task { [weak self] in
-            guard let self else { return }
-            let loaded = await self.settings.loadSensitiveValues()
-            guard loaded else { return }
-            self.restartLocalBackend()
-            self.refreshWhenLocalAPIReady()
-            self.refreshNotificationsWhenLocalAPIReady()
-            self.refreshMailWhenLocalAPIReady()
-        }
     }
 
     func stop() {

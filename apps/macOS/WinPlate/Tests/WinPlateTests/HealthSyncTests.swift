@@ -161,7 +161,40 @@ final class HealthSyncTests: XCTestCase {
         XCTAssertEqual(result, [replacement])
     }
 
+    func testSensitiveValuesFillMissingAndRoundTripPairingCode() throws {
+        let decoded = try JSONDecoder().decode(
+            SensitiveValues.self,
+            from: Data(#"{"deepSeekAPIKey":"sk-test","githubToken":"ghp_test"}"#.utf8)
+        )
+        XCTAssertEqual(decoded.deepSeekAPIKey, "sk-test")
+        XCTAssertNil(decoded.healthPeerPairingCode)
+
+        var values = SensitiveValues(deepSeekAPIKey: "keep")
+        values.fillMissing(from: SensitiveValues(
+            deepSeekAPIKey: "ignore",
+            weatherAPIKey: "qweather-legacy",
+            weatherProjectID: "project",
+            weatherCredentialID: "cred",
+            weatherPrivateKey: "-----BEGIN PRIVATE KEY-----",
+            qqMailAuthCode: "mail-legacy"
+        ))
+        XCTAssertEqual(values.deepSeekAPIKey, "keep")
+        XCTAssertEqual(values.weatherAPIKey, "qweather-legacy")
+        XCTAssertEqual(values.qqMailAuthCode, "mail-legacy")
+        XCTAssertTrue(values.hasWeatherAlertCredentials)
+
+        let pairing = try JSONDecoder().decode(
+            SensitiveValues.self,
+            from: JSONEncoder().encode(SensitiveValues(healthPeerPairingCode: "482917"))
+        )
+        XCTAssertEqual(pairing.healthPeerPairingCode, "482917")
+    }
+
     func testPeerPairingContextMatchesOnlyTheExpectedCode() {
+        let generated = HealthPeerPairing.makeCode()
+        XCTAssertEqual(HealthPeerPairing.normalize(generated), generated)
+        XCTAssertEqual(generated.count, 6)
+
         let code = "482917"
         let context = HealthPeerPairing.invitationContext(for: code)
 

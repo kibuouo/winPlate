@@ -15,7 +15,7 @@ final class MenuBarController: NSObject {
     init(state: AppState) {
         self.state = state
         // Weather + heart rate + Codex/SuperGrok remaining.
-        statusItem = NSStatusBar.system.statusItem(withLength: 218)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 408, height: 392),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -32,6 +32,8 @@ final class MenuBarController: NSObject {
         guard let button = statusItem.button else { return }
         let summary = MenuBarStatusSummary()
         summary.translatesAutoresizingMaskIntoConstraints = false
+        summary.setContentHuggingPriority(.required, for: .horizontal)
+        summary.setContentCompressionResistancePriority(.required, for: .horizontal)
         button.addSubview(summary)
         NSLayoutConstraint.activate([
             summary.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 4),
@@ -46,6 +48,15 @@ final class MenuBarController: NSObject {
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.toolTip = "WinPlate 状态"
         button.setAccessibilityLabel("WinPlate 状态")
+        resizeStatusItem()
+    }
+
+    private func resizeStatusItem() {
+        guard let summary = statusSummary else { return }
+        summary.layoutSubtreeIfNeeded()
+        let width = ceil(summary.fittingSize.width) + 8
+        guard width > 8, abs(statusItem.length - width) > 0.5 else { return }
+        statusItem.length = width
     }
 
     private func configurePanel() {
@@ -56,10 +67,22 @@ final class MenuBarController: NSObject {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         panel.hidesOnDeactivate = false
-        panel.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: MenuBarPopoverView()
                 .environmentObject(state)
         )
+        hosting.view.wantsLayer = true
+        panel.contentViewController = hosting
+        refreshPanelScale()
+    }
+
+    private func refreshPanelScale() {
+        let scale = panel.screen?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.contentsScale = scale
+        panel.contentViewController?.view.layer?.contentsScale = scale
     }
 
     private func observeState() {
@@ -114,6 +137,7 @@ final class MenuBarController: NSObject {
             superGrok: superGrok,
             heartRate: heartRate
         )
+        resizeStatusItem()
         let heartRateValue = heartRate.map { "\(Int($0.rounded())) BPM" } ?? "-- BPM"
         button.toolTip =
             "天气 \(temperature) · 心率 \(heartRateValue) · Codex 7d \(sevenDayQuota)\(statusBarStatusSuffix(codex.status)) · SuperGrok \(grokQuota)\(statusBarStatusSuffix(superGrok.status))"
@@ -150,6 +174,7 @@ final class MenuBarController: NSObject {
         )
         let y = max(screenFrame.minY + horizontalMargin, buttonFrame.minY - panelFrame.height - horizontalMargin)
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+        refreshPanelScale()
         panel.orderFrontRegardless()
         button.highlight(true)
         installDismissalMonitors()
@@ -259,6 +284,9 @@ private final class MenuBarStatusSummary: NSView {
         usageDivider.boxType = .separator
         usageDivider.translatesAutoresizingMaskIntoConstraints = false
 
+        usageStack.setContentHuggingPriority(.required, for: .horizontal)
+        usageStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         let stack = NSStackView(
             views: [weatherIconView, temperatureLabel, heartIcon, heartRateLabel, usageDivider, usageStack]
         )
@@ -266,6 +294,8 @@ private final class MenuBarStatusSummary: NSView {
         stack.alignment = .centerY
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.setContentHuggingPriority(.required, for: .horizontal)
+        stack.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(stack)
 
         NSLayoutConstraint.activate([
@@ -333,6 +363,7 @@ private final class MenuBarStatusSummary: NSView {
         label.textColor = color
         label.alignment = .left
         label.lineBreakMode = .byClipping
+        label.setContentHuggingPriority(.required, for: .horizontal)
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         return label
     }

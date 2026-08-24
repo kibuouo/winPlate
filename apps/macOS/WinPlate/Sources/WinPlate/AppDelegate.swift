@@ -21,7 +21,6 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard claimPrimaryInstance() else { return }
-        state.loadSensitiveSettings()
         state.settings.applyAppearanceTheme()
         systemNotificationCoordinator.configure(state: state)
         notificationSummaryCancellable = state.$notifications

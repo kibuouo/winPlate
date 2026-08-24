@@ -95,11 +95,32 @@ fi
 # bundled app must not include that metadata when it is code-signed.
 xattr -cr "$staging_bundle"
 
-# Keychain access rules are tied to a code-signing identity.  For durable,
-# app-specific access, set WINPLATE_SIGNING_IDENTITY to an Apple Development
-# or Developer ID certificate.  Ad-hoc signing remains available for local
-# builds, but cannot safely act as a persistent Keychain identity.
-signing_identity="${WINPLATE_SIGNING_IDENTITY:--}"
+# Keychain access rules are tied to a code-signing identity.  Prefer a stable
+# Apple Development / Developer ID certificate so reinstalls keep access to
+# the same Keychain item.  Ad-hoc signing (`-`) gets a new cdhash every build
+# and forces a password prompt on each launch.
+resolve_signing_identity() {
+  if [[ -n "${WINPLATE_SIGNING_IDENTITY:-}" ]]; then
+    print -r -- "$WINPLATE_SIGNING_IDENTITY"
+    return 0
+  fi
+  local line identity
+  line="$(security find-identity -v -p codesigning 2>/dev/null | /usr/bin/grep -E 'Apple Development|Developer ID Application' | /usr/bin/head -n 1 || true)"
+  identity="${line#*\"}"
+  identity="${identity%\"*}"
+  if [[ -n "$identity" ]]; then
+    print -r -- "$identity"
+  else
+    print -r -- "-"
+  fi
+}
+
+signing_identity="$(resolve_signing_identity)"
+if [[ "$signing_identity" == "-" ]]; then
+  print -u2 "Warning: ad-hoc signing. Keychain items will prompt after every reinstall."
+else
+  print "Signing with $signing_identity"
+fi
 codesign --force --sign "$signing_identity" --identifier com.kiko.winplate "$staging_bundle"
 codesign --verify --deep --strict "$staging_bundle"
 

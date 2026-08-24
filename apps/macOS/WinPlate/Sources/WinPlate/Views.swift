@@ -30,7 +30,7 @@ struct MenuBarPopoverView: View {
 
 private struct MenuBarHeader: View {
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(nsImage: appIcon)
                 .resizable()
                 .interpolation(.high)
@@ -40,7 +40,6 @@ private struct MenuBarHeader: View {
                 .accessibilityHidden(true)
             MenuBarHeartRateStatus()
             MenuBarMailStatus()
-            Spacer(minLength: 8)
             HeaderIconButton(symbol: "rectangle.on.rectangle", label: "打开 WinPlate") {
                 NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
             }
@@ -82,9 +81,11 @@ private struct MenuBarHeartRateStatus: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.pink.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -125,9 +126,11 @@ private struct MenuBarMailStatus: View {
                 Text("未读")
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -173,7 +176,7 @@ private struct MenuBarOverview: View {
                 codex: codex.sevenDay?.remainingPct,
                 grok: superGrok.remainingPct
             )
-            .frame(width: 118, height: 118)
+            .frame(width: 126, height: 126)
 
             VStack(alignment: .leading, spacing: 7) {
                 // Codex / SuperGrok share the same compact row format (no sync timestamps).
@@ -239,24 +242,28 @@ private struct MenuBarOverview: View {
     }
 }
 
+enum DottedUsageRingMetrics {
+    static func filledCount(progress: Double?, total: Int) -> Int {
+        guard total > 0, let progress, progress.isFinite else { return 0 }
+        let fraction = max(0, min(progress / 100, 1))
+        return Int((fraction * Double(total)).rounded())
+    }
+}
+
 private struct UsageRings: View {
     let codex: Double?
     let grok: Double?
 
-    private let stroke: CGFloat = 8
-    private let gap: CGFloat = 5
-
     var body: some View {
         ZStack {
-            UsageRing(progress: codex, color: .blue, lineWidth: stroke)
-            UsageRing(progress: grok, color: .green, lineWidth: stroke)
-                .padding(stroke + gap)
-            VStack(alignment: .leading, spacing: 5) {
+            DottedUsageRing(progress: codex, color: .blue, tickCount: 56, tickLength: 7, tickThickness: 2)
+            DottedUsageRing(progress: grok, color: .green, tickCount: 40, tickLength: 5.5, tickThickness: 1.75)
+                .padding(11)
+            VStack(spacing: 1) {
                 ringLegend(color: .blue, value: codex)
                 ringLegend(color: .green, value: grok)
             }
         }
-        .padding(stroke / 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "Codex 7 天剩余 \(codex.map { "\(Int($0.rounded()))%" } ?? "不可用")，SuperGrok 7 天剩余 \(grok.map { "\(Int($0.rounded()))%" } ?? "不可用")"
@@ -264,43 +271,46 @@ private struct UsageRings: View {
     }
 
     private func ringLegend(color: Color, value: Double?) -> some View {
-        HStack(spacing: 5) {
-            Capsule()
-                .fill(color)
-                .frame(width: 7, height: 3)
-            Text(value.map { "\(Int($0.rounded()))%" } ?? "--%")
-                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(.primary)
-        }
+        Text(value.map { "\(Int($0.rounded()))%" } ?? "--%")
+            .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+            .foregroundStyle(color)
     }
 }
 
-private struct UsageRing: View {
+private struct DottedUsageRing: View {
     let progress: Double?
     let color: Color
-    let lineWidth: CGFloat
+    var tickCount: Int
+    var tickLength: CGFloat
+    var tickThickness: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        let fraction = max(0, min((progress ?? 0) / 100, 1))
-        ZStack {
-            Circle()
-                .stroke(color.opacity(0.14), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-            if fraction > 0 {
-                Circle()
-                    .trim(from: 0, to: max(fraction, 0.018))
-                    .stroke(
-                        AngularGradient(
-                            colors: [color.opacity(0.72), color],
-                            center: .center,
-                            startAngle: .degrees(-90),
-                            endAngle: .degrees(270)
-                        ),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        let dim = colorScheme == .dark ? Color.white.opacity(0.34) : Color.primary.opacity(0.2)
+        let filled = DottedUsageRingMetrics.filledCount(progress: progress, total: tickCount)
+        GeometryReader { geo in
+            let radius = (min(geo.size.width, geo.size.height) - tickLength) / 2
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            ForEach(0..<tickCount, id: \.self) { index in
+                let angle = (Double(index) / Double(tickCount)) * 2 * Double.pi - Double.pi / 2
+                Capsule(style: .continuous)
+                    .fill(index < filled ? color : dim)
+                    .frame(width: tickThickness, height: tickLength)
+                    .rotationEffect(.radians(angle + .pi / 2))
+                    .position(
+                        x: snap(center.x + CGFloat(Foundation.cos(angle)) * radius),
+                        y: snap(center.y + CGFloat(Foundation.sin(angle)) * radius)
                     )
-                    .rotationEffect(.degrees(-90))
             }
         }
-        .animation(.easeInOut(duration: 0.28), value: fraction)
+        .accessibilityHidden(true)
+    }
+
+    private func snap(_ value: CGFloat) -> CGFloat {
+        guard displayScale > 0 else { return value }
+        return (value * displayScale).rounded() / displayScale
     }
 }
 
@@ -385,6 +395,7 @@ private struct MenuBarWeatherOverview: View {
                         ForecastCell(forecast: forecast, label: forecastLabel(for: forecast, index: index))
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
             WeatherAlertStrip(alerts: alerts, error: alertError)
         }
