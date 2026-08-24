@@ -39,6 +39,7 @@ class FakeBrowserWindow extends EventEmitter {
   loadFile() {}
   setBackgroundColor(color) { this.backgroundColors.push(color); }
   show() {}
+  showInactive() {}
   focus() {}
   hide() {}
   setPosition(x, y) { this.bounds = { ...this.bounds, x, y }; }
@@ -207,4 +208,28 @@ test("tooltip renderer is configured for idle eviction", () => {
   assert.match(source, /const TOOLTIP_IDLE_DESTROY_MS = 15_000/);
   assert.match(source, /tooltipDestroyTimer = setTimeout\(\(\) =>/);
   assert.match(source, /if \(!tooltipVisible\) destroyTooltipWindow\(\)/);
+});
+
+test("heart capsule preview uses a dedicated tooltip size instead of the system placeholder", () => {
+  const source = fs.readFileSync(path.join(__dirname, "windows.js"), "utf8");
+  assert.match(source, /HEART_TOOLTIP_SIZE = \{ width: 252, height: 196 \}/);
+  assert.match(source, /heart: HEART_TOOLTIP_SIZE/);
+  assert.match(source, /TOOLTIP_SIZES\[data\.type\] \|\| SYSTEM_TOOLTIP_SIZE/);
+
+  const windows = loadWindows();
+  windows.createFloatingWindow();
+  windows.showTooltipWindow({
+    anchor: { x: 40, y: 12, width: 48, height: 24, relativeToFloatingWindow: true },
+    data: { type: "heart" }
+  });
+  const tooltip = windows.createTooltipWindow();
+  assert.equal(tooltip.getBounds().width, 252);
+  assert.equal(tooltip.getBounds().height, 196);
+
+  windows.showTooltipWindow({
+    anchor: { x: 40, y: 12, width: 48, height: 24, relativeToFloatingWindow: true },
+    data: { type: "heart", lines: ["当前心率：82 BPM"] }
+  });
+  assert.equal(tooltip.getBounds().width, 252);
+  assert.notEqual(tooltip.getBounds().width, 200);
 });

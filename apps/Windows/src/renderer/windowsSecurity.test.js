@@ -321,6 +321,101 @@ test("floating health module shows whole BPM values and opens the Health section
   assert.match(renderSource, /heartModule\.addEventListener\("click", \(\) => window\.winplate\.showMainWindow\("Heart"\)\)/);
   assert.match(renderSource, /heartModule\.addEventListener\("keydown", \(event\) =>/);
   assert.match(renderSource, /heartModule\.setAttribute\("aria-label", "Open Health section"\)/);
+  assert.match(renderSource, /bindSystemTooltip\(heartModule, heartCapsulePreviewPayload\)/);
+  assert.doesNotMatch(renderSource, /type: "heart",\s*lines:/);
+});
+
+test("capsule heart preview shows the 24h trend instead of placeholder lines", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const healthHistory = require("@winplate/core/health");
+  const sliceFn = (name, nextName) => {
+    const start = appSource.indexOf(`function ${name}`);
+    const end = appSource.indexOf(`function ${nextName}`, start);
+    assert.ok(start >= 0 && end > start, `${name} must precede ${nextName}`);
+    return appSource.slice(start, end);
+  };
+  const context = {
+    window: { WinPlateHealthHistory: healthHistory },
+    Date,
+    Math,
+    Number,
+    String,
+    Array
+  };
+  vm.runInNewContext(`
+    function healthHistoryApi() { return window.WinPlateHealthHistory; }
+    let healthChartRange = "day";
+    let mockStatus = { heart: { heartRate: 82, source: "iPhone · Apple Watch" } };
+    let statusData = {
+      heart: {
+        heartRate: 82,
+        source: "iPhone · Apple Watch",
+        updatedAt: "2026-08-24T10:00:00.000Z",
+        syncState: "live"
+      }
+    };
+    let healthSyncStatus = {
+      state: "live",
+      heartRateHistory: [
+        { sampleAt: "2026-08-24T08:00:00.000Z", heartRate: 72 },
+        { sampleAt: "2026-08-24T09:00:00.000Z", heartRate: 88 },
+        { sampleAt: "2026-08-24T10:00:00.000Z", heartRate: 82 }
+      ]
+    };
+    ${sliceFn("healthTimestamp", "healthMetric")}
+    ${sliceFn("healthMetric", "healthStateLabel")}
+    ${sliceFn("healthStateLabel", "healthConnectionTitle")}
+    ${sliceFn("escapeHtml", "themeSelector")}
+    ${sliceFn("relativeUpdatedAt", "usageWindowCard")}
+    ${sliceFn("healthHeartRateRange", "healthHeartRateSamples")}
+    ${sliceFn("healthHeartRateSamples", "healthHeartRateStats")}
+    ${sliceFn("healthHeartRateStats", "healthHeartRateAxisBounds")}
+    ${sliceFn("healthHeartRateAxisBounds", "healthHeartRateAxisLabel")}
+    ${sliceFn("healthHeartRateAxisLabel", "healthHeartRateChartPoints")}
+    ${sliceFn("healthHeartRateChartPoints", "healthHeartRateChartSvg")}
+    ${sliceFn("downsampleHeartRateSamples", "heartCapsulePreviewPayload")}
+    ${sliceFn("heartCapsulePreviewPayload", "heartTooltipChartSvg")}
+    ${sliceFn("heartTooltipChartSvg", "heartTooltipMarkup")}
+    ${sliceFn("heartTooltipMarkup", "healthHeartRateCard")}
+    this.downsampleHeartRateSamples = downsampleHeartRateSamples;
+    this.heartCapsulePreviewPayload = heartCapsulePreviewPayload;
+    this.heartTooltipMarkup = heartTooltipMarkup;
+  `, context);
+
+  const dense = Array.from({ length: 80 }, (_, index) => ({
+    sampleAt: new Date(Date.parse("2026-08-24T00:00:00.000Z") + index * 60_000).toISOString(),
+    heartRate: 70 + (index % 5)
+  }));
+  assert.equal(context.downsampleHeartRateSamples(dense).length <= 48, true);
+  assert.equal(context.downsampleHeartRateSamples(dense)[0].sampleAt, dense[0].sampleAt);
+  assert.equal(context.downsampleHeartRateSamples(dense).at(-1).sampleAt, dense.at(-1).sampleAt);
+
+  const now = Date.parse("2026-08-24T10:30:00.000Z");
+  const payload = context.heartCapsulePreviewPayload(now);
+  assert.equal(payload.type, "heart");
+  assert.equal(payload.heartRate, 82);
+  assert.equal(payload.samples.length, 3);
+  assert.equal(payload.stats.minimum, 72);
+  assert.equal(payload.stats.maximum, 88);
+
+  const markup = context.heartTooltipMarkup(payload);
+  assert.match(markup, /class="heart-tooltip"/);
+  assert.match(markup, /aria-label="心率预览"/);
+  assert.match(markup, /heart-tooltip-sparkline/);
+  assert.match(markup, /近 24 小时心率趋势/);
+  assert.match(markup, />82<\/strong>/);
+  assert.match(markup, /平均/);
+  assert.doesNotMatch(markup, /当前心率：/);
+  assert.doesNotMatch(markup, /health-heart-rate-hover/);
+
+  const emptyMarkup = context.heartTooltipMarkup({ type: "heart", heartRate: null, samples: [] });
+  assert.match(emptyMarkup, /heart-tooltip is-empty/);
+  assert.match(emptyMarkup, /同步心率后会显示近 24 小时趋势/);
+
+  assert.match(appSource, /if \(data\.type === "heart"\) \{\s*appRoot\.innerHTML = heartTooltipMarkup\(data\);/);
+  assert.match(styles, /\.heart-tooltip\s*\{/);
+  assert.match(styles, /\.heart-tooltip-sparkline\s*\{/);
 });
 
 test("top-docked status derives alert color and unread mail from source-owned state", () => {

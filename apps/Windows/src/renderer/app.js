@@ -3014,14 +3014,7 @@ function renderFloating() {
   heartModule.setAttribute("role", "link");
   heartModule.setAttribute("tabindex", "0");
   heartModule.setAttribute("aria-label", "Open Health section");
-  bindSystemTooltip(heartModule, {
-    type: "heart",
-    lines: [
-      `当前心率：${healthMetric(statusData.heart.heartRate)} BPM`,
-      `来源：${statusData.heart.source}`,
-      `更新：${healthDateTime(statusData.heart.updatedAt, "尚未更新")}`
-    ]
-  });
+  bindSystemTooltip(heartModule, heartCapsulePreviewPayload);
   bindSystemTooltip(networkModule, () => ({
     type: "network",
     status: networkSpeed.status || "获取失败",
@@ -3224,6 +3217,11 @@ function renderTooltip(data = {}) {
 
   if (data.type === "notifications") {
     appRoot.innerHTML = window.WinPlateNotificationDigest.renderCapsuleTooltip(data.digest);
+    return;
+  }
+
+  if (data.type === "heart") {
+    appRoot.innerHTML = heartTooltipMarkup(data);
     return;
   }
 
@@ -3523,6 +3521,104 @@ function healthHeartRateChartSvg(samples, range = healthChartRange) {
         <strong data-health-heart-rate-hover-value>-- BPM</strong>
       </div>
     </div>`;
+}
+
+function downsampleHeartRateSamples(samples, limit = 48) {
+  const list = Array.isArray(samples) ? samples : [];
+  if (list.length <= limit) {
+    return list.map((sample) => ({
+      sampleAt: sample.sampleAt,
+      heartRate: sample.heartRate
+    }));
+  }
+  const lastIndex = list.length - 1;
+  const picked = [];
+  for (let index = 0; index < limit; index += 1) {
+    const sourceIndex = index === limit - 1
+      ? lastIndex
+      : Math.round((index / (limit - 1)) * lastIndex);
+    const point = list[sourceIndex];
+    if (!point) continue;
+    const previous = picked.at(-1);
+    if (previous && previous.sampleAt === point.sampleAt) continue;
+    picked.push({
+      sampleAt: point.sampleAt,
+      heartRate: point.heartRate
+    });
+  }
+  return picked;
+}
+
+function heartCapsulePreviewPayload(nowTimestamp = Date.now()) {
+  const heart = statusData.heart || mockStatus.heart;
+  const samples = healthHeartRateSamples("day", nowTimestamp);
+  return {
+    type: "heart",
+    heartRate: heart.heartRate ?? null,
+    source: heart.source || "",
+    updatedAt: heart.updatedAt || null,
+    syncState: heart.syncState || healthSyncStatus.state || "waiting",
+    samples: downsampleHeartRateSamples(samples),
+    stats: healthHeartRateStats(samples)
+  };
+}
+
+function heartTooltipChartSvg(samples, nowTimestamp = Date.now()) {
+  const width = 220;
+  const height = 56;
+  const inset = 4;
+  const plotOriginX = inset;
+  const plotWidth = width - inset * 2;
+  const bounds = healthHeartRateAxisBounds(samples);
+  const points = healthHeartRateChartPoints(samples, {
+    range: "day",
+    nowTimestamp,
+    plotOriginX,
+    plotWidth,
+    plotHeight: height,
+    minimum: bounds.minimum,
+    maximum: bounds.maximum
+  });
+  if (!points.length) return "";
+
+  const polyline = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const firstPoint = points[0];
+  const lastPoint = points.at(-1);
+  const area = `M ${firstPoint.x.toFixed(1)} ${height} L ${polyline} L ${lastPoint.x.toFixed(1)} ${height} Z`;
+  return `
+    <svg class="heart-tooltip-sparkline" viewBox="0 0 ${width} ${height}" role="img" aria-label="近 24 小时心率趋势" preserveAspectRatio="none">
+      <path d="${area}" class="health-heart-rate-area"></path>
+      <polyline fill="none" points="${polyline}" class="health-heart-rate-line"></polyline>
+      <circle cx="${lastPoint.x.toFixed(1)}" cy="${lastPoint.y.toFixed(1)}" r="3" class="health-heart-rate-last-point"></circle>
+    </svg>`;
+}
+
+function heartTooltipMarkup(data = {}) {
+  const stats = data.stats && Number.isFinite(Number(data.stats.count)) ? data.stats : null;
+  const samples = Array.isArray(data.samples) ? data.samples : [];
+  const chart = samples.length ? heartTooltipChartSvg(samples) : "";
+  const source = String(data.source || "").trim() || "尚未同步";
+  const emptyClass = chart ? "" : " is-empty";
+  return `
+    <article class="heart-tooltip${emptyClass}" role="tooltip" aria-label="心率预览">
+      <header class="heart-tooltip-header">
+        <span class="heart-tooltip-kicker">心率</span>
+        <span class="heart-tooltip-status">${escapeHtml(healthStateLabel(data.syncState))}</span>
+      </header>
+      <div class="heart-tooltip-rate">
+        <strong>${healthMetric(data.heartRate)}</strong>
+        <em>BPM</em>
+      </div>
+      <p class="heart-tooltip-meta">${escapeHtml(source)} · ${escapeHtml(relativeUpdatedAt(data.updatedAt))}</p>
+      ${chart
+        ? `<div class="heart-tooltip-chart">${chart}</div>
+          <div class="heart-tooltip-stats" aria-label="近 24 小时心率统计">
+            <div><strong>${healthMetric(stats?.average)}</strong><span>平均</span></div>
+            <div><strong>${healthMetric(stats?.maximum)}</strong><span>最高</span></div>
+            <div><strong>${healthMetric(stats?.minimum)}</strong><span>最低</span></div>
+          </div>`
+        : `<p class="heart-tooltip-empty">同步心率后会显示近 24 小时趋势</p>`}
+    </article>`;
 }
 
 function healthHeartRateCard() {

@@ -26,8 +26,17 @@ const FLOATING_TOPMOST_LEVEL = "status";
 const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
+const HEART_TOOLTIP_SIZE = { width: 252, height: 196 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 const NOTIFICATION_TOOLTIP_SIZE = { width: 300, height: 216 };
+const TOOLTIP_SIZES = {
+  github: GITHUB_TOOLTIP_SIZE,
+  codex: CODEX_TOOLTIP_SIZE,
+  weather: { width: 292, height: 276 },
+  notifications: NOTIFICATION_TOOLTIP_SIZE,
+  network: NETWORK_TOOLTIP_SIZE,
+  heart: HEART_TOOLTIP_SIZE
+};
 // Tooltip content is transient. Releasing the renderer after a short idle
 // period prevents a long-lived hidden Chromium renderer from retaining image,
 // canvas, and document resources for the whole application lifetime.
@@ -373,17 +382,7 @@ function showTooltipWindow({ anchor, data }) {
     y: Math.round(absoluteAnchor.y)
   });
   const workArea = display.workArea;
-  const tooltipSize = data.type === "github"
-    ? GITHUB_TOOLTIP_SIZE
-      : data.type === "codex"
-      ? CODEX_TOOLTIP_SIZE
-      : data.type === "weather"
-        ? { width: 292, height: 276 }
-        : data.type === "notifications"
-          ? NOTIFICATION_TOOLTIP_SIZE
-          : data.type === "network"
-            ? NETWORK_TOOLTIP_SIZE
-        : SYSTEM_TOOLTIP_SIZE;
+  const tooltipSize = TOOLTIP_SIZES[data.type] || SYSTEM_TOOLTIP_SIZE;
   let placement = "below";
   let x = Math.round(absoluteAnchor.x + 22);
   let y = Math.round(absoluteAnchor.y + absoluteAnchor.height + 8);
