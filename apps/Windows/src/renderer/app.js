@@ -3069,6 +3069,10 @@ function bindNotificationStrip() {
 }
 
 function renderTooltip(data = {}) {
+  // A tooltip is a transient document. Tear down any weather animation before
+  // replacing its DOM so detached canvases/observers cannot survive repeated
+  // hover cycles in the long-lived tooltip renderer.
+  unmountWeatherEffects(appRoot);
   document.body.className = "tooltip-body";
   if (data.type === "github") {
     const github = { ...mockStatus.github, ...data.github };

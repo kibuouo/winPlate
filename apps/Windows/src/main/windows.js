@@ -8,6 +8,7 @@ let floatingWindow;
 let mainWindow;
 let tooltipWindow;
 let tooltipVisible = false;
+let tooltipDestroyTimer = null;
 let quitting = false;
 
 const rendererPath = path.join(__dirname, "..", "renderer", "index.html");
@@ -27,6 +28,10 @@ const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
 const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
 const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
 const NOTIFICATION_TOOLTIP_SIZE = { width: 300, height: 216 };
+// Tooltip content is transient. Releasing the renderer after a short idle
+// period prevents a long-lived hidden Chromium renderer from retaining image,
+// canvas, and document resources for the whole application lifetime.
+const TOOLTIP_IDLE_DESTROY_MS = 15_000;
 let floatingPinned = false;
 let floatingDocked = false;
 let floatingRestoreBounds = null;
@@ -319,8 +324,27 @@ function createTooltipWindow() {
   const createdWindow = tooltipWindow;
   tooltipWindow.on("closed", () => {
     if (tooltipWindow === createdWindow) tooltipWindow = null;
+    if (tooltipDestroyTimer) {
+      clearTimeout(tooltipDestroyTimer);
+      tooltipDestroyTimer = null;
+    }
   });
   return tooltipWindow;
+}
+
+function destroyTooltipWindow() {
+  if (tooltipDestroyTimer) {
+    clearTimeout(tooltipDestroyTimer);
+    tooltipDestroyTimer = null;
+  }
+  const windowToDestroy = tooltipWindow;
+  tooltipWindow = null;
+  if (!isLiveNativeSurface(windowToDestroy)) return;
+  if (typeof windowToDestroy.destroy === "function") {
+    windowToDestroy.destroy();
+  } else {
+    windowToDestroy.close?.();
+  }
 }
 
 function showTooltipWindow({ anchor, data }) {
@@ -329,6 +353,10 @@ function showTooltipWindow({ anchor, data }) {
   }
 
   tooltipVisible = true;
+  if (tooltipDestroyTimer) {
+    clearTimeout(tooltipDestroyTimer);
+    tooltipDestroyTimer = null;
+  }
   const window = createTooltipWindow();
   const floatingBounds = floatingWindow && !floatingWindow.isDestroyed()
     ? floatingWindow.getBounds()
@@ -399,7 +427,14 @@ function showTooltipWindow({ anchor, data }) {
 
 function hideTooltipWindow() {
   tooltipVisible = false;
-  tooltipWindow?.hide();
+  const windowToHide = tooltipWindow;
+  windowToHide?.hide();
+  if (!windowToHide || tooltipDestroyTimer) return;
+  tooltipDestroyTimer = setTimeout(() => {
+    tooltipDestroyTimer = null;
+    if (!tooltipVisible) destroyTooltipWindow();
+  }, TOOLTIP_IDLE_DESTROY_MS);
+  tooltipDestroyTimer.unref?.();
 }
 
 function createMainWindow(initialTheme = "dark") {

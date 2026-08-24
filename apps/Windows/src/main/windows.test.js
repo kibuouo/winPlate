@@ -201,3 +201,10 @@ test("floating capsule stays at status z-order and does not raise on a timer", (
   assert.equal(tooltip.alwaysOnTopCalls.at(-1)?.level, "status");
   assert.equal(tooltip.alwaysOnTopCalls.at(-1)?.relativeLevel, 2);
 });
+
+test("tooltip renderer is configured for idle eviction", () => {
+  const source = fs.readFileSync(path.join(__dirname, "windows.js"), "utf8");
+  assert.match(source, /const TOOLTIP_IDLE_DESTROY_MS = 15_000/);
+  assert.match(source, /tooltipDestroyTimer = setTimeout\(\(\) =>/);
+  assert.match(source, /if \(!tooltipVisible\) destroyTooltipWindow\(\)/);
+});
