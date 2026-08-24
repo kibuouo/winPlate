@@ -31,6 +31,7 @@
     },
     "files": [
       "src/**/*",
+      "!src/**/*.test.js",
       "assets/**/*",
       "package.json"
     ],
@@ -67,7 +68,6 @@
   "dependencies": {
     "@winplate/core": "0.3.0",
     "@winplate/icons": "0.3.0",
-    "qweather-icons": "^1.8.0",
     "strip-ansi": "^6.0.1"
   },
   "devDependencies": {

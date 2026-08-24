@@ -11,7 +11,7 @@ independent while sharing product rules and one loopback-only local API.
 | [`apps/macOS/WinPlate`](apps/macOS/WinPlate) | Native SwiftUI/AppKit macOS client |
 | [`backend/local-api`](backend/local-api) | FastAPI, SQLite, mail, weather, GitHub, and network boundary |
 | [`packages`](packages) | Shared deterministic rules, types, and icons |
-| [`docs`](docs) | Architecture, product decisions, and verification evidence |
+| [`docs`](docs) | Architecture and product decisions |
 
 ## Common commands
 
