@@ -3751,13 +3751,13 @@ function dashboardGithubCard() {
     </article>`;
 }
 
-function dashboardCodexRow(title, data, { icon = "" } = {}) {
+function dashboardCodexRow(title, data, { icon = "", period = "", nested = false } = {}) {
   const percentage = normalizePercent(data?.remainingPct);
   const resetText = data?.resetText ? `Resets in ${String(data.resetText).replace(/^in\s+/i, "")}` : "Reset unavailable";
   return `
-    <div class="dashboard-codex-window">
+    <div class="dashboard-codex-window${nested ? " dashboard-codex-window-nested" : ""}">
       <div class="dashboard-codex-window-head">
-        <span class="dashboard-codex-window-title">${icon}<span>${title}</span></span>
+        <span class="dashboard-codex-window-title">${icon}<span>${title}</span>${period ? `<em>${period}</em>` : ""}</span>
         <strong>${percentage ?? "--"}%</strong>
       </div>
       <small>${resetText}</small>
@@ -3808,17 +3808,20 @@ function dashboardCodexCard() {
   const sevenDay = windows.sevenDay
     || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
   const supergrok = statusData.supergrok || mockStatus.supergrok;
-  // Overview only: icon + service-health pill (no Agent title).
   return `
     <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${dashboardCardNavigationAttributes("codex")} ${moduleHealthAttributes("codex")}>
-      <div class="dashboard-card-heading">
-        <div class="card-icon codex-card-icon">${openaiBrandIcon}</div>
-        ${serviceHealthBadge(dashboardServiceHealthKind("codex"))}
-      </div>
       <div class="dashboard-codex-windows">
-        ${fiveHour ? dashboardCodexRow("ChatGPT · 5 小时", fiveHour, { icon: openaiBrandIcon }) : ""}
-        ${sevenDay ? dashboardCodexRow("ChatGPT · 7 天", sevenDay, { icon: openaiBrandIcon }) : dashboardCodexRow("ChatGPT · 7 天", {}, { icon: openaiBrandIcon })}
-        ${dashboardCodexRow("SuperGrok · 7 天", supergrok, { icon: grokBrandIcon })}
+        <section class="dashboard-codex-service dashboard-codex-chatgpt-service" aria-label="ChatGPT 用量">
+          <div class="dashboard-codex-service-head">
+            <span class="dashboard-codex-service-title">${openaiBrandIcon}<strong>ChatGPT</strong></span>
+            ${serviceHealthBadge(dashboardServiceHealthKind("codex"))}
+          </div>
+          <div class="dashboard-codex-window-list">
+            ${fiveHour ? dashboardCodexRow("5 小时", fiveHour, { nested: true }) : ""}
+            ${sevenDay ? dashboardCodexRow("7 天", sevenDay, { nested: true }) : dashboardCodexRow("7 天", {}, { nested: true })}
+          </div>
+        </section>
+        ${dashboardCodexRow("SuperGrok", supergrok, { icon: grokBrandIcon, period: "7 天" })}
         ${dashboardDeepSeekBalanceColumn()}
       </div>
     </article>`;

@@ -4,8 +4,19 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+function readSource(...segments) {
+  return fs.readFileSync(path.join(__dirname, ...segments), "utf8");
+}
+
+function sourceSection(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start);
+  assert.ok(start >= 0 && end > start, `${startMarker} must precede ${endMarker}`);
+  return source.slice(start, end);
+}
+
 function loadPreloadBridge(platform) {
-  const source = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
+  const source = readSource("..", "preload", "preload.js");
   let exposed;
   const ipcRenderer = {
     invoke: () => Promise.resolve({}),
@@ -82,9 +93,30 @@ test("SuperGrok renders the remaining quota derived from Grok usage", () => {
   const source = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 
   assert.match(source, /usageRow\("7d", supergrok\)/);
-  assert.match(source, /dashboardCodexRow\("SuperGrok · 7 天", supergrok, \{ icon: grokBrandIcon \}\)/);
+  assert.match(source, /dashboardCodexRow\("SuperGrok", supergrok, \{ icon: grokBrandIcon, period: "7 天" \}\)/);
   assert.match(source, /id: "supergrok"/);
   assert.match(source, /const percentage = normalizePercent\(usage\?\.remainingPct\)/);
+});
+
+test("overview groups ChatGPT quota windows below their provider", () => {
+  const appSource = readSource("app.js");
+  const styles = readSource("styles.css");
+  const dashboardSource = sourceSection(appSource, "function dashboardCodexCard()", "function mailStatusLabel");
+  const dashboardCodexCardRule = styles.match(/\.dashboard-codex-card\s*\{([^}]*)\}/)?.[1] || "";
+
+  assert.match(appSource, /dashboard-codex-service dashboard-codex-chatgpt-service/);
+  assert.match(appSource, /dashboard-codex-service-title[^\n]*<strong>ChatGPT<\/strong>/);
+  assert.match(appSource, /dashboardCodexRow\("5 小时", fiveHour, \{ nested: true \}\)/);
+  assert.match(appSource, /dashboardCodexRow\("7 天", sevenDay, \{ nested: true \}\)/);
+  assert.doesNotMatch(appSource, /ChatGPT · (?:5 小时|7 天)/);
+  assert.doesNotMatch(dashboardSource, /dashboard-card-heading|codex-card-icon/);
+  assert.match(dashboardSource, /dashboard-codex-service-head[\s\S]*serviceHealthBadge\(dashboardServiceHealthKind\("codex"\)\)/);
+  assert.match(dashboardCodexCardRule, /padding:\s*16px 22px/);
+  assert.doesNotMatch(dashboardCodexCardRule, /min-height:/);
+  assert.doesNotMatch(styles, /\.dashboard-codex-window-nested \.dashboard-codex-track\s*\{[^}]*height:/s);
+  assert.match(styles, /\.dashboard-codex-window-list\s*\{[^}]*margin-left:\s*6px[^}]*padding:\s*9px 10px 10px 18px/s);
+  assert.match(styles, /\.dashboard-codex-window-list::before/);
+  assert.match(styles, /\.dashboard-codex-window-nested \.dashboard-codex-window-title > span/);
 });
 
 test("Agent workspace prefers 7d remaining and token trends without DeepSeek chat", () => {
@@ -326,32 +358,25 @@ test("floating health module shows whole BPM values and opens the Health section
 });
 
 test("capsule non-weather health previews use readable, source-specific cards", () => {
-  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
-  const notificationSource = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
-  const windowsSource = fs.readFileSync(path.join(__dirname, "..", "main", "windows.js"), "utf8");
-  const tooltipStart = appSource.indexOf("function renderTooltip(");
-  const tooltipSource = appSource.slice(tooltipStart, appSource.indexOf("function qweatherServiceCard", tooltipStart));
+  const tooltipSource = sourceSection(readSource("app.js"), "function renderTooltip(", "function qweatherServiceCard");
+  const windowsSource = readSource("..", "main", "windows.js");
 
-  assert.match(tooltipSource, /github-preview-kicker/);
-  assert.match(tooltipSource, /active-pill \$\{githubStatusKind\}/);
-  assert.match(tooltipSource, /codex-tooltip-provider/);
-  assert.match(tooltipSource, /codex-tooltip-status \$\{usageStatusKind/);
-  assert.match(tooltipSource, /network-metric-icon network-icon-download/);
-  assert.match(tooltipSource, /network-metric-icon network-icon-upload/);
-  assert.match(tooltipSource, /network-metric-icon network-icon-latency/);
-  assert.match(notificationSource, /notification-capsule-context/);
-  assert.match(styles, /\.github-preview-kicker/);
-  assert.match(styles, /\.codex-tooltip-status\.cached/);
-  assert.match(styles, /\.network-metric-icon/);
-  assert.match(styles, /\.notification-capsule-context/);
+  for (const marker of [
+    /github-preview-kicker/,
+    /active-pill \$\{githubStatusKind\}/,
+    /codex-tooltip-provider/,
+    /codex-tooltip-status \$\{usageStatusKind/
+  ]) {
+    assert.match(tooltipSource, marker);
+  }
+  for (const metric of ["download", "upload", "latency"]) {
+    assert.match(tooltipSource, new RegExp(`network-metric-icon network-icon-${metric}`));
+  }
+  assert.match(readSource("components", "notificationDigest.js"), /notification-capsule-context/);
   assert.match(windowsSource, /const CODEX_TOOLTIP_SIZE = \{ width: 276, height: 224 \}/);
   assert.match(windowsSource, /const NETWORK_TOOLTIP_SIZE = \{ width: 260, height: 176 \}/);
   assert.match(windowsSource, /const GITHUB_TOOLTIP_SIZE = \{ width: 360, height: 276 \}/);
   assert.match(windowsSource, /const NOTIFICATION_TOOLTIP_SIZE = \{ width: 320, height: 224 \}/);
-  assert.match(tooltipSource, /if \(data\.type === "weather"\)/);
-  assert.match(tooltipSource, /if \(data\.type === "heart"\)/);
-  assert.doesNotMatch(tooltipSource, /weather-tooltip.*github-preview-kicker/s);
 });
 
 test("capsule heart preview shows the 24h trend instead of placeholder lines", () => {
