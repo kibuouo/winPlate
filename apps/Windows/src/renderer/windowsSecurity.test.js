@@ -595,6 +595,27 @@ test("Windows health configuration lives in settings while the health workspace 
   assert.match(styles, /\.health-heart-rate-summary\s*\{/);
 });
 
+test("overview health preview uses real heart history and separates metrics from sync metadata", () => {
+  const appSource = readSource("app.js");
+  const styles = readSource("styles.css");
+  const overviewSource = sourceSection(appSource, "function healthOverviewTrend()", "function healthPairingHostLabel");
+
+  assert.match(overviewSource, /healthHeartRateSamples\("day"\)/);
+  assert.match(overviewSource, /heartTooltipChartSvg\(samples\)/);
+  assert.match(overviewSource, /24 小时趋势/);
+  assert.match(overviewSource, /正在积累趋势数据/);
+  assert.match(overviewSource, /iPhone HealthKit/);
+  assert.match(overviewSource, /health-overview-vital/);
+  assert.match(overviewSource, /health-overview-metric-blue/);
+  assert.match(overviewSource, /health-overview-metric-orange/);
+  assert.match(overviewSource, /health-overview-sync/);
+  assert.doesNotMatch(overviewSource, /health-overview-primary/);
+  assert.match(styles, /\.health-overview-body\s*\{[^}]*grid-template-columns:/s);
+  assert.match(styles, /\.health-overview-trend \.heart-tooltip-sparkline\s*\{/);
+  assert.match(styles, /\.health-overview-metrics\s*\{[^}]*grid-template-columns:/s);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.health-overview-body\s*\{\s*grid-template-columns:\s*1fr;/);
+});
+
 test("health display helpers preserve empty values and use Chinese sync labels", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const helperStart = appSource.indexOf("function healthHistoryApi");

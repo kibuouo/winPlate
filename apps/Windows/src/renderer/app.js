@@ -3308,26 +3308,53 @@ function qweatherServiceCard(official, failures, { interactive = false } = {}) {
     </article>`;
 }
 
+function healthOverviewTrend() {
+  const samples = downsampleHeartRateSamples(healthHeartRateSamples("day"), 32);
+  const stats = healthHeartRateStats(samples);
+  const chart = samples.length ? heartTooltipChartSvg(samples) : "";
+  return `
+    <section class="health-overview-trend${chart ? "" : " is-empty"}" aria-label="近 24 小时心率趋势">
+      <div class="health-overview-trend-heading">
+        <span>24 小时趋势</span>
+        ${stats ? `<small>平均 ${healthMetric(stats.average)} BPM</small>` : ""}
+      </div>
+      ${chart || `<div class="health-overview-trend-empty"><span aria-hidden="true">⌁</span><small>正在积累趋势数据</small></div>`}
+    </section>`;
+}
+
 function heartCard({ interactive = false } = {}) {
   const heart = statusData.heart || mockStatus.heart;
   return `
     <article class="dashboard-card heart-card health-overview-card" data-module-id="heart" ${interactive ? dashboardCardNavigationAttributes("heart") : ""} ${moduleHealthAttributes("heart")}>
-      <div class="dashboard-card-heading">
-        <div class="card-icon">♥</div>
-        ${healthStatusBadge()}
-      </div>
-      <div class="health-overview-primary">
-        <strong>${healthMetric(heart.heartRate)}</strong>
-        <div>
-          <span>最近心率</span>
-          <small>${escapeHtml(healthSnapshotSubtitle())}</small>
+      <header class="health-overview-heading">
+        <div class="health-overview-title">
+          <span class="health-overview-icon" aria-hidden="true">${healthMetricIcons.heart}</span>
+          <div><strong>健康</strong><small>iPhone HealthKit</small></div>
         </div>
+        ${healthStatusBadge()}
+      </header>
+      <div class="health-overview-body">
+        <section class="health-overview-vital" aria-label="最近心率">
+          <span>最近心率</span>
+          <div class="health-overview-reading"><strong>${healthMetric(heart.heartRate)}</strong><em>BPM</em></div>
+          <small>${escapeHtml(healthSnapshotSubtitle())}</small>
+        </section>
+        ${healthOverviewTrend()}
       </div>
-      <div class="health-overview-metrics">
-        <div><strong>${healthMetric(heart.stepCount)}</strong><span>今日步数</span></div>
-        <div><strong>${healthMetric(heart.activeEnergy)}</strong><span>活动千卡</span></div>
-        <div><strong>${escapeHtml(healthLastReceivedLabel())}</strong><span>同步</span></div>
-      </div>
+      <footer class="health-overview-metrics">
+        <div class="health-overview-metric health-overview-metric-blue">
+          <span class="health-overview-metric-icon" aria-hidden="true">${healthMetricIcons.steps}</span>
+          <div><span>今日步数</span><strong>${healthMetric(heart.stepCount)} <em>步</em></strong></div>
+        </div>
+        <div class="health-overview-metric health-overview-metric-orange">
+          <span class="health-overview-metric-icon" aria-hidden="true">${healthMetricIcons.energy}</span>
+          <div><span>活动能量</span><strong>${healthMetric(heart.activeEnergy)} <em>千卡</em></strong></div>
+        </div>
+        <div class="health-overview-sync">
+          <span>最近同步</span>
+          <strong>${escapeHtml(healthLastReceivedLabel())}</strong>
+        </div>
+      </footer>
     </article>`;
 }
 
