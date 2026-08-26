@@ -325,6 +325,35 @@ test("floating health module shows whole BPM values and opens the Health section
   assert.doesNotMatch(renderSource, /type: "heart",\s*lines:/);
 });
 
+test("capsule non-weather health previews use readable, source-specific cards", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const notificationSource = fs.readFileSync(path.join(__dirname, "components", "notificationDigest.js"), "utf8");
+  const windowsSource = fs.readFileSync(path.join(__dirname, "..", "main", "windows.js"), "utf8");
+  const tooltipStart = appSource.indexOf("function renderTooltip(");
+  const tooltipSource = appSource.slice(tooltipStart, appSource.indexOf("function qweatherServiceCard", tooltipStart));
+
+  assert.match(tooltipSource, /github-preview-kicker/);
+  assert.match(tooltipSource, /active-pill \$\{githubStatusKind\}/);
+  assert.match(tooltipSource, /codex-tooltip-provider/);
+  assert.match(tooltipSource, /codex-tooltip-status \$\{usageStatusKind/);
+  assert.match(tooltipSource, /network-metric-icon network-icon-download/);
+  assert.match(tooltipSource, /network-metric-icon network-icon-upload/);
+  assert.match(tooltipSource, /network-metric-icon network-icon-latency/);
+  assert.match(notificationSource, /notification-capsule-context/);
+  assert.match(styles, /\.github-preview-kicker/);
+  assert.match(styles, /\.codex-tooltip-status\.cached/);
+  assert.match(styles, /\.network-metric-icon/);
+  assert.match(styles, /\.notification-capsule-context/);
+  assert.match(windowsSource, /const CODEX_TOOLTIP_SIZE = \{ width: 276, height: 224 \}/);
+  assert.match(windowsSource, /const NETWORK_TOOLTIP_SIZE = \{ width: 260, height: 176 \}/);
+  assert.match(windowsSource, /const GITHUB_TOOLTIP_SIZE = \{ width: 360, height: 276 \}/);
+  assert.match(windowsSource, /const NOTIFICATION_TOOLTIP_SIZE = \{ width: 320, height: 224 \}/);
+  assert.match(tooltipSource, /if \(data\.type === "weather"\)/);
+  assert.match(tooltipSource, /if \(data\.type === "heart"\)/);
+  assert.doesNotMatch(tooltipSource, /weather-tooltip.*github-preview-kicker/s);
+});
+
 test("capsule heart preview shows the 24h trend instead of placeholder lines", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");

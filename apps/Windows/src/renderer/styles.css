@@ -3453,7 +3453,8 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
 .network-tooltip {
   width: 100%;
   height: 100%;
-  padding: 16px 18px;
+  box-sizing: border-box;
+  padding: 15px 16px;
   color: #f4f4f5;
   background: rgba(24, 24, 27, .94);
   border: 1px solid rgba(255, 255, 255, .08);
@@ -3467,10 +3468,31 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
-  font-size: 14px;
+  gap: 12px;
+  margin-bottom: 13px;
+  font-size: 13px;
   font-weight: 600;
   color: #e4e4e7;
+}
+
+.network-tooltip-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.network-tooltip-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: #7dd3fc;
+  border: 1px solid rgba(125, 211, 252, .18);
+  border-radius: 8px;
+  background: rgba(14, 165, 233, .10);
+  font-size: 16px;
+  line-height: 1;
 }
 
 .network-status {
@@ -3506,12 +3528,29 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
 
 .network-row {
   display: grid;
-  grid-template-columns: 22px 76px 1fr;
+  grid-template-columns: 24px 76px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  height: 28px;
+  min-height: 30px;
   font-size: 14px;
 }
+
+.network-metric-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .045);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.network-icon-download { color: #7dd3fc; }
+.network-icon-upload { color: #c4b5fd; }
+.network-icon-latency { color: #a1a1aa; }
 
 .network-label {
   color: #a1a1aa;
@@ -3801,6 +3840,24 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   font-weight: 650;
   letter-spacing: .02em;
 }
+.notification-capsule-context {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-capsule-footer-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #a1a1aa;
+}
+.notification-capsule-footer-action b {
+  color: #d4d4d8;
+  font-size: 13px;
+  line-height: 1;
+}
 .notifications-tooltip-list {
   min-height: 0;
   display: grid;
@@ -4047,12 +4104,55 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   margin-bottom: 12px;
 }
 
+.codex-tooltip-provider {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.codex-tooltip-provider .agent-brand-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  opacity: .9;
+}
+
+.codex-tooltip-provider strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-tooltip-status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  color: #a7f3d0;
+  border: 1px solid rgba(52, 211, 153, .18);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, .08);
+  font-size: 10px;
+}
+.codex-tooltip-status.live { color: #a7f3d0; }
+.codex-tooltip-status.cached {
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, .20);
+  background: rgba(250, 204, 21, .08);
+}
+.codex-tooltip-status.error,
+.codex-tooltip-status.unconfigured {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, .20);
+  background: rgba(248, 113, 113, .08);
+}
+
 .codex-tooltip header strong {
   font-size: 13px;
   letter-spacing: -.01em;
 }
 
-.codex-tooltip header span {
+.codex-tooltip header > span:not(.codex-tooltip-provider) {
   color: #a1a1aa;
   font-size: 11px;
 }
@@ -4161,9 +4261,10 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   border: 1px solid rgba(255,255,255,.5);
 }
 .github-avatar-preview .avatar-fallback { font-size: 13px; }
-.github-identity { min-width: 0; display: grid; gap: 1px; }
-.github-identity strong { font-size: 13px; line-height: 1.2; }
-.github-identity span { color: #a1a1aa; font-size: 10px; }
+.github-identity { min-width: 0; display: grid; gap: 2px; }
+.github-preview-kicker { color: #93c5fd; font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.github-identity strong { overflow: hidden; font-size: 13px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.github-identity > span:last-child { overflow: hidden; color: #a1a1aa; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .active-pill {
   margin-left: auto;
   padding: 4px 8px;
@@ -4173,6 +4274,16 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   background: rgba(16,185,129,.1);
   font-size: 9px;
   font-weight: 750;
+}
+.active-pill.cached {
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, .20);
+  background: rgba(250, 204, 21, .08);
+}
+.active-pill.error {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, .20);
+  background: rgba(248, 113, 113, .08);
 }
 .github-preview-stats {
   display: grid;
@@ -4212,6 +4323,7 @@ html[data-theme="light"] .supergrok-usage-panel .usage-window-card {
   font-size: 10px;
 }
 .github-repository strong { margin-right: auto; display: flex; align-items: center; gap: 7px; }
+.github-repository-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .github-repository strong svg, .repository-stars svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .github-repository span { display: flex; align-items: center; gap: 4px; color: #a1a1aa; }
 .github-repository i { width: 7px; height: 7px; border-radius: 50%; background: #d4d4d8; }

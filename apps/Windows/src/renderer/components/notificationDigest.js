@@ -154,6 +154,18 @@
       ? `<ul class="notification-capsule-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
       : `<p class="notification-capsule-empty">${escapeHtml(value.summary || "当前没有需要关注的新通知。")}</p>`;
     const unreadLabel = value.unreadCount > 99 ? "99+" : String(value.unreadCount);
+    const sourceLabel = {
+      codex: "Codex",
+      chatgpt: "ChatGPT",
+      mail: "QQ 邮箱",
+      qweather: "QWeather"
+    }[value.source] || "WinPlate";
+    const groupCount = value.groups.reduce((total, group) => total + Math.max(0, Number(group?.count) || 0), 0);
+    const contextLabel = value.unreadCount
+      ? `${sourceLabel} · ${unreadLabel} 条未读`
+      : groupCount
+        ? `${sourceLabel} · ${groupCount} 条更新`
+        : `${sourceLabel} · 刚刚同步`;
     const alertColorClass = value.alertColor ? ` alert-color-${value.alertColor}` : "";
     return `
       <article class="notification-capsule-card severity-${escapeHtml(value.severity)}${alertColorClass}" role="tooltip" aria-label="通知预览">
@@ -172,8 +184,8 @@
         <h2 class="notification-capsule-title">${escapeHtml(value.headline)}</h2>
         <div class="notification-capsule-body">${body}</div>
         <footer class="notification-capsule-footer">
-          <span>打开通知中心</span>
-          <span aria-hidden="true">→</span>
+          <span class="notification-capsule-context">${escapeHtml(contextLabel)}</span>
+          <span class="notification-capsule-footer-action">打开通知中心 <b aria-hidden="true">→</b></span>
         </footer>
       </article>`;
   }

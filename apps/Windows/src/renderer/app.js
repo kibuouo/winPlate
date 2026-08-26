@@ -1992,7 +1992,7 @@ function avatarMarkup(github, className = "") {
   return `
     <span class="github-avatar ${className}" data-avatar>
       <span class="avatar-fallback" aria-hidden="true">K</span>
-      <img src="${github.avatarUrl || ""}" alt="${github.name || "GitHub"} avatar">
+      <img src="${escapeHtml(github.avatarUrl || "")}" alt="${escapeHtml(github.name || "GitHub")} avatar">
     </span>`;
 }
 
@@ -3069,8 +3069,13 @@ function renderTooltip(data = {}) {
   document.body.className = "tooltip-body";
   if (data.type === "github") {
     const github = { ...mockStatus.github, ...data.github };
+    const githubStatusKind = String(github.status || "").toLowerCase().includes("cache")
+      ? "cached"
+      : String(github.status || "").toLowerCase() === "live"
+        ? "live"
+        : "error";
     const stateNotice = github.stateMessage
-      ? `<div class="github-preview-state">${github.stateMessage}</div>`
+      ? `<div class="github-preview-state">${escapeHtml(github.stateMessage)}</div>`
       : "";
     appRoot.innerHTML = `
       <article class="github-hover-card" role="tooltip" aria-label="GitHub profile preview">
@@ -3078,32 +3083,33 @@ function renderTooltip(data = {}) {
         <header class="github-preview-head">
           ${avatarMarkup(github, "github-avatar-preview")}
           <div class="github-identity">
-            <strong>${github.name}</strong>
-            <span>${github.username}</span>
+            <span class="github-preview-kicker">GitHub 个人概览</span>
+            <strong>${escapeHtml(github.name || "GitHub")}</strong>
+            <span>@${escapeHtml(String(github.username || "未配置").replace(/^@+/, ""))}</span>
           </div>
-          <span class="active-pill">${githubStatusLabel(github.status)}</span>
+          <span class="active-pill ${githubStatusKind}">${escapeHtml(githubStatusLabel(github.status))}</span>
         </header>
         <div class="github-preview-stats">
-          <div><span>${previewIcons.repos} Repos</span><strong>${github.repos}</strong></div>
-          <div><span>${previewIcons.commits} Contributions</span><strong>${github.commitsThisMonth}</strong><small>This month</small></div>
-          <div><span>${previewIcons.streak} Streak</span><strong>${github.streakDays}</strong><small>days</small></div>
+          <div><span>${previewIcons.repos} 仓库</span><strong>${escapeHtml(github.repos)}</strong><small>公开项目</small></div>
+          <div><span>${previewIcons.commits} 贡献</span><strong>${escapeHtml(github.commitsThisMonth)}</strong><small>本月</small></div>
+          <div><span>${previewIcons.streak} 连续</span><strong>${escapeHtml(github.streakDays)}</strong><small>天</small></div>
         </div>
         <section class="contribution-section">
           <div class="contribution-heading">
-            <strong>Last 30 days</strong>
-            <span class="contribution-month">${github.contributionMonth || ""}</span>
+            <strong>最近 30 天</strong>
+            <span class="contribution-month">${escapeHtml(github.contributionMonth || "")}</span>
           </div>
           <div class="contribution-grid" aria-hidden="true">${contributionGrid(github.contributions30d)}</div>
           <div class="contribution-legend">
-            <span>Less</span>
+            <span>少</span>
             ${[0, 1, 2, 3, 4].map((level) => `<i class="contribution-cell level-${level}"></i>`).join("")}
-            <span>More</span>
+            <span>多</span>
           </div>
         </section>
         <footer class="github-repository">
-          <strong>${previewIcons.repository}${github.project}</strong>
-          <span><i></i>${github.language}</span>
-          <span class="repository-stars" aria-label="${github.stars} stars">${previewIcons.star}${github.stars}</span>
+          <strong>${previewIcons.repository}<span class="github-repository-name">${escapeHtml(github.project || "暂无公开仓库")}</span></strong>
+          <span><i></i>${escapeHtml(github.language || "未知语言")}</span>
+          <span class="repository-stars" aria-label="${escapeHtml(github.stars)} stars">${previewIcons.star}${escapeHtml(github.stars)}</span>
         </footer>
       </article>`;
     bindAvatarFallbacks(appRoot);
@@ -3122,6 +3128,12 @@ function renderTooltip(data = {}) {
       if (status === "Unavailable") return "不可用";
       return status || "不可用";
     };
+    const usageStatusKind = (status) => {
+      if (status === "Normal") return "live";
+      if (status === "Cached") return "cached";
+      if (status === "Unconfigured") return "unconfigured";
+      return "error";
+    };
     const usageRow = (title, usage) => {
       const percentage = normalizePercent(usage?.remainingPct);
       if (percentage === null) return "";
@@ -3133,7 +3145,7 @@ function renderTooltip(data = {}) {
           <div class="compact-bar" aria-hidden="true">
             <span data-progress-value="${percentage}"></span>
           </div>
-          <span class="compact-reset">${usage?.resetText || "--"}</span>
+          <span class="compact-reset" title="${escapeHtml(usage?.resetText || "重置时间未知")}">${escapeHtml(usage?.resetText || "--")}</span>
         </div>`;
     };
     const balances = Array.isArray(deepseek.balances) ? deepseek.balances : [];
@@ -3152,8 +3164,11 @@ function renderTooltip(data = {}) {
       <article class="codex-tooltip placement-${data.placement || "above"}" role="tooltip" aria-label="Agent 用量预览">
         <section class="codex-tooltip-block">
           <header>
-            <strong>Codex</strong>
-            <span>${usageStatusLabel(data.status)}</span>
+            <span class="codex-tooltip-provider">
+              ${openaiBrandIcon}
+              <strong>Codex</strong>
+            </span>
+            <span class="codex-tooltip-status ${usageStatusKind(data.status)}">${escapeHtml(usageStatusLabel(data.status))}</span>
           </header>
           <div class="codex-tooltip-rows">
             ${usageRow("5h", fiveHour)}
@@ -3162,8 +3177,11 @@ function renderTooltip(data = {}) {
         </section>
         <section class="codex-tooltip-block">
           <header>
-            <strong>SuperGrok</strong>
-            <span>${usageStatusLabel(supergrok.status)}</span>
+            <span class="codex-tooltip-provider">
+              ${grokBrandIcon}
+              <strong>SuperGrok</strong>
+            </span>
+            <span class="codex-tooltip-status ${usageStatusKind(supergrok.status)}">${escapeHtml(usageStatusLabel(supergrok.status))}</span>
           </header>
           <div class="codex-tooltip-rows">
             ${usageRow("7d", supergrok)}
@@ -3171,7 +3189,10 @@ function renderTooltip(data = {}) {
         </section>
         <section class="codex-tooltip-block codex-tooltip-deepseek">
           <header>
-            <strong>DeepSeek</strong>
+            <span class="codex-tooltip-provider">
+              ${deepseekBrandIcon}
+              <strong>DeepSeek</strong>
+            </span>
             <span class="codex-tooltip-status-inline">
               <b>${escapeHtml(deepseekAmount)}</b>
               <i>${escapeHtml(deepseekStatus)}</i>
@@ -3232,24 +3253,24 @@ function renderTooltip(data = {}) {
     appRoot.innerHTML = `
       <article class="network-tooltip" role="tooltip" aria-label="网络状态">
         <header class="network-tooltip-header">
-          <span class="network-label">网络状态</span>
+          <span class="network-tooltip-title"><span class="network-tooltip-icon" aria-hidden="true">⌁</span><strong>网络状态</strong></span>
           <span class="network-status ${statusKind}">
             <i class="network-status-dot" aria-hidden="true"></i>
             <strong>${escapeHtml(data.status || "获取失败")}</strong>
           </span>
         </header>
         <div class="network-row">
-          <span class="network-icon-download">↓</span>
+          <span class="network-metric-icon network-icon-download" aria-hidden="true">↓</span>
           <span class="network-label">下载速度</span>
           <strong class="network-value network-value-download">${escapeHtml(data.download || "---")}</strong>
         </div>
         <div class="network-row">
-          <span class="network-icon-upload">↑</span>
+          <span class="network-metric-icon network-icon-upload" aria-hidden="true">↑</span>
           <span class="network-label">上传速度</span>
           <strong class="network-value network-value-upload">${escapeHtml(data.upload || "---")}</strong>
         </div>
         <div class="network-row">
-          <span class="network-icon-latency">◌</span>
+          <span class="network-metric-icon network-icon-latency" aria-hidden="true">◌</span>
           <span class="network-label">延迟</span>
           <strong class="network-value network-value-latency">${escapeHtml(data.latency || "---")}</strong>
         </div>

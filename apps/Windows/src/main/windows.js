@@ -22,13 +22,13 @@ const FLOATING_DOCK_THRESHOLD = 18;
 const FLOATING_RESTORE_HITBOX = { right: 10, top: 6, width: 32, height: 32 };
 // status stays above normal windows without covering IME or restacking input.
 const FLOATING_TOPMOST_LEVEL = "status";
-// Taller to fit peer Codex + SuperGrok sections without clipping.
-const CODEX_TOOLTIP_SIZE = { width: 248, height: 196 };
+// Give the non-weather/health previews enough room for their readable metric rows.
+const CODEX_TOOLTIP_SIZE = { width: 276, height: 224 };
 const SYSTEM_TOOLTIP_SIZE = { width: 200, height: 96 };
-const NETWORK_TOOLTIP_SIZE = { width: 244, height: 160 };
+const NETWORK_TOOLTIP_SIZE = { width: 260, height: 176 };
 const HEART_TOOLTIP_SIZE = { width: 252, height: 196 };
-const GITHUB_TOOLTIP_SIZE = { width: 340, height: 264 };
-const NOTIFICATION_TOOLTIP_SIZE = { width: 300, height: 216 };
+const GITHUB_TOOLTIP_SIZE = { width: 360, height: 276 };
+const NOTIFICATION_TOOLTIP_SIZE = { width: 320, height: 224 };
 const TOOLTIP_SIZES = {
   github: GITHUB_TOOLTIP_SIZE,
   codex: CODEX_TOOLTIP_SIZE,
