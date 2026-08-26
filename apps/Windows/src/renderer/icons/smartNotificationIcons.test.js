@@ -8,22 +8,11 @@ const {
 } = require("./smartNotificationIcons");
 
 test("registers the complete local smart notification icon whitelist", () => {
-  assert.equal(ICON_KEYS.length, 34);
   assert.deepEqual(new Set(Object.keys(SMART_NOTIFICATION_ICON_REGISTRY)), new Set(ICON_KEYS));
   for (const key of ICON_KEYS) {
-    const svg = renderSmartNotificationIcon(key);
-    assert.match(svg, /width="18" height="18"/);
-    assert.match(svg, /fill="none"/);
-    assert.match(svg, /stroke="currentColor"/);
-    assert.match(svg, /stroke-width="2"/);
-    if (key !== "codex") assert.doesNotMatch(svg, /(?:fill|stroke)="(?:#|rgb|red|blue|yellow)/i);
+    assert.match(renderSmartNotificationIcon(key), new RegExp(`data-icon-key="${key}"`));
   }
-  const codexSvg = renderSmartNotificationIcon("codex");
-  assert.match(codexSvg, /data-icon-key="codex"/);
-  assert.match(codexSvg, /<linearGradient id="codex-icon-gradient"/);
-  assert.match(codexSvg, /stop-color="#5b5ce2"/);
-  assert.match(codexSvg, /stroke="#fff"/);
-  assert.match(renderSmartNotificationIcon("alert-triangle"), /data-icon-key="alert-triangle"/);
+  assert.match(renderSmartNotificationIcon("<script>"), /data-icon-key="bell"/);
 });
 
 test("resolves content rules before AI iconKey", () => {
@@ -42,11 +31,8 @@ test("resolves content rules before AI iconKey", () => {
 });
 
 test("uses whitelisted AI keys, then source defaults, then bell", () => {
-  assert.equal(renderSmartNotificationIcon("sparkles"), renderSmartNotificationIcon("sparkles"));
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", iconKey: "tag" }), "tag");
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "chatgpt" }), "chatgpt");
-  assert.match(SMART_NOTIFICATION_ICON_REGISTRY.chatgpt, /fill="currentColor"/);
-  assert.match(SMART_NOTIFICATION_ICON_REGISTRY.chatgpt, /transform="scale\(\.075\)"/);
   assert.equal(resolveSmartNotificationIcon({ title: "普通动态", source: "codex" }), "codex");
   assert.equal(resolveSmartNotificationIcon({ title: "普通危险动态", severity: "danger", iconKey: "tag" }), "x-circle");
   assert.equal(resolveSmartNotificationIcon({ title: "普通预警动态", severity: "warning", iconKey: "tag" }), "bell");

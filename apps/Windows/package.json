@@ -15,12 +15,11 @@
     "dev": "cross-env FORCE_COLOR=1 electron .",
     "electron": "electron .",
     "dist": "electron-builder --win nsis --x64 --publish never",
-    "precheck": "node --check src/main/activationCoordinator.js && node --check src/main/activationCoordinator.test.js && node --check src/main/weatherCoordinates.js && node --check src/main/weatherCoordinates.test.js && node --check src/main/tray.test.js && node --test src/main/activationCoordinator.test.js src/main/weatherCoordinates.test.js src/main/tray.test.js",
-    "check": "npm run check:syntax && npm run test:unit && npm run test:python-service",
+    "precheck": "npm run check:syntax",
+    "check": "npm run test:unit",
     "check:syntax": "node ../../scripts/checkJavaScriptSyntax.js src",
-    "test": "npm run test:unit && npm run test:python-service",
-    "test:python-service": "node --test src/main/pythonService.test.js",
-    "test:unit": "node --test src/main/repositoryPaths.test.js src/main/healthSyncServer.test.js src/main/healthSyncToken.test.js src/main/healthSyncFirewall.test.js src/shared/moduleRegistry.test.js src/shared/svgChartGeometry.test.js src/main/integrationSecurity.test.js src/main/modules/index.test.js src/main/settingsStore.test.js src/main/appearanceSettings.test.js src/main/settingsIpc.test.js src/main/serviceSettingsMigration.test.js src/main/serviceSettingsLifecycle.test.js src/main/windowsEnvironment.test.js src/main/desktopAppRegistration.test.js src/main/serviceSettings.test.js src/main/codexUsage.test.js src/main/codexTokenUsage.test.js src/main/agentTokenUsageAggregator.test.js src/main/supergrokUsage.test.js src/main/grokTokenUsage.test.js src/main/deepseekUsage.test.js src/main/windowMessaging.test.js src/main/notifications/digestEngine.test.js src/main/notifications/detailService.test.js src/main/notifications/summaryService.test.js src/main/networkSpeed.test.js src/main/startupPolicy.test.js src/main/windowPolicy.test.js src/main/windows.test.js src/renderer/notificationConversations.test.js src/renderer/modules/modules.test.js src/renderer/refreshController.test.js src/renderer/dashboardCache.test.js src/renderer/healthHeartRateExport.test.js src/renderer/moduleDom.test.js src/renderer/icons/smartNotificationIcons.test.js src/renderer/components/notificationDigest.test.js src/renderer/settingsLayout.test.js src/renderer/weatherEffects.test.js src/renderer/weatherScenes.test.js src/renderer/windowsSecurity.test.js"
+    "test": "npm run test:unit",
+    "test:unit": "node --test"
   },
   "build": {
     "appId": "com.kiko.winplate",

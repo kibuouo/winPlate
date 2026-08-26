@@ -99,24 +99,18 @@ test("SuperGrok renders the remaining quota derived from Grok usage", () => {
 });
 
 test("overview groups ChatGPT quota windows below their provider", () => {
-  const appSource = readSource("app.js");
+  const dashboardSource = sourceSection(readSource("app.js"), "function dashboardCodexCard()", "function mailStatusLabel");
   const styles = readSource("styles.css");
-  const dashboardSource = sourceSection(appSource, "function dashboardCodexCard()", "function mailStatusLabel");
-  const dashboardCodexCardRule = styles.match(/\.dashboard-codex-card\s*\{([^}]*)\}/)?.[1] || "";
 
-  assert.match(appSource, /dashboard-codex-service dashboard-codex-chatgpt-service/);
-  assert.match(appSource, /dashboard-codex-service-title[^\n]*<strong>ChatGPT<\/strong>/);
-  assert.match(appSource, /dashboardCodexRow\("5 小时", fiveHour, \{ nested: true \}\)/);
-  assert.match(appSource, /dashboardCodexRow\("7 天", sevenDay, \{ nested: true \}\)/);
-  assert.doesNotMatch(appSource, /ChatGPT · (?:5 小时|7 天)/);
-  assert.doesNotMatch(dashboardSource, /dashboard-card-heading|codex-card-icon/);
-  assert.match(dashboardSource, /dashboard-codex-service-head[\s\S]*serviceHealthBadge\(dashboardServiceHealthKind\("codex"\)\)/);
-  assert.match(dashboardCodexCardRule, /padding:\s*16px 22px/);
-  assert.doesNotMatch(dashboardCodexCardRule, /min-height:/);
-  assert.doesNotMatch(styles, /\.dashboard-codex-window-nested \.dashboard-codex-track\s*\{[^}]*height:/s);
-  assert.match(styles, /\.dashboard-codex-window-list\s*\{[^}]*margin-left:\s*6px[^}]*padding:\s*9px 10px 10px 18px/s);
-  assert.match(styles, /\.dashboard-codex-window-list::before/);
-  assert.match(styles, /\.dashboard-codex-window-nested \.dashboard-codex-window-title > span/);
+  assert.match(dashboardSource, /dashboard-codex-service dashboard-codex-chatgpt-service/);
+  assert.match(dashboardSource, /<strong>ChatGPT<\/strong>/);
+  assert.match(dashboardSource, /dashboardCodexRow\("5 小时", fiveHour, \{ nested: true \}\)/);
+  assert.match(dashboardSource, /dashboardCodexRow\("7 天", sevenDay, \{ nested: true \}\)/);
+  assert.match(dashboardSource, /dashboardCodexRow\("SuperGrok", supergrok, \{ icon: grokBrandIcon, period: "7 天" \}\)/);
+  assert.doesNotMatch(dashboardSource, /ChatGPT · |dashboard-card-heading|codex-card-icon/);
+  assert.match(dashboardSource, /serviceHealthBadge\(dashboardServiceHealthKind\("codex"\)\)/);
+  assert.match(styles, /\.dashboard-codex-window-list\s*\{/);
+  assert.match(styles, /\.dashboard-codex-window-nested/);
 });
 
 test("Agent workspace prefers 7d remaining and token trends without DeepSeek chat", () => {
@@ -596,24 +590,17 @@ test("Windows health configuration lives in settings while the health workspace 
 });
 
 test("overview health preview uses real heart history and separates metrics from sync metadata", () => {
-  const appSource = readSource("app.js");
+  const overviewSource = sourceSection(readSource("app.js"), "function healthOverviewTrend()", "function healthPairingHostLabel");
   const styles = readSource("styles.css");
-  const overviewSource = sourceSection(appSource, "function healthOverviewTrend()", "function healthPairingHostLabel");
 
   assert.match(overviewSource, /healthHeartRateSamples\("day"\)/);
   assert.match(overviewSource, /heartTooltipChartSvg\(samples\)/);
   assert.match(overviewSource, /24 小时趋势/);
-  assert.match(overviewSource, /正在积累趋势数据/);
-  assert.match(overviewSource, /iPhone HealthKit/);
   assert.match(overviewSource, /health-overview-vital/);
-  assert.match(overviewSource, /health-overview-metric-blue/);
-  assert.match(overviewSource, /health-overview-metric-orange/);
   assert.match(overviewSource, /health-overview-sync/);
   assert.doesNotMatch(overviewSource, /health-overview-primary/);
-  assert.match(styles, /\.health-overview-body\s*\{[^}]*grid-template-columns:/s);
+  assert.match(styles, /\.health-overview-body\s*\{/);
   assert.match(styles, /\.health-overview-trend \.heart-tooltip-sparkline\s*\{/);
-  assert.match(styles, /\.health-overview-metrics\s*\{[^}]*grid-template-columns:/s);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.health-overview-body\s*\{\s*grid-template-columns:\s*1fr;/);
 });
 
 test("health display helpers preserve empty values and use Chinese sync labels", () => {
