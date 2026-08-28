@@ -1,1 +1,59 @@
 name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  linux-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: npm run venv:create
+      - run: npm run backend:install
+      - run: npm run check
+      - run: npm run backend:test
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: npm run venv:create
+      - run: npm run backend:install
+      - run: npm run windows:test
+      - name: Build installer without installing
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File apps/Windows/scripts/make-app.ps1 -SkipTests -SkipInstall -SkipLaunch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinPlate-Windows
+          path: apps/Windows/dist/**
+          if-no-files-found: warn
+  macos-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: npm run venv:create
+      - run: npm run backend:install
+      - run: npm run macos:test
