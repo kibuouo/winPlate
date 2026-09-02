@@ -141,7 +141,7 @@ function buildDesktopStatusSnapshot() {
   const weather = statusData.weather || mockStatus.weather;
   const github = statusData.github || mockStatus.github;
   const codex = statusData.codex || mockStatus.codex;
-  const codexQuota = codex.windows?.sevenDay || codex;
+  const codexQuota = codexDisplayQuota(codex);
   const superGrok = statusData.supergrok || mockStatus.supergrok;
   const deepSeek = statusData.deepseek || mockStatus.deepseek;
   const balances = Array.isArray(deepSeek.balances) ? deepSeek.balances : [];
@@ -562,6 +562,7 @@ const WEATHER_LOCATION_REGIONS = [
   { id: "taiwan", label: "台湾省", cities: [{ id: "taipei", label: "台北", latitude: 25.033, longitude: 121.5654 }, { id: "kaohsiung", label: "高雄", latitude: 22.6273, longitude: 120.3014 }] }
 ];
 let weatherLocationPreference = localStorage.getItem(WEATHER_LOCATION_STORAGE_KEY) || "auto";
+let weatherLocationLastSyncedPreference = null;
 let weatherUpdateVersion = 0;
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
@@ -1258,11 +1259,19 @@ async function bindWeatherSettings() {
   if (!form) return;
   const keyInput = form.querySelector("#qweather-api-key");
   const hostInput = form.querySelector("#qweather-api-host");
+  const projectIdInput = form.querySelector("#qweather-project-id");
+  const credentialIdInput = form.querySelector("#qweather-credential-id");
+  const privateKeyInput = form.querySelector("#qweather-private-key");
   const saveButton = form.querySelector("button[type='submit']");
   try {
     weatherSettings = await window.winplate.getWeatherSettings();
     hostInput.value = weatherSettings.apiHost;
+    projectIdInput.value = weatherSettings.projectId || "";
+    credentialIdInput.value = weatherSettings.credentialId || "";
     keyInput.placeholder = weatherSettings.hasApiKey ? "已配置，留空则保持不变" : "请输入 API Key";
+    privateKeyInput.placeholder = weatherSettings.hasPrivateKey
+      ? "已配置，重新填写可覆盖"
+      : "粘贴完整 Ed25519 私钥 PEM（可选，用于天气预警）";
     updateSettingsServiceStatus("weather", weatherSettings.hasApiKey ? "已配置" : "未配置");
     updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
   } catch (error) {
@@ -1277,11 +1286,14 @@ async function bindWeatherSettings() {
       weatherSettings = await window.winplate.saveWeatherSettings({
         apiKey: keyInput.value,
         apiHost: hostInput.value,
-        projectId: weatherSettings.projectId || "",
-        credentialId: weatherSettings.credentialId || ""
+        projectId: projectIdInput.value,
+        credentialId: credentialIdInput.value,
+        privateKey: privateKeyInput.value
       });
       keyInput.value = "";
+      privateKeyInput.value = "";
       keyInput.placeholder = "已配置，留空则保持不变";
+      privateKeyInput.placeholder = "已配置，重新填写可覆盖";
       updateSettingsServiceStatus("weather", weatherSettings.hasApiKey ? "已配置" : "未配置");
       qweatherOfficialStatus = null;
       updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
@@ -1370,6 +1382,9 @@ function bindWeatherLocationSettings() {
       try {
         const weather = await refreshSelectedWeatherLocation({ force: true, allowSystem: true });
         if (!weather) throw new Error("系统定位失败，请手动选择城市。");
+        weatherLocationPreference = "auto";
+        localStorage.removeItem(WEATHER_LOCATION_STORAGE_KEY);
+        weatherLocationLastSyncedPreference = null;
         setStatus("已保存系统定位", "configured");
         await refreshStatus();
       } catch (error) {
@@ -1503,6 +1518,16 @@ function startSystemClock() {
 function normalizePercent(percent) {
   const value = Number(percent);
   return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
+}
+
+function codexDisplayQuota(codex = {}) {
+  const windows = codex?.windows && typeof codex.windows === "object" ? codex.windows : {};
+  // The current Codex app-server may expose the only usable quota under
+  // windows.sevenDay, without copying it to the legacy top-level field.
+  return windows.sevenDay
+    || (Number.isFinite(Number(codex?.remainingPct)) ? codex : null)
+    || windows.fiveHour
+    || codex;
 }
 
 function progressBar(percent, className) {
@@ -2756,6 +2781,8 @@ function dockedUnreadMailCount(outline = mailOutline) {
 
 function renderDockedFloating() {
   const weather = statusData.weather || mockStatus.weather;
+  const codex = statusData.codex || mockStatus.codex;
+  const codexQuota = codexDisplayQuota(codex);
   const heart = statusData.heart || mockStatus.heart;
   const heartRate = healthMetric(heart.heartRate);
   const weatherAlert = dockedWeatherAlertState();
@@ -2782,8 +2809,8 @@ function renderDockedFloating() {
           <span class="docked-divider" aria-hidden="true"></span>
           <div class="docked-module docked-usage" aria-label="Usage">
             <span class="docked-usage-label">Usage</span>
-            ${progressBar(statusData.codex.remainingPct, "usage-track")}
-            <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
+            ${progressBar(codexQuota.remainingPct, "usage-track")}
+            <strong class="metric">${codexQuota.remainingPct ?? "--"}%</strong>
           </div>
           <span class="docked-divider" aria-hidden="true"></span>
           <div class="docked-module docked-heart-rate" aria-label="${heartRateLabel}" title="${heartRateLabel}">
@@ -2823,6 +2850,8 @@ function renderFloating() {
     return;
   }
   const weather = statusData.weather || mockStatus.weather;
+  const codex = statusData.codex || mockStatus.codex;
+  const codexQuota = codexDisplayQuota(codex);
   document.body.className = "floating-body";
   appRoot.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
@@ -2838,10 +2867,10 @@ function renderFloating() {
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
               ${sidebarCodexIcon}
               <span class="module-label">Codex</span>
-              ${progressBar(statusData.codex.remainingPct, "usage-track")}
-              <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
-              ${quotaStatusLamp(statusData.codex.remainingPct)}
-              <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
+              ${progressBar(codexQuota.remainingPct, "usage-track")}
+              <strong class="metric">${codexQuota.remainingPct ?? "--"}%</strong>
+              ${quotaStatusLamp(codexQuota.remainingPct)}
+              <span class="metric reset">${codexQuota.resetClock || codexQuota.resetText || "--:--"}</span>
             </div>
           </div>
           <div class="status-group notification-status" data-module-id="notifications" ${moduleHealthAttributes("notifications")} ${moduleEnabled("notifications") ? "" : "hidden"}>
@@ -2966,12 +2995,12 @@ function renderFloating() {
       },
       data: {
         type: "codex",
-        windowHours: statusData.codex.windowHours,
-        remainingPct: statusData.codex.remainingPct,
-        usedPct: statusData.codex.usedPct,
-        resetText: statusData.codex.resetText,
-        status: statusData.codex.status,
-        windows: statusData.codex.windows,
+        windowHours: codex.windowHours,
+        remainingPct: codexQuota.remainingPct,
+        usedPct: codexQuota.usedPct,
+        resetText: codexQuota.resetText,
+        status: codex.status,
+        windows: codex.windows,
         supergrok: statusData.supergrok,
         deepseek: statusData.deepseek
       }
@@ -4639,6 +4668,21 @@ function dashboardContent(section) {
               <input id="qweather-api-host" type="text" autocomplete="off" spellcheck="false">
             </label>
           </fieldset>
+          <fieldset>
+            <legend><strong>天气预警（JWT）</strong><small>可选；配置后才能读取 QWeather 的天气预警</small></legend>
+            <label>
+              <span><strong>项目 ID</strong><small>来自 QWeather 控制台的 JWT 项目</small></span>
+              <input id="qweather-project-id" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label>
+              <span><strong>凭据 ID</strong><small>JWT 凭据的 kid / 凭据 ID</small></span>
+              <input id="qweather-credential-id" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <label>
+              <span><strong>Ed25519 私钥 PEM</strong><small>仅保存在本地设备中，留空保持原值</small></span>
+              <textarea id="qweather-private-key" autocomplete="off" spellcheck="false" rows="4"></textarea>
+            </label>
+          </fieldset>
           ${renderWeatherLocationSettings()}
           <div class="weather-settings-actions">
             <div class="weather-settings-statuses">
@@ -5380,6 +5424,8 @@ function updateFloatingStatusDom(moduleIds = null) {
   }
   const template = document.createElement("template");
   const weather = statusData.weather || mockStatus.weather;
+  const codex = statusData.codex || mockStatus.codex;
+  const codexQuota = codexDisplayQuota(codex);
   template.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
       <section class="status-capsule">
@@ -5391,10 +5437,10 @@ function updateFloatingStatusDom(moduleIds = null) {
             </div>
             <div class="module interactive-module codex-module no-drag" data-module-id="codex" ${moduleHealthAttributes("codex")} ${moduleEnabled("codex") ? "" : "hidden"}>
               ${sidebarCodexIcon}<span class="module-label">Codex</span>
-              ${progressBar(statusData.codex.remainingPct, "usage-track")}
-              <strong class="metric">${statusData.codex.remainingPct ?? "--"}%</strong>
-              ${quotaStatusLamp(statusData.codex.remainingPct)}
-              <span class="metric reset">${statusData.codex.resetClock || statusData.codex.resetText || "--:--"}</span>
+              ${progressBar(codexQuota.remainingPct, "usage-track")}
+              <strong class="metric">${codexQuota.remainingPct ?? "--"}%</strong>
+              ${quotaStatusLamp(codexQuota.remainingPct)}
+              <span class="metric reset">${codexQuota.resetClock || codexQuota.resetText || "--:--"}</span>
             </div>
           </div>
           <div class="status-group notification-status" data-module-id="notifications" ${moduleHealthAttributes("notifications")} ${moduleEnabled("notifications") ? "" : "hidden"}>
@@ -5552,6 +5598,7 @@ async function refreshSelectedWeatherLocation({ force = false, allowSystem = fal
     });
     const locatedWeather = await locationWeatherPromise;
     if (locatedWeather) {
+      weatherLocationLastSyncedPreference = option.id;
       statusData.weather = { ...statusData.weather, ...locatedWeather };
     }
     return locatedWeather;
@@ -6570,14 +6617,31 @@ function updateMaximizeButton() {
 
 async function refreshBackendStatus({ force = false } = {}) {
   const weatherVersionAtRequest = weatherUpdateVersion;
+  let selectedWeather = null;
+  const selectedLocation = selectedWeatherLocationOption();
+  if (
+    moduleEnabled("weather")
+    && selectedLocation.id !== "auto"
+    && weatherLocationLastSyncedPreference !== selectedLocation.id
+  ) {
+    try {
+      selectedWeather = await refreshSelectedWeatherLocation({ force: true });
+    } catch (error) {
+      console.warn("Saved weather location unavailable; falling back to status:", error.message);
+    }
+  }
   let forcedWeather = null;
   if (force && moduleEnabled("weather")) {
-    try {
-      forcedWeather = window.winplate.refreshWeather
-        ? await window.winplate.refreshWeather()
-        : await refreshLocalJson("/api/weather/refresh", "天气刷新");
-    } catch (error) {
-      console.warn("Forced weather refresh failed; falling back to status:", error.message);
+    if (selectedWeather) {
+      forcedWeather = selectedWeather;
+    } else {
+      try {
+        forcedWeather = window.winplate.refreshWeather
+          ? await window.winplate.refreshWeather()
+          : await refreshLocalJson("/api/weather/refresh", "天气刷新");
+      } catch (error) {
+        console.warn("Forced weather refresh failed; falling back to status:", error.message);
+      }
     }
   }
   const [incomingStatus, incomingHealth] = await Promise.all([
@@ -6588,6 +6652,7 @@ async function refreshBackendStatus({ force = false } = {}) {
   ]);
   if (incomingHealth) applyHealthSyncStatus(incomingHealth);
   const incomingWeather = forcedWeather
+    || selectedWeather
     || (weatherVersionAtRequest === weatherUpdateVersion
       ? incomingStatus.weather
       : statusData.weather);

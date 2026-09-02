@@ -333,6 +333,20 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.match(styles, /\.restore-capsule-icon-front\s*\{[\s\S]*?fill:\s*none/);
 });
 
+test("floating capsules render Codex quota from the resolved usage window", () => {
+  const appSource = readSource("app.js");
+  const dockedSource = sourceSection(appSource, "function renderDockedFloating()", "function renderFloating()");
+  const floatingSource = sourceSection(appSource, "function renderFloating()", "function bindNotificationStrip");
+  const updateSource = sourceSection(appSource, "function updateFloatingStatusDom", "async function refreshNetworkSpeed");
+
+  assert.match(appSource, /function codexDisplayQuota\(codex = \{\}\)/);
+  for (const source of [dockedSource, floatingSource, updateSource]) {
+    assert.match(source, /const codexQuota = codexDisplayQuota\(codex\)/);
+    assert.match(source, /codexQuota\.remainingPct/);
+  }
+  assert.match(floatingSource, /remainingPct: codexQuota\.remainingPct/);
+});
+
 test("floating health module shows whole BPM values and opens the Health section", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const renderStart = appSource.indexOf("function renderFloating()");
