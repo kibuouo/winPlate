@@ -171,16 +171,16 @@ function parseRateLimitsResponse(result, now = Date.now()) {
   };
 }
 
-function resolveCodexLaunch() {
-  const npmBin = process.env.APPDATA && path.join(process.env.APPDATA, "npm");
+function resolveCodexLaunch({ platform = process.platform, appData = process.env.APPDATA } = {}) {
+  const npmBin = appData && path.join(appData, "npm");
   const cliScript = npmBin && path.join(npmBin, "node_modules", "@openai", "codex", "bin", "codex.js");
   if (cliScript && fs.existsSync(cliScript)) {
     return { command: "node", args: [cliScript] };
   }
   return {
-    command: process.platform === "win32" ? "codex.cmd" : "codex",
+    command: platform === "win32" ? "codex.exe" : "codex",
     args: [],
-    shell: process.platform === "win32"
+    shell: platform === "win32"
   };
 }
 
@@ -318,4 +318,4 @@ async function readCodexUsage({ force = false } = {}) {
   return pendingRead;
 }
 
-module.exports = { parseCodexStatus, parseRateLimitsResponse, readCodexUsage };
+module.exports = { parseCodexStatus, parseRateLimitsResponse, readCodexUsage, resolveCodexLaunch };

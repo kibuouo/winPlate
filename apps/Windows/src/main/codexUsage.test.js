@@ -1,6 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseCodexStatus, parseRateLimitsResponse } = require("./codexUsage");
+const { parseCodexStatus, parseRateLimitsResponse, resolveCodexLaunch } = require("./codexUsage");
+
+test("uses the Codex Desktop executable fallback on Windows", () => {
+  assert.deepEqual(resolveCodexLaunch({ platform: "win32", appData: "" }), {
+    command: "codex.exe",
+    args: [],
+    shell: true
+  });
+});
 
 test("parses remaining percentage and reset text", () => {
   const usage = parseCodexStatus(`
