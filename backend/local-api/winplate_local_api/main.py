@@ -1704,7 +1704,7 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
     private_key = environment_setting("QWEATHER_PRIVATE_KEY")
     api_host = environment_setting("QWEATHER_API_HOST", "devapi.qweather.com")
     if not project_id or not credential_id or not private_key:
-        raise RuntimeError("QWeather JWT 项目 ID、凭据 ID 或私钥尚未配置")
+        raise RuntimeError(qweather_jwt_configuration_error())
 
     now = int(time.time())
     try:
@@ -1760,6 +1760,10 @@ def qweather_jwt_request(path: str, params: dict[str, str] | None = None, timeou
         raise RuntimeError(f"QWeather 接口不可用: {error}") from error
     except (gzip.BadGzipFile, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise RuntimeError("QWeather 接口返回了无效响应") from error
+
+
+def qweather_jwt_configuration_error() -> str:
+    return "QWeather JWT 项目 ID、凭据 ID 或私钥尚未配置"
 
 
 def qweather_official_stats() -> dict:
@@ -3159,6 +3163,13 @@ def get_weather_alerts() -> dict:
     try:
         return qweather_alerts()
     except (RuntimeError, ValueError) as error:
+        if str(error) == qweather_jwt_configuration_error():
+            return {
+                "source": "qweather",
+                "alerts": [],
+                "updatedAt": None,
+                "error": "天气预警未配置 JWT 凭据，天气实况不受影响",
+            }
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 

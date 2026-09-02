@@ -1160,6 +1160,18 @@ class DatabaseTests(unittest.TestCase):
         ):
             main.qweather_alert_detail("missing")
 
+    def test_weather_alert_endpoint_treats_missing_jwt_as_optional_feature(self):
+        with patch.object(
+            main,
+            "qweather_alerts",
+            side_effect=RuntimeError(main.qweather_jwt_configuration_error()),
+        ):
+            result = main.get_weather_alerts()
+
+        self.assertEqual(result["source"], "qweather")
+        self.assertEqual(result["alerts"], [])
+        self.assertIn("天气实况不受影响", result["error"])
+
     def test_mail_query_uses_qq_imap_inbox_window(self):
         self.assertEqual(main.MAIL_QUERY, "IMAP INBOX SINCE 30 days")
         self.assertEqual(main.QQ_IMAP_HOST, "imap.qq.com")
