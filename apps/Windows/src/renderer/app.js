@@ -274,20 +274,19 @@ function restoreDashboardCache() {
 
   const cachedStatus = isRecord(cached.statusData) ? cached.statusData : {};
   const cachedCodex = isRecord(cachedStatus.codex) ? cachedStatus.codex : {};
+  const restoredCodex = normalizeCodexUsageForDisplay({
+    ...mockStatus.codex,
+    ...statusData.codex,
+    ...cachedCodex,
+    windows: {
+      ...(isRecord(cachedCodex.windows) ? cachedCodex.windows : {})
+    }
+  });
   statusData = {
     ...statusData,
     ...cachedStatus,
     github: normalizeGithub(cachedStatus.github, statusData.github),
-    codex: {
-      ...mockStatus.codex,
-      ...statusData.codex,
-      ...cachedCodex,
-      windows: {
-        ...mockStatus.codex.windows,
-        ...(isRecord(statusData.codex?.windows) ? statusData.codex.windows : {}),
-        ...(isRecord(cachedCodex.windows) ? cachedCodex.windows : {})
-      }
-    },
+    codex: restoredCodex,
     deepseek: mergeRecord(statusData.deepseek, cachedStatus.deepseek),
     supergrok: mergeRecord(statusData.supergrok, cachedStatus.supergrok),
     heart: mergeRecord({ ...mockStatus.heart, ...statusData.heart }, cachedStatus.heart),
@@ -1528,6 +1527,37 @@ function codexDisplayQuota(codex = {}) {
     || (Number.isFinite(Number(codex?.remainingPct)) ? codex : null)
     || windows.fiveHour
     || codex;
+}
+
+function codexWindowHasQuota(window) {
+  if (!window || window.remainingPct === null || window.remainingPct === undefined || window.remainingPct === "") {
+    return false;
+  }
+  return Number.isFinite(Number(window.remainingPct));
+}
+
+function normalizeCodexUsageForDisplay(codex = {}) {
+  const windows = codex?.windows && typeof codex.windows === "object" ? codex.windows : {};
+  const display = codexDisplayQuota(codex);
+  if (codex.status !== "Unavailable" || !codexWindowHasQuota(display)) return codex;
+
+  // A failed refresh may arrive after the renderer restored a valid snapshot.
+  // Keep that snapshot explicitly marked as cached so both Overview and Agent
+  // show the same quota and the same availability state.
+  return {
+    ...codex,
+    source: String(codex.source || "codex") + "-cache",
+    status: "Cached",
+    remainingPct: codex.remainingPct ?? display.remainingPct,
+    usedPct: codex.usedPct ?? display.usedPct,
+    resetText: codex.resetText ?? display.resetText,
+    resetClock: codex.resetClock ?? display.resetClock,
+    windows: {
+      ...windows,
+      ...(codexWindowHasQuota(windows.fiveHour) ? { fiveHour: windows.fiveHour } : {}),
+      ...(codexWindowHasQuota(windows.sevenDay) ? { sevenDay: windows.sevenDay } : {})
+    }
+  };
 }
 
 function progressBar(percent, className) {
@@ -4976,11 +5006,11 @@ function agentQuotaCard({
 }
 
 function buildAgentUsageItems() {
-  const windows = statusData.codex.windows || {};
-  const sevenDay = windows.sevenDay
-    || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
+  const codex = statusData.codex || {};
+  const windows = codex.windows || {};
+  const sevenDay = windows.sevenDay || codexDisplayQuota(codex);
   const fiveHour = windows.fiveHour || null;
-  const codexStatus = statusData.codex || {};
+  const codexStatus = codex;
   const deepseek = statusData.deepseek || {};
   const supergrok = statusData.supergrok || mockStatus.supergrok;
   const balance = primaryDeepSeekBalance(deepseek);
@@ -6731,11 +6761,24 @@ async function refreshSuperGrokTokenUsageData({ force = false } = {}) {
 }
 
 async function refreshCodexData({ force = false } = {}) {
+  const previous = statusData.codex || {};
+  const incoming = await window.winplate.getCodexUsage({ force });
+  const keepPreviousQuota = incoming?.status === "Unavailable" && previous.source !== "mock";
+  const incomingWindows = isRecord(incoming?.windows) ? incoming.windows : {};
   statusData.codex = {
     ...mockStatus.codex,
-    ...statusData.codex,
-    ...await window.winplate.getCodexUsage({ force })
+    ...(keepPreviousQuota ? previous : {}),
+    ...incoming,
+    ...(keepPreviousQuota || Object.keys(incomingWindows).length
+      ? {
+        windows: {
+          ...(keepPreviousQuota && isRecord(previous.windows) ? previous.windows : {}),
+          ...incomingWindows
+        }
+      }
+      : { windows: undefined })
   };
+  statusData.codex = normalizeCodexUsageForDisplay(statusData.codex);
   await refreshCodexTokenUsageData({ force });
   updateCurrentViewDom("codex");
   scheduleDesktopStatusPublish();

@@ -1,13 +1,55 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { parseCodexStatus, parseRateLimitsResponse, resolveCodexLaunch } = require("./codexUsage");
 
-test("uses the Codex Desktop executable fallback on Windows", () => {
-  assert.deepEqual(resolveCodexLaunch({ platform: "win32", appData: "" }), {
+test("uses the Codex executable name when no installed path is discoverable", () => {
+  assert.deepEqual(resolveCodexLaunch({
+    platform: "win32",
+    appData: "",
+    localAppData: "",
+    environment: { Path: "" }
+  }), {
     command: "codex.exe",
     args: [],
-    shell: true
+    shell: false
   });
+});
+
+test("resolves the versioned Codex Desktop executable outside the npm shim", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "winplate-codex-"));
+  const executable = path.join(root, "OpenAI", "Codex", "bin", "versioned", "codex.exe");
+  try {
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.writeFileSync(executable, "test");
+    assert.deepEqual(resolveCodexLaunch({
+      platform: "win32",
+      appData: "",
+      localAppData: root,
+      environment: { Path: "" }
+    }), {
+      command: executable,
+      args: [],
+      shell: false
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts numeric rate-limit fields returned by an external JSON bridge", () => {
+  const usage = parseRateLimitsResponse({
+    rateLimits: {
+      primary: { usedPercent: "18", windowDurationMins: "300" },
+      secondary: { usedPercent: "36", windowDurationMins: "10080" }
+    }
+  }, Date.UTC(2026, 5, 13, 4, 0, 0));
+
+  assert.equal(usage.windows.fiveHour.remainingPct, 82);
+  assert.equal(usage.windows.sevenDay.remainingPct, 64);
+  assert.equal(usage.remainingPct, 64);
 });
 
 test("parses remaining percentage and reset text", () => {

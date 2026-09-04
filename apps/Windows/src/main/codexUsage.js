@@ -4,7 +4,7 @@ const { spawn } = require("node:child_process");
 const stripAnsi = require("strip-ansi");
 
 const READ_TIMEOUT_MS = 15_000;
-const SUCCESS_CACHE_TTL_MS = 15 * 60_000;
+const SUCCESS_CACHE_TTL_MS = 30 * 60_000;
 const FAILURE_CACHE_TTL_MS = 5 * 60_000;
 
 let cachedUsage = null;
@@ -106,8 +106,9 @@ function formatResetClock(value) {
 }
 
 function normalizeRateLimitWindow(window, now = Date.now()) {
-  if (!window || !Number.isFinite(window.usedPercent)) return null;
-  const usedPct = clampPercent(window.usedPercent);
+  const usedPercent = Number(window?.usedPercent);
+  if (!window || !Number.isFinite(usedPercent)) return null;
+  const usedPct = clampPercent(usedPercent);
   return {
     remainingPct: 100 - usedPct,
     usedPct,
@@ -171,16 +172,82 @@ function parseRateLimitsResponse(result, now = Date.now()) {
   };
 }
 
-function resolveCodexLaunch({ platform = process.platform, appData = process.env.APPDATA } = {}) {
+function envValue(environment, name) {
+  const key = Object.keys(environment || {}).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  return key ? environment[key] : undefined;
+}
+
+function existingCodexExecutable(localAppData, fileSystem = fs) {
+  if (!localAppData) return null;
+  const binRoot = path.join(localAppData, "OpenAI", "Codex", "bin");
+  let versions;
+  try {
+    versions = fileSystem.readdirSync(binRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(binRoot, entry.name))
+      .map((directory) => path.join(directory, "codex.exe"))
+      .filter((candidate) => {
+        try {
+          return fileSystem.statSync(candidate).isFile();
+        } catch {
+          return false;
+        }
+      });
+  } catch {
+    return null;
+  }
+  if (!versions.length) return null;
+  return versions.sort((left, right) => {
+    try {
+      return fileSystem.statSync(right).mtimeMs - fileSystem.statSync(left).mtimeMs;
+    } catch {
+      return 0;
+    }
+  })[0];
+}
+
+function existingCodexOnPath(pathValue, fileSystem = fs) {
+  return String(pathValue || "")
+    .split(path.delimiter)
+    .map((directory) => directory.trim())
+    .filter(Boolean)
+    .map((directory) => path.join(directory, "codex.exe"))
+    .find((candidate) => {
+      try {
+        return fileSystem.statSync(candidate).isFile();
+      } catch {
+        return false;
+      }
+    }) || null;
+}
+
+function resolveCodexLaunch({
+  platform = process.platform,
+  appData = process.env.APPDATA,
+  localAppData = process.env.LOCALAPPDATA,
+  environment = process.env,
+  fileSystem = fs
+} = {}) {
   const npmBin = appData && path.join(appData, "npm");
   const cliScript = npmBin && path.join(npmBin, "node_modules", "@openai", "codex", "bin", "codex.js");
-  if (cliScript && fs.existsSync(cliScript)) {
-    return { command: "node", args: [cliScript] };
+  if (cliScript && fileSystem.existsSync(cliScript)) {
+    return { command: "node", args: [cliScript], shell: false };
   }
+  if (platform !== "win32") {
+    return { command: "codex", args: [], shell: false };
+  }
+
+  const configuredPath = String(envValue(environment, "CODEX_CLI_PATH") || "").trim();
+  const configuredExecutable = configuredPath && fileSystem.existsSync(configuredPath)
+    ? configuredPath
+    : null;
+  const executable = configuredExecutable
+    || existingCodexOnPath(envValue(environment, "PATH"), fileSystem)
+    || existingCodexExecutable(localAppData, fileSystem);
   return {
-    command: platform === "win32" ? "codex.exe" : "codex",
+    command: executable || "codex.exe",
     args: [],
-    shell: platform === "win32"
+    shell: false
   };
 }
 
