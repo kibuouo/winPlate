@@ -165,7 +165,9 @@ class DatabaseTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     main.status(),
-                    {**main.DEFAULT_STATUS, "github": {"source": "github"}},
+                    {**main.DEFAULT_STATUS, "github": {"source": "github"}, "weather": {
+                        **main.DEFAULT_STATUS["weather"], "availability": "empty", "error": "天气实况未配置 API Key",
+                    }},
                 )
         main.DATABASE_PATH = original_path
 

@@ -163,7 +163,7 @@ function buildDesktopStatusSnapshot() {
       feelsLike: optionalNumber(weather.feelsLike),
       humidity: optionalNumber(weather.humidity),
       icon: weather.icon ? String(weather.icon) : null,
-      alerts: (Array.isArray(weatherAlerts?.alerts) ? weatherAlerts.alerts : [])
+      alerts: window.WinPlateWeatherState.activeAlerts(weatherAlerts, weather)
         .filter((alert) => alert && alert.lifecycle !== "resolved")
         .slice(0, 2)
         .map((alert) => ({
@@ -292,6 +292,9 @@ function restoreDashboardCache() {
     heart: mergeRecord({ ...mockStatus.heart, ...statusData.heart }, cachedStatus.heart),
     weather: mergeRecord({ ...mockStatus.weather, ...statusData.weather }, cachedStatus.weather)
   };
+  if (statusData.weather.source === "qweather") {
+    statusData.weather = { ...statusData.weather, availability: "stale", error: "显示上次天气数据，等待同步" };
+  }
 
   if (isRecord(cached.codexTokenUsage)) {
     codexTokenUsage = {
@@ -317,7 +320,7 @@ function restoreDashboardCache() {
   if (typeof cached.qweatherOfficialStatus === "string" || cached.qweatherOfficialStatus === null) {
     qweatherOfficialStatus = cached.qweatherOfficialStatus;
   }
-  if (isRecord(cached.weatherAlerts)) weatherAlerts = { ...weatherAlerts, ...cached.weatherAlerts };
+  if (isRecord(cached.weatherAlerts)) weatherAlerts = normalizeWeatherAlerts({ ...cached.weatherAlerts, availability: "stale", error: "显示上次预警记录，等待同步" });
   if (isRecord(cached.notificationSummary)) {
     notificationSummary = {
       ...notificationSummary,
@@ -563,6 +566,41 @@ const WEATHER_LOCATION_REGIONS = [
 let weatherLocationPreference = localStorage.getItem(WEATHER_LOCATION_STORAGE_KEY) || "auto";
 let weatherLocationLastSyncedPreference = null;
 let weatherUpdateVersion = 0;
+const weatherRequests = window.WinPlateWeatherState.createRequests();
+let weatherAlertRequestVersion = 0;
+let weatherStatusRequestVersion = 0;
+
+function beginWeatherLocationChange() {
+  const token = weatherRequests.begin();
+  weatherUpdateVersion += 1;
+  weatherAlertRequestVersion += 1;
+  weatherAlerts = normalizeWeatherAlerts({ availability: "unavailable", error: "位置更新中，等待预警同步" });
+  return token;
+}
+
+function applyLocatedWeather(weather, token) {
+  if (!weather || !weatherRequests.current(token)) return null;
+  statusData.weather = { ...mockStatus.weather, ...weather };
+  weatherUpdateVersion += 1;
+  return weather;
+}
+
+function prepareWeatherLocation(query, label) {
+  if (statusData.weather.locationQuery === query) return;
+  statusData.weather = {
+    ...mockStatus.weather, source: "unavailable", availability: "empty",
+    locationQuery: query, location: label || query, error: "正在读取所选位置天气"
+  };
+}
+
+function failWeatherLocation(error, token) {
+  if (!weatherRequests.current(token)) return;
+  statusData.weather = {
+    ...statusData.weather,
+    availability: statusData.weather.source === "qweather" ? "stale" : "empty",
+    error: error.message || "所选位置天气不可用"
+  };
+}
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 let themePreference = "system";
 let accentPreference = "green";
@@ -1281,6 +1319,7 @@ async function bindWeatherSettings() {
     event.preventDefault();
     saveButton.disabled = true;
     updateWeatherSettingsStatus(form, "saving");
+    const token = beginWeatherLocationChange();
     try {
       weatherSettings = await window.winplate.saveWeatherSettings({
         apiKey: keyInput.value,
@@ -1297,10 +1336,12 @@ async function bindWeatherSettings() {
       qweatherOfficialStatus = null;
       updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
       locationWeatherPromise = null;
-      refreshStatus();
+      weatherRequests.finish(token);
+      await refreshBackendStatus({ force: true });
     } catch (error) {
       updateWeatherSettingsStatus(form, weatherSettings.hasApiKey && Boolean(weatherSettings.apiHost) ? "configured" : "unconfigured");
     } finally {
+      weatherRequests.finish(token);
       saveButton.disabled = false;
     }
   });
@@ -1318,6 +1359,8 @@ function bindWeatherLocationSettings() {
     status.className = `weather-location-status ${className}`.trim();
   };
   const selectLocation = async (item) => {
+    const token = beginWeatherLocationChange();
+    prepareWeatherLocation(item.id, item.displayName || item.name);
     resultsBox.innerHTML = "";
     queryInput.value = item.displayName || item.name || "";
     queryInput.disabled = true;
@@ -1330,12 +1373,19 @@ function bindWeatherLocationSettings() {
         latitude: item.lat == null ? null : Number(item.lat),
         longitude: item.lon == null ? null : Number(item.lon)
       });
-      statusData.weather = { ...statusData.weather, ...weather };
+      if (!applyLocatedWeather(weather, token)) return;
+      weatherLocationPreference = "auto";
+      localStorage.removeItem(WEATHER_LOCATION_STORAGE_KEY);
+      weatherLocationLastSyncedPreference = null;
+      weatherRequests.finish(token);
       setStatus("已保存手动城市", "configured");
       await refreshStatus();
     } catch (error) {
+      failWeatherLocation(error, token);
+      if (!weatherRequests.current(token)) return;
       setStatus(error.message || "保存城市失败", "error");
     } finally {
+      weatherRequests.finish(token);
       queryInput.disabled = false;
     }
   };
@@ -1380,7 +1430,7 @@ function bindWeatherLocationSettings() {
       setStatus("正在请求系统定位...");
       try {
         const weather = await refreshSelectedWeatherLocation({ force: true, allowSystem: true });
-        if (!weather) throw new Error("系统定位失败，请手动选择城市。");
+        if (!weather) return;
         weatherLocationPreference = "auto";
         localStorage.removeItem(WEATHER_LOCATION_STORAGE_KEY);
         weatherLocationLastSyncedPreference = null;
@@ -1515,25 +1565,30 @@ function startSystemClock() {
 }
 
 function normalizePercent(percent) {
+  if (!["number", "string"].includes(typeof percent)
+    || (typeof percent === "string" && !percent.trim())) return null;
   const value = Number(percent);
   return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
 }
 
 function codexDisplayQuota(codex = {}) {
-  const windows = codex?.windows && typeof codex.windows === "object" ? codex.windows : {};
-  // The current Codex app-server may expose the only usable quota under
-  // windows.sevenDay, without copying it to the legacy top-level field.
-  return windows.sevenDay
-    || (Number.isFinite(Number(codex?.remainingPct)) ? codex : null)
-    || windows.fiveHour
-    || codex;
+  const windows = codexQuotaWindows(codex);
+  return windows.sevenDay || windows.fiveHour || {};
 }
 
 function codexWindowHasQuota(window) {
-  if (!window || window.remainingPct === null || window.remainingPct === undefined || window.remainingPct === "") {
-    return false;
-  }
-  return Number.isFinite(Number(window.remainingPct));
+  return Boolean(window) && normalizePercent(window.remainingPct) !== null;
+}
+
+function codexQuotaWindows(codex = {}) {
+  const windows = codex?.windows && typeof codex.windows === "object" ? codex.windows : {};
+  const valid = (window) => codexWindowHasQuota(window)
+    ? { ...window, remainingPct: normalizePercent(window.remainingPct) } : null;
+  const fiveHour = valid(windows.fiveHour);
+  // The legacy headline has no period metadata. Preserve its historical weekly
+  // fallback only when no named window is usable; never duplicate 5h as 7d.
+  const sevenDay = valid(windows.sevenDay) || (!fiveHour ? valid(codex) : null);
+  return { fiveHour, sevenDay };
 }
 
 function normalizeCodexUsageForDisplay(codex = {}) {
@@ -2576,12 +2631,7 @@ function weatherLocationSelect() {
 }
 
 function normalizeWeatherAlerts(value = {}) {
-  return {
-    source: value?.source || "qweather",
-    alerts: Array.isArray(value?.alerts) ? value.alerts : [],
-    updatedAt: Number.isFinite(Number(value?.updatedAt)) ? Number(value.updatedAt) : null,
-    error: typeof value?.error === "string" ? value.error : ""
-  };
+  return window.WinPlateWeatherState.normalizeAlerts(value);
 }
 
 function weatherAlertTone(alert = {}) {
@@ -2597,7 +2647,7 @@ function weatherAlertStatus(alert = {}) {
 
 function weatherAlertsPanel() {
   const weather = statusData.weather || mockStatus.weather;
-  const allAlerts = Array.isArray(weatherAlerts.alerts) ? weatherAlerts.alerts : [];
+  const allAlerts = window.WinPlateWeatherState.currentAlerts(weatherAlerts, weather);
   const selectedAlert = selectedWeatherAlertId
     ? allAlerts.find((alert) => String(alert.id || "") === String(selectedWeatherAlertId))
     : null;
@@ -2607,7 +2657,8 @@ function weatherAlertsPanel() {
   if (!alerts.length && weather.source !== "qweather" && !weatherAlerts.error) return "";
   const helperText = alerts.length
     ? `${relativeUpdatedAt(weatherAlerts.updatedAt)}同步`
-    : weatherAlerts.error || "当前无天气预警";
+    : weatherAlerts.error || (weatherAlerts.availability === "empty" && window.WinPlateWeatherState.alertsAreCurrent(weatherAlerts, weather)
+      ? "当前无天气预警" : "预警数据待同步");
   return `
     <section class="weather-alerts-panel">
       <div class="weather-alerts-heading">
@@ -2714,7 +2765,7 @@ function weatherDashboardCard({ interactive = false } = {}) {
             ${weatherLocationSelect()}
             <span>${weather.location || (weather.source === "unconfigured" ? "位置未配置" : "当前位置")}</span>
           </div>
-          <small>${weather.source === "qweather" ? "QWeather 实时数据" : weather.source === "unconfigured" ? "请允许系统定位或配置回退位置" : "等待天气数据"}</small>
+          <small>${weather.availability === "stale" ? "显示上次天气数据，等待更新" : weather.source === "qweather" ? "QWeather 实时数据" : weather.source === "unconfigured" ? "请配置天气服务与位置" : "等待天气数据"}</small>
         </div>
         <div class="weather-card-current">
           ${weatherIconMarkup(weather.icon, "weather-dashboard-icon")}
@@ -2776,7 +2827,7 @@ const DOCKED_ALERT_COLOR_RANK = Object.freeze({
 });
 
 function dockedWeatherAlertState(current = weatherAlerts, summary = notificationSummary) {
-  const alerts = Array.isArray(current?.alerts) ? current.alerts : [];
+  const alerts = window.WinPlateWeatherState.activeAlerts(current, statusData.weather);
   const items = Array.isArray(summary?.items) ? summary.items : [];
   const inactiveLifecycles = new Set(["resolved", "cancelled", "ended"]);
   return alerts
@@ -3175,9 +3226,9 @@ function renderTooltip(data = {}) {
     return;
   }
   if (data.type === "codex") {
-    const windows = data.windows || {};
+    const windows = codexQuotaWindows(data);
     const fiveHour = windows.fiveHour || null;
-    const weekly = windows.sevenDay || (Number.isFinite(data?.remainingPct) ? data : null);
+    const weekly = windows.sevenDay;
     const supergrok = data.supergrok || {};
     const deepseek = data.deepseek || {};
     const usageStatusLabel = (status) => {
@@ -3889,10 +3940,9 @@ function dashboardDeepSeekBalanceColumn() {
 }
 
 function dashboardCodexCard() {
-  const windows = statusData.codex.windows || {};
+  const windows = codexQuotaWindows(statusData.codex);
   const fiveHour = windows.fiveHour || null;
-  const sevenDay = windows.sevenDay
-    || (Number.isFinite(statusData.codex?.remainingPct) ? statusData.codex : null);
+  const sevenDay = windows.sevenDay;
   const supergrok = statusData.supergrok || mockStatus.supergrok;
   return `
     <article class="dashboard-card codex-card dashboard-codex-card" data-module-id="codex" ${dashboardCardNavigationAttributes("codex")} ${moduleHealthAttributes("codex")}>
@@ -5575,7 +5625,7 @@ function bindWeatherLocationControls() {
     citySelect.disabled = true;
     locationWeatherPromise = null;
     try {
-      await refreshSelectedWeatherLocation({ force: true });
+      await refreshSelectedWeatherLocation({ force: true, allowSystem: option.id === "auto" });
       await refreshQWeatherAlerts();
       await hydrateNotifications();
     } catch (error) {
@@ -5600,40 +5650,45 @@ async function refreshSelectedWeatherLocation({ force = false, allowSystem = fal
   if (!force && locationWeatherPromise) {
     return locationWeatherPromise;
   }
-  if (allowSystem) {
-    if (!navigator.geolocation) return null;
-    locationWeatherPromise = new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: false,
-        timeout: 10_000,
-        maximumAge: 30 * 60_000
+  if (!allowSystem && option.id === "auto") return null;
+  const token = beginWeatherLocationChange();
+  const pending = (async () => {
+    try {
+      let coordinates = option;
+      if (allowSystem) {
+        if (!navigator.geolocation) throw new Error("系统定位不可用");
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false, timeout: 10_000, maximumAge: 30 * 60_000
+          });
+        });
+        coordinates = position.coords;
+      }
+      // A late geolocation callback must not even write the old selection.
+      if (!weatherRequests.current(token)) return null;
+      prepareWeatherLocation(
+        `${Number(coordinates.longitude).toFixed(2)},${Number(coordinates.latitude).toFixed(2)}`,
+        allowSystem ? "系统定位" : option.label
+      );
+      const weather = await window.winplate.setWeatherLocation({
+        latitude: coordinates.latitude, longitude: coordinates.longitude
       });
-    }).then(({ coords }) => window.winplate.setWeatherLocation({
-      latitude: coords.latitude,
-      longitude: coords.longitude
-    })).catch((error) => {
-      console.warn("System weather location unavailable:", error.message);
-      return null;
-    });
-    const locatedWeather = await locationWeatherPromise;
-    if (locatedWeather) {
-      statusData.weather = { ...statusData.weather, ...locatedWeather };
+      if (!applyLocatedWeather(weather, token)) return null;
+      weatherLocationLastSyncedPreference = allowSystem ? null : option.id;
+      return weather;
+    } catch (error) {
+      failWeatherLocation(error, token);
+      throw error;
+    } finally {
+      weatherRequests.finish(token);
     }
-    return locatedWeather;
+  })();
+  locationWeatherPromise = pending;
+  try {
+    return await pending;
+  } finally {
+    if (locationWeatherPromise === pending) locationWeatherPromise = null;
   }
-  if (option.id !== "auto") {
-    locationWeatherPromise = window.winplate.setWeatherLocation({
-      latitude: option.latitude,
-      longitude: option.longitude
-    });
-    const locatedWeather = await locationWeatherPromise;
-    if (locatedWeather) {
-      weatherLocationLastSyncedPreference = option.id;
-      statusData.weather = { ...statusData.weather, ...locatedWeather };
-    }
-    return locatedWeather;
-  }
-  return null;
 }
 
 function bindMailControls() {
@@ -6518,26 +6573,24 @@ function startMailAutoRefreshTimer() {
 }
 
 async function refreshQWeatherAlerts() {
-  try {
-    weatherAlerts = normalizeWeatherAlerts(await window.winplate.refreshQWeatherAlerts());
-  } catch (error) {
-    weatherAlerts = {
-      ...weatherAlerts,
-      error: error.message || "天气预警读取失败"
-    };
-    console.warn("QWeather alerts unavailable:", error.message);
-  }
+  return loadWeatherAlerts(() => window.winplate.refreshQWeatherAlerts());
 }
 
 async function hydrateWeatherAlerts() {
   if (!window.winplate?.getQWeatherAlerts) return weatherAlerts;
+  return loadWeatherAlerts(() => window.winplate.getQWeatherAlerts());
+}
+
+async function loadWeatherAlerts(load) {
+  if (weatherRequests.pending) return weatherAlerts;
+  const request = ++weatherAlertRequestVersion;
+  const locationVersion = weatherRequests.version;
+  const current = () => request === weatherAlertRequestVersion && weatherRequests.current(locationVersion);
   try {
-    weatherAlerts = normalizeWeatherAlerts(await window.winplate.getQWeatherAlerts());
+    const value = await load();
+    if (current()) weatherAlerts = normalizeWeatherAlerts(value);
   } catch (error) {
-    weatherAlerts = {
-      ...weatherAlerts,
-      error: error.message || "天气预警读取失败"
-    };
+    if (current()) weatherAlerts = window.WinPlateWeatherState.failedAlerts(weatherAlerts, error);
   }
   return weatherAlerts;
 }
@@ -6646,6 +6699,8 @@ function updateMaximizeButton() {
 }
 
 async function refreshBackendStatus({ force = false } = {}) {
+  if (weatherRequests.pending) return statusData;
+  const statusRequest = ++weatherStatusRequestVersion;
   const weatherVersionAtRequest = weatherUpdateVersion;
   let selectedWeather = null;
   const selectedLocation = selectedWeatherLocationOption();
@@ -6655,12 +6710,19 @@ async function refreshBackendStatus({ force = false } = {}) {
     && weatherLocationLastSyncedPreference !== selectedLocation.id
   ) {
     try {
-      selectedWeather = await refreshSelectedWeatherLocation({ force: true });
+      const pending = refreshSelectedWeatherLocation({ force: true });
+      const selectionVersion = weatherRequests.version;
+      selectedWeather = await pending;
+      if (!selectedWeather || !weatherRequests.current(selectionVersion)) return statusData;
     } catch (error) {
-      console.warn("Saved weather location unavailable; falling back to status:", error.message);
+      updateCurrentViewDom("weather");
+      scheduleDesktopStatusPublish();
+      throw error;
     }
   }
+  const locationVersion = weatherRequests.version;
   let forcedWeather = null;
+  let refreshError = null;
   if (force && moduleEnabled("weather")) {
     if (selectedWeather) {
       forcedWeather = selectedWeather;
@@ -6670,18 +6732,28 @@ async function refreshBackendStatus({ force = false } = {}) {
           ? await window.winplate.refreshWeather()
           : await refreshLocalJson("/api/weather/refresh", "天气刷新");
       } catch (error) {
+        refreshError = error;
         console.warn("Forced weather refresh failed; falling back to status:", error.message);
       }
     }
   }
   const [incomingStatus, incomingHealth] = await Promise.all([
-    window.winplate.getStatus({ force }),
+    window.winplate.getStatus({ force }).catch((error) => {
+      if (statusRequest === weatherStatusRequestVersion && weatherRequests.current(locationVersion)) {
+        failWeatherLocation(error, locationVersion);
+        updateCurrentViewDom("weather");
+        scheduleDesktopStatusPublish();
+      }
+      throw error;
+    }),
     window.winplate.getHealthSyncStatus
       ? window.winplate.getHealthSyncStatus().catch(() => null)
       : Promise.resolve(null)
   ]);
   if (incomingHealth) applyHealthSyncStatus(incomingHealth);
-  const incomingWeather = forcedWeather
+  const canApplyWeather = statusRequest === weatherStatusRequestVersion
+    && weatherRequests.current(locationVersion) && !weatherRequests.pending;
+  const incomingWeather = !canApplyWeather ? statusData.weather : forcedWeather
     || selectedWeather
     || (weatherVersionAtRequest === weatherUpdateVersion
       ? incomingStatus.weather
@@ -6689,8 +6761,16 @@ async function refreshBackendStatus({ force = false } = {}) {
   statusData = {
     ...statusData,
     heart: { ...mockStatus.heart, ...incomingStatus.heart, ...statusData.heart },
-    weather: { ...mockStatus.weather, ...statusData.weather, ...incomingWeather }
+    weather: { ...mockStatus.weather, ...incomingWeather }
   };
+  if (!canApplyWeather) return incomingStatus;
+  if (refreshError) {
+    statusData.weather = {
+      ...statusData.weather,
+      availability: statusData.weather.source === "qweather" ? "stale" : "empty",
+      error: refreshError.message || "天气刷新失败"
+    };
+  }
   if (force && moduleEnabled("weather")) {
     await refreshQWeatherAlerts();
   } else {
@@ -6699,7 +6779,7 @@ async function refreshBackendStatus({ force = false } = {}) {
   await hydrateQWeatherUsage();
   updateCurrentViewDom(["weather", "heart"]);
   scheduleDesktopStatusPublish();
-  if (moduleEnabled("weather") && statusData.weather?.source === "unavailable") {
+  if (moduleEnabled("weather") && (statusData.weather?.source === "unavailable" || statusData.weather?.availability === "stale")) {
     throw new Error(statusData.weather.error || "天气服务不可用");
   }
   return incomingStatus;
@@ -6763,20 +6843,22 @@ async function refreshSuperGrokTokenUsageData({ force = false } = {}) {
 async function refreshCodexData({ force = false } = {}) {
   const previous = statusData.codex || {};
   const incoming = await window.winplate.getCodexUsage({ force });
-  const keepPreviousQuota = incoming?.status === "Unavailable" && previous.source !== "mock";
+  const keepPreviousQuota = incoming?.status === "Unavailable" && previous.source !== "mock"
+    && !codexWindowHasQuota(codexDisplayQuota(incoming))
+    && codexWindowHasQuota(codexDisplayQuota(previous));
   const incomingWindows = isRecord(incoming?.windows) ? incoming.windows : {};
   statusData.codex = {
     ...mockStatus.codex,
+    remainingPct: null, usedPct: null, resetText: null, resetClock: null,
     ...(keepPreviousQuota ? previous : {}),
     ...incoming,
-    ...(keepPreviousQuota || Object.keys(incomingWindows).length
-      ? {
-        windows: {
-          ...(keepPreviousQuota && isRecord(previous.windows) ? previous.windows : {}),
-          ...incomingWindows
-        }
-      }
-      : { windows: undefined })
+    ...(keepPreviousQuota ? {
+      remainingPct: previous.remainingPct ?? null,
+      usedPct: previous.usedPct ?? null,
+      resetText: previous.resetText ?? null,
+      resetClock: previous.resetClock ?? null,
+      windows: isRecord(previous.windows) ? previous.windows : {}
+    } : { windows: incomingWindows })
   };
   statusData.codex = normalizeCodexUsageForDisplay(statusData.codex);
   await refreshCodexTokenUsageData({ force });
@@ -7132,8 +7214,9 @@ if (view !== "tooltip") {
   });
   window.winplate?.onStatusRefresh?.((payload) => {
     if (payload?.weather) {
+      if (weatherRequests.pending) return;
       weatherUpdateVersion += 1;
-      statusData.weather = { ...mockStatus.weather, ...statusData.weather, ...payload.weather };
+      statusData.weather = { ...mockStatus.weather, ...payload.weather };
       updateCurrentViewDom("weather");
       scheduleDesktopStatusPublish();
       return;

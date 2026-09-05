@@ -155,8 +155,17 @@ function clearMailCaches() {
 }
 
 function clearWeatherAlertCaches() {
-  responseCaches.delete("QWeather alerts");
+  invalidateResponseCache("QWeather alerts");
 }
+
+const weatherOperations = require("./weatherOperations").createWeatherOperations({
+  invalidate() {
+    invalidateResponseCache("Status");
+    clearWeatherAlertCaches();
+    invalidateResponseCache("QWeather usage");
+  },
+  publish: broadcastStatusRefresh
+});
 
 async function fetchMailMessageByUid(uid, { markRead = false } = {}) {
   const messageUid = typeof uid === "string" || typeof uid === "number" ? String(uid).trim() : "";
@@ -590,7 +599,9 @@ if (!gotLock) {
       serviceSettingsLifecycle,
       afterServiceSettingsPersist: async (patch) => {
         if (Object.keys(patch).some((key) => serviceSettingsRequireBackendRestart.has(key))) {
+          weatherOperations.invalidate();
           await restartPythonBackend();
+          weatherOperations.invalidate();
         }
       },
       normalizeDeepSeekBaseUrl,
@@ -733,7 +744,7 @@ if (!gotLock) {
       return healthSyncServer.setDesktopStatusSnapshot(payload);
     });
     ipcMain.handle("network:speed", () => readNetworkSpeed());
-    ipcMain.handle("weather:refresh", async () => {
+    ipcMain.handle("weather:refresh", () => weatherOperations.run(async () => {
       const response = await fetchWithTimeout("http://127.0.0.1:8765/api/weather/refresh", {
         method: "POST"
       });
@@ -742,31 +753,25 @@ if (!gotLock) {
         const detail = payload?.detail ? `: ${payload.detail}` : "";
         throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
       }
-      invalidateResponseCache("Status");
-      clearWeatherAlertCaches();
-      responseCaches.delete("QWeather usage");
       const weather = await readJsonWithTimeout(response, "Weather refresh");
-      broadcastStatusRefresh(weather);
       return weather;
-    });
+    }));
     ipcMain.handle("weather:set-location", async (event, location) => {
       requireMainWindowSender(event);
       const { latitude, longitude } = normalizeWeatherCoordinates(location);
-      const response = await fetch("http://127.0.0.1:8765/api/weather/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ latitude, longitude })
+      return weatherOperations.run(async () => {
+        const response = await fetchWithTimeout("http://127.0.0.1:8765/api/weather/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ latitude, longitude })
+        });
+        if (!response.ok) {
+          const payload = await readJsonWithTimeout(response, "Weather location error").catch(() => null);
+          const detail = payload?.detail ? `: ${payload.detail}` : "";
+          throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
+        }
+        return readJsonWithTimeout(response, "Weather location");
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        const detail = payload?.detail ? `: ${payload.detail}` : "";
-        throw new Error(`Weather refresh failed: HTTP ${response.status}${detail}`);
-      }
-      invalidateResponseCache("Status");
-      responseCaches.delete("QWeather alerts");
-      const weather = await response.json();
-      broadcastStatusRefresh(weather);
-      return weather;
     });
     ipcMain.handle("weather:search-locations", async (_event, query) => {
       const q = encodeURIComponent(String(query || "").trim());
@@ -779,21 +784,19 @@ if (!gotLock) {
     });
     ipcMain.handle("weather:set-manual-location", async (event, location) => {
       requireMainWindowSender(event);
-      const response = await fetch("http://127.0.0.1:8765/api/weather/location/manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(location || {})
+      return weatherOperations.run(async () => {
+        const response = await fetchWithTimeout("http://127.0.0.1:8765/api/weather/location/manual", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(location || {})
+        });
+        if (!response.ok) {
+          const payload = await readJsonWithTimeout(response, "Weather manual location error").catch(() => null);
+          const detail = payload?.detail ? `: ${payload.detail}` : "";
+          throw new Error(`Weather location failed: HTTP ${response.status}${detail}`);
+        }
+        return readJsonWithTimeout(response, "Weather manual location");
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        const detail = payload?.detail ? `: ${payload.detail}` : "";
-        throw new Error(`Weather location failed: HTTP ${response.status}${detail}`);
-      }
-      invalidateResponseCache("Status");
-      responseCaches.delete("QWeather alerts");
-      const weather = await response.json();
-      broadcastStatusRefresh(weather);
-      return weather;
     });
     ipcMain.handle("weather:get-usage", () => (
       fetchJsonCached(

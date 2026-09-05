@@ -106,6 +106,8 @@ function formatResetClock(value) {
 }
 
 function normalizeRateLimitWindow(window, now = Date.now()) {
+  if (!["number", "string"].includes(typeof window?.usedPercent)
+    || (typeof window.usedPercent === "string" && !window.usedPercent.trim())) return null;
   const usedPercent = Number(window?.usedPercent);
   if (!window || !Number.isFinite(usedPercent)) return null;
   const usedPct = clampPercent(usedPercent);

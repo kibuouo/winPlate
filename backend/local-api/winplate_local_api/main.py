@@ -68,6 +68,8 @@ QWEATHER_CACHE_SECONDS = 600
 QWEATHER_MONTHLY_LIMIT = 50000
 _weather_cache: dict[str, tuple[float, dict]] = {}
 _weather_cache_lock = threading.Lock()
+_weather_location_lock = threading.Lock()
+_weather_location_version = 0
 MAIL_QUERY = "IMAP INBOX SINCE 30 days"
 MAIL_WINDOW_DAYS = 30
 MAIL_MAX_RESULTS = 20
@@ -2096,17 +2098,68 @@ def weather_status(
         cached = _weather_cache.get(query)
     if not force and cached and now - cached[0] < QWEATHER_CACHE_SECONDS:
         # In-TTL reuse is still live. Do not advertise a successful snapshot as cache.
-        return {**cached[1]}
-    data = build_weather_status(
-        query,
-        display_location=display_location,
-        location_source=location_source,
-        latitude=latitude,
-        longitude=longitude,
-    )
+        return {**deepcopy(cached[1]), "availability": "fresh", "locationQuery": query,
+                "locationSource": location_source or cached[1].get("locationSource", "")}
+    try:
+        data = build_weather_status(
+            query,
+            display_location=display_location,
+            location_source=location_source,
+            latitude=latitude,
+            longitude=longitude,
+        )
+    except RuntimeError as error:
+        if not cached:
+            raise
+        return {**deepcopy(cached[1]), "availability": "stale", "locationQuery": query,
+                "locationSource": location_source or cached[1].get("locationSource", ""),
+                "error": str(error)}
+    data = {**data, "availability": "fresh", "locationQuery": query, "error": ""}
     with _weather_cache_lock:
         _weather_cache[query] = (now, data)
     return data
+
+
+def current_weather_status(force: bool = False) -> dict:
+    stored = read_weather_location()
+    query = stored.get("query") if stored else QWEATHER_LOCATION
+    if not query:
+        return deepcopy(DEFAULT_STATUS["weather"])
+    return weather_status(
+        query, force=force,
+        display_location=stored.get("displayLocation") if stored else None,
+        location_source=stored.get("source") if stored else "env",
+        latitude=stored.get("latitude") if stored else None,
+        longitude=stored.get("longitude") if stored else None,
+    )
+
+
+def unavailable_weather_status(error: str, source: str = "unavailable") -> dict:
+    data = {**deepcopy(DEFAULT_STATUS["weather"]), "source": source, "availability": "empty", "error": error}
+    stored = read_weather_location()
+    query = stored.get("query") if stored else QWEATHER_LOCATION
+    if query:
+        data.update({
+            "locationQuery": query,
+            "location": stored.get("displayLocation") or query if stored else query,
+            "locationSource": stored.get("source") if stored else "env",
+        })
+    return data
+
+
+def begin_weather_location_change() -> int:
+    global _weather_location_version
+    with _weather_location_lock:
+        _weather_location_version += 1
+        return _weather_location_version
+
+
+def persist_current_weather_location(version: int, *args, **kwargs) -> None:
+    # HTTP cancellation does not stop a running provider call. A timed-out
+    # request must not overwrite a newer location when it eventually finishes.
+    with _weather_location_lock:
+        if version == _weather_location_version:
+            persist_weather_location(*args, **kwargs)
 
 
 def persist_weather_location(
@@ -2252,8 +2305,10 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
     if latitude is None or longitude is None:
         stored = read_weather_location()
         if not stored:
-            return {"source": "qweather", "alerts": [], "updatedAt": None, "error": "天气预警需要先获取一次定位"}
+            return {"source": "qweather", "availability": "unavailable", "alerts": [], "updatedAt": None, "error": "天气预警需要先获取一次定位"}
         location = stored
+    if location.get("latitude") is None or location.get("longitude") is None:
+        return {"source": "qweather", "availability": "unavailable", "alerts": [], "updatedAt": None, "error": "天气预警需要位置坐标"}
     lat = float(location["latitude"])
     lon = float(location["longitude"])
     display_location = str(location.get("displayLocation") or "").strip()
@@ -2333,6 +2388,8 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
     return {
         "source": "qweather",
         "alerts": normalized,
+        "availability": "active" if normalized else "empty",
+        "locationQuery": str(location.get("query") or qweather_coord_query(lon, lat)),
         "updatedAt": utc_epoch_seconds() * 1000,
     }
 
@@ -3014,24 +3071,12 @@ def status(force: bool = False) -> dict[str, dict]:
     result = {row["module"]: json.loads(row["payload"]) for row in rows}
     result["github"] = github_status(force=force)
     if environment_setting("QWEATHER_API_KEY"):
-        stored_weather_location = read_weather_location()
-        weather_query = stored_weather_location.get("query") if stored_weather_location else QWEATHER_LOCATION
-        weather_display = stored_weather_location.get("displayLocation") if stored_weather_location else None
-        weather_source = stored_weather_location.get("source") if stored_weather_location else ("env" if QWEATHER_LOCATION else None)
-        if weather_query:
-            try:
-                result["weather"] = weather_status(
-                    weather_query,
-                    force=force,
-                    display_location=weather_display,
-                    location_source=weather_source,
-                    latitude=stored_weather_location.get("latitude") if stored_weather_location else None,
-                    longitude=stored_weather_location.get("longitude") if stored_weather_location else None,
-                )
-            except RuntimeError as error:
-                result["weather"] = {**result.get("weather", DEFAULT_STATUS["weather"]), "source": "unavailable", "error": str(error)}
-        else:
-            result["weather"] = deepcopy(DEFAULT_STATUS["weather"])
+        try:
+            result["weather"] = current_weather_status(force=force)
+        except RuntimeError as error:
+            result["weather"] = unavailable_weather_status(str(error))
+    else:
+        result["weather"] = unavailable_weather_status("天气实况未配置 API Key", source="unconfigured")
     return result
 
 
@@ -3072,11 +3117,14 @@ def github_commits(
 @api.post("/api/weather/refresh")
 def refresh_weather(location: WeatherLocation | None = None) -> dict:
     try:
+        if location is None:
+            return current_weather_status(force=True)
         query = None
         if location:
             if not -90 <= location.latitude <= 90 or not -180 <= location.longitude <= 180:
                 raise HTTPException(status_code=422, detail="经纬度无效")
             query = qweather_coord_query(location.longitude, location.latitude)
+        location_version = begin_weather_location_change()
         data = weather_status(
             query,
             force=True,
@@ -3086,7 +3134,8 @@ def refresh_weather(location: WeatherLocation | None = None) -> dict:
         )
         if location:
             resolved = data.get("resolvedLocation") if isinstance(data.get("resolvedLocation"), dict) else {}
-            persist_weather_location(
+            persist_current_weather_location(
+                location_version,
                 location.latitude,
                 location.longitude,
                 data.get("location"),
@@ -3121,6 +3170,7 @@ def set_manual_weather_location(location: ManualWeatherLocation) -> dict:
         part for part in [str(location.name or "").strip(), str(location.adm1 or "").strip()]
         if part
     ) or location_id
+    location_version = begin_weather_location_change()
     try:
         data = weather_status(
             location_id,
@@ -3130,7 +3180,8 @@ def set_manual_weather_location(location: ManualWeatherLocation) -> dict:
             latitude=location.latitude,
             longitude=location.longitude,
         )
-        persist_weather_location(
+        persist_current_weather_location(
+            location_version,
             location.latitude,
             location.longitude,
             display_location,
@@ -3166,6 +3217,7 @@ def get_weather_alerts() -> dict:
         if str(error) == qweather_jwt_configuration_error():
             return {
                 "source": "qweather",
+                "availability": "unconfigured",
                 "alerts": [],
                 "updatedAt": None,
                 "error": "天气预警未配置 JWT 凭据，天气实况不受影响",

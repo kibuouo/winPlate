@@ -4,6 +4,17 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { parseCodexStatus, parseRateLimitsResponse, resolveCodexLaunch } = require("./codexUsage");
+const compatibilityFixtures = require("../../test/fixtures/codex-usage.json");
+
+for (const fixture of compatibilityFixtures.cases.filter((entry) => entry.rpc)) {
+  test(`app-server compatibility fixture: ${fixture.name}`, () => {
+    const usage = parseRateLimitsResponse(fixture.rpc, compatibilityFixtures.now);
+    assert.equal(`${usage.remainingPct ?? "--"}%`, fixture.expected.headline);
+    assert.equal(usage.windows.fiveHour?.remainingPct ?? null, fixture.expected.fiveHour);
+    assert.equal(usage.windows.sevenDay?.remainingPct ?? null, fixture.expected.sevenDay);
+    assert.equal(usage.status, fixture.expected.status);
+  });
+}
 
 test("uses the Codex executable name when no installed path is discoverable", () => {
   assert.deepEqual(resolveCodexLaunch({

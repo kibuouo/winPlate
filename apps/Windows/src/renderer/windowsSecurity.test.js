@@ -485,7 +485,9 @@ test("top-docked status derives alert color and unread mail from source-owned st
   const start = appSource.indexOf("const DOCKED_ALERT_COLOR_RANK");
   const end = appSource.indexOf("function renderDockedFloating()", start);
   const context = {
+    statusData: { weather: { locationQuery: "A" } },
     window: {
+      WinPlateWeatherState: require("./weatherState"),
       WinPlateNotificationDigest: {
         notificationAlertColor: (item) => item.meta?.alertColor || null
       }
@@ -504,6 +506,7 @@ test("top-docked status derives alert color and unread mail from source-owned st
   };
   assert.equal(context.dockedWeatherAlertState({ alerts: [] }, staleSummary), null);
   const alert = context.dockedWeatherAlertState({
+    availability: "active", updatedAt: Date.now(), locationQuery: "A",
     alerts: [
       { id: "yellow", createdAt: 300, lifecycle: "issued" },
       { id: "red", createdAt: 200, lifecycle: "issued" },

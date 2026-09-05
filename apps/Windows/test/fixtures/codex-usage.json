@@ -1,0 +1,51 @@
+{
+  "now": 1788609600000,
+  "cases": [
+    {
+      "name": "fiveHour",
+      "input": { "source": "codex-app-server", "status": "Normal", "remainingPct": null, "windows": { "fiveHour": { "remainingPct": 82, "usedPct": 18, "resetText": "2h" }, "sevenDay": null } },
+      "rpc": { "rateLimits": { "primary": { "usedPercent": 18, "windowDurationMins": 300 }, "secondary": null } },
+      "expected": { "headline": "82%", "reset": "2h", "fiveHour": 82, "sevenDay": null, "status": "Normal" }
+    },
+    {
+      "name": "sevenDay",
+      "input": { "source": "codex-app-server", "status": "Normal", "windows": { "sevenDay": { "remainingPct": 64, "usedPct": 36, "resetText": "3d" } } },
+      "rpc": { "rateLimitsByLimitId": { "codex": { "primary": { "usedPercent": 36, "windowDurationMins": 10080 }, "secondary": null } } },
+      "expected": { "headline": "64%", "reset": "3d", "fiveHour": null, "sevenDay": 64, "status": "Normal" }
+    },
+    {
+      "name": "legacy-top-level",
+      "input": { "source": "codex-legacy", "status": "Normal", "remainingPct": 57, "usedPct": 43, "resetText": "4d" },
+      "expected": { "headline": "57%", "reset": "4d", "fiveHour": null, "sevenDay": 57, "status": "Normal" }
+    },
+    {
+      "name": "missing-windows",
+      "input": { "source": "codex-app-server", "status": "Unavailable" },
+      "rpc": {},
+      "expected": { "headline": "--%", "reset": "--:--", "fiveHour": null, "sevenDay": null, "status": "Unavailable" }
+    },
+    {
+      "name": "both-windows-override-legacy",
+      "input": { "source": "codex-app-server", "status": "Normal", "remainingPct": 99, "windows": { "fiveHour": { "remainingPct": 82, "usedPct": 18, "resetText": "2h" }, "sevenDay": { "remainingPct": 64, "usedPct": 36, "resetText": "3d" } } },
+      "rpc": { "rateLimits": { "primary": { "usedPercent": 1 } }, "rateLimitsByLimitId": { "codex": { "primary": { "usedPercent": 18, "windowDurationMins": 300 }, "secondary": { "usedPercent": 36, "windowDurationMins": 10080 } } } },
+      "expected": { "headline": "64%", "reset": "3d", "fiveHour": 82, "sevenDay": 64, "status": "Normal" }
+    },
+    {
+      "name": "zero-is-valid",
+      "input": { "source": "codex-app-server", "status": "Normal", "windows": { "sevenDay": { "remainingPct": 0, "usedPct": 100, "resetText": "1d" } } },
+      "rpc": { "rateLimits": { "primary": { "usedPercent": 100, "windowDurationMins": 10080 } } },
+      "expected": { "headline": "0%", "reset": "1d", "fiveHour": null, "sevenDay": 0, "status": "Normal" }
+    },
+    {
+      "name": "null-windows-and-null-quota",
+      "input": { "source": "codex-app-server", "status": "Unavailable", "remainingPct": null, "windows": { "fiveHour": null, "sevenDay": { "remainingPct": null } } },
+      "rpc": { "rateLimits": { "primary": { "usedPercent": null, "windowDurationMins": 300 }, "secondary": null } },
+      "expected": { "headline": "--%", "reset": "--:--", "fiveHour": null, "sevenDay": null, "status": "Unavailable" }
+    },
+    {
+      "name": "invalid-weekly-with-valid-cached-fiveHour",
+      "input": { "source": "codex-app-server", "status": "Unavailable", "remainingPct": null, "windows": { "fiveHour": { "remainingPct": 28, "usedPct": 72, "resetText": "1h" }, "sevenDay": {} } },
+      "expected": { "headline": "28%", "reset": "1h", "fiveHour": 28, "sevenDay": null, "status": "Cached" }
+    }
+  ]
+}
