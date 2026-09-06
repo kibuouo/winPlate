@@ -1,43 +1,94 @@
 # WinPlate Health for iPhone
 
-这是 WinPlate 的第一个原生 iOS 小版本，目前只做健康概览：
+This is the first native iOS slice of WinPlate. It currently covers a health
+overview only:
 
-- 读取 HealthKit 中最近一次心率；
-- 汇总今天的步数和活动能量；
-- 支持首次授权、手动刷新和下拉刷新；
-- 健康数据只从 HealthKit 读取，不写入 HealthKit；Mac 通过加密的近距离设备连接接收，Windows 通过带配对令牌的局域网地址接收，不发送到互联网。Windows 同步会在本机应用沙盒中暂存一条最新健康概览以支持后台重试，并在 Windows 用户数据目录中保存限定 7 天、去重后的心率采样摘要用于趋势图，不保存 HealthKit 原始样本。
+- Reads the latest heart rate from HealthKit
+- Summarizes today's steps and active energy
+- Supports first-time authorization, manual refresh, and pull-to-refresh
+- Reads from HealthKit and never writes to it; health data is not sent to
+  the internet
 
-工程位于 [`WinPlateHealth`](./WinPlateHealth)。最低支持 iOS 17，目标设备为 iPhone 真机。
+A Mac receives the current overview over an encrypted nearby-device
+connection. Windows receives it through a token-protected LAN address. The
+iPhone keeps one latest overview in the app sandbox for system-allowed
+background retries. Windows also stores up to seven days of de-duplicated
+heart-rate sample summaries for its trend chart, and never stores original
+HealthKit samples.
 
-## 用 Xcode 运行
+The project lives in [`WinPlateHealth`](./WinPlateHealth). Minimum iOS is 17.
+The target device is a physical iPhone.
 
-1. 用完整 Xcode 打开 `WinPlateHealth/WinPlateHealth.xcodeproj`。
-2. 在 Xcode 的 `Settings > Apple Accounts` 登录你的 Apple Account。
-3. 选中 `WinPlateHealth` target，在 `Signing & Capabilities` 中选择你的 Team，并保持 `Automatically manage signing`。
-4. 如果 Xcode 要求修改 Bundle Identifier，将 `com.kiko.winplate.health` 换成你自己的唯一值。
-5. 连接 iPhone，选择它作为 Run Destination，点击 Run；首次运行时在手机的 `设置 > 隐私与安全性 > 开发者模式` 开启开发者模式，并信任该开发者。
-6. 在 App 内点击“开启健康数据”，允许读取心率、步数和活动能量。
+## Run from Xcode
 
-## 7 天签名说明
+1. Open `WinPlateHealth/WinPlateHealth.xcodeproj` in full Xcode.
+2. Sign in under Xcode **Settings > Apple Accounts**.
+3. Select the `WinPlateHealth` target, choose your Team in **Signing &
+   Capabilities**, and keep **Automatically manage signing**.
+4. If Xcode asks you to change the bundle identifier, replace
+   `com.kiko.winplate.health` with a unique value of your own.
+5. Connect an iPhone, select it as the run destination, and click Run. On
+   first launch, enable Developer Mode in iPhone **Settings > Privacy &
+   Security > Developer Mode**, and trust the developer.
+6. In the app, tap Enable health data and allow read access to heart rate,
+   steps, and active energy.
 
-不加入 Apple Developer Program 时，Xcode 的 Personal Team 可以用于个人真机测试，但安装用 provisioning profile 只持续 7 天。到期后需要重新 Build & Run，不能把这个签名当作长期分发方案。
+## 7-day signing
 
-本工程已预置 `com.apple.developer.healthkit` entitlement。HealthKit 属于受限能力；如果你的 Personal Team 无法生成包含该 entitlement 的 provisioning profile，Xcode 会在签名阶段报错，此时需要加入付费 Apple Developer Program，或先移除 HealthKit entitlement 仅运行 UI 演示版。仓库不包含任何证书、私钥或 provisioning profile。
+Without the Apple Developer Program, Xcode's Personal Team can install onto
+your own device, but the provisioning profile lasts only seven days. After
+it expires you must Build & Run again. That signing is not a long-term
+distribution path.
 
-## 隐私边界
+This project already includes the `com.apple.developer.healthkit`
+entitlement. HealthKit is a restricted capability. If your Personal Team
+cannot produce a profile that includes it, signing fails. Join the paid
+Apple Developer Program, or remove the HealthKit entitlement and run a UI
+demo only. The repository does not contain certificates, private keys, or
+provisioning profiles.
 
-本版本不保存健康原始数据，不上传到互联网，也不申请写入权限。iPhone 只持久化最新一条待发送的健康概览，用于系统允许的后台重试；Mac 和 Windows 端只保留当前运行期间收到的健康概览。天气、Codex/Grok 额度和 DeepSeek 余额等桌面状态只通过本地连接同步到 iPhone，不包含 API 密钥或其他敏感配置。Windows 接收服务仅开放独立的 `8766` 端口，使用 WinPlate 生成的配对令牌；现有本地 API 仍只监听 `127.0.0.1:8765`。
-本版本不保存健康原始数据，不上传到互联网，也不申请写入权限。iPhone 只持久化最新一条待发送的健康概览，用于系统允许的后台重试；Mac 端保留当前运行期间收到的健康概览，Windows 端额外保留限定 7 天、去重后的心率采样摘要以支持心率趋势图。天气、Codex/Grok 额度和 DeepSeek 余额等桌面状态只通过本地连接同步到 iPhone，不包含 API 密钥或其他敏感配置。Windows 接收服务仅开放独立的 `8766` 端口，使用 WinPlate 生成的配对令牌；现有本地 API 仍只监听 `127.0.0.1:8765`。
+## Privacy boundary
 
-当 HealthKit 产生心率、步数或活动能量变化时，系统会通过 `HKObserverQuery` 尝试唤醒应用并触发后台 HTTP 上传。iOS 的后台调度由系统决定，不承诺固定 30 秒周期；用户从多任务界面强制关闭 App 后，也不保证继续后台同步。
+This version does not store raw health data, does not upload to the
+internet, and does not request write access.
 
-## 连接 Windows 版
+- The iPhone persists only the latest outbound health overview, for
+  system-allowed background retries.
+- The Mac keeps the overview received during the current run.
+- Windows also keeps up to seven days of de-duplicated heart-rate sample
+  summaries for the heart-rate trend chart.
 
-1. 在 Windows WinPlate 的“健康”页面复制与 iPhone 使用同一局域网的“Windows 接收地址”；如果 Windows 显示多个地址，请逐个尝试。
-2. 确认 iPhone 和 Windows 电脑连接到同一个局域网；首次启动 Windows 版时，在 Windows 防火墙提示中允许专用网络访问。
-3. 在 iPhone WinPlate Health 的 `WinPlate 通信` 卡片中粘贴地址，点击“保存地址并测试”。
-4. 测试成功后，iPhone 每次刷新 HealthKit 数据都会同步到 Windows；Windows 页面会显示连接状态、最近心率、步数和活动能量，并在收到多个心率采样后显示 `心率趋势` 统计图。
+Weather, Codex / Grok usage, and DeepSeek balance can sync to the iPhone
+over the local connection. API keys and other secrets are not included.
+The Windows receiver opens only port `8766` and uses a WinPlate-generated
+pairing token. The existing local API still binds solely to
+`127.0.0.1:8765`.
 
-如果 iPhone 显示无法连接，请检查 Windows 健康卡片上的同步状态：`waiting` 表示接收端未收到数据，`error` 通常表示令牌或端口问题；同时确认 Windows 防火墙允许专用网络访问 TCP `8766`。
+When HealthKit reports heart-rate, step, or active-energy changes, iOS may
+wake the app through `HKObserverQuery` and trigger a background HTTP
+upload. Background scheduling is decided by the system; there is no fixed
+interval. Force-closing the app from the app switcher also does not
+guarantee continued sync.
 
-Windows 版使用的是局域网 HTTP 接收端，配对地址包含随机令牌。不要把该地址分享给不受信任的设备；后续若需要跨网或更高强度的传输保护，应升级为 TLS 或设备级加密配对。
+## Connect to Windows
+
+1. On Windows WinPlate, open Health and copy a Windows receive address on
+   the same LAN as the iPhone. If several addresses appear, try them one
+   by one.
+2. Confirm the iPhone and the PC are on the same LAN. On first Windows
+   launch, allow private-network access in the firewall prompt.
+3. Paste the address into the iPhone WinPlate communication card and tap
+   Save address and test.
+4. After a successful test, each HealthKit refresh on the iPhone syncs to
+   Windows. Windows shows connection state, latest heart rate, steps, and
+   active energy, and shows the heart-rate trend once it has multiple
+   samples.
+
+If the iPhone cannot connect, check the sync state on the Windows Health
+card: `waiting` means the receiver has not seen data yet; `error` usually
+points to the token or the port. Also confirm the firewall allows private
+TCP `8766`.
+
+The pairing address includes a random token. Do not share it with
+untrusted devices. Cross-network use, or stronger transport protection,
+should move to TLS or device-level encrypted pairing.
