@@ -12,10 +12,6 @@ const WEATHER_UPGRADED_RE = /升级|提升为|升为|upgrade/i;
 const TASK_FAILURE_RE = /失败|错误|异常|崩溃|failed|failure|error|crash/i;
 const CORE_FAILURE_RE = /(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)|(?:连续|多次|反复).*(?:API|接口).*(?:失败|错误|不可用)|核心模块.*(?:不可用|故障|失败)|core module.*(?:unavailable|failure|failed)|service unavailable/i;
 const SEVERE_SYSTEM_RE = /严重错误|致命错误|系统崩溃|critical error|fatal error|system crash/i;
-const WEATHER_ALERT_COLOR_MAP = new Map(
-  Object.entries(notificationTaxonomy.weather.alertColors)
-    .flatMap(([color, aliases]) => aliases.map((alias) => [alias, color]))
-);
 const WEATHER_RESOLVED_VALUES = new Set(WEATHER_LIFECYCLE.resolvedValues);
 const WEATHER_UPGRADED_VALUES = new Set(WEATHER_LIFECYCLE.upgradedValues);
 const {
@@ -25,6 +21,11 @@ const {
   normalizedConversationTitle
 } = require("./conversations");
 const { createNotificationManager: createBaseNotificationManager } = require("./manager");
+const {
+  weatherAlertColor,
+  weatherDisplaySeverity,
+  weatherStorageLevel
+} = require("./weather");
 
 function trimId(value, limit = 180) {
   return String(value || "").trim().slice(0, limit);
@@ -62,19 +63,6 @@ function weatherLifecycle(item, combinedText) {
     return "upgraded";
   }
   return "issued";
-}
-
-function weatherAlertColor(item = {}) {
-  if (normalizeSource(item.source) !== "qweather") return null;
-  if (item.meta?.lifecycle === "resolved") return "green";
-  const content = `${item.title || ""} ${item.body || item.message || ""}`;
-  if (/红色预警|red alert/i.test(content)) return "red";
-  if (/橙色预警|黄色预警|orange alert|yellow alert/i.test(content)) return "yellow";
-  if (/蓝色预警|blue alert/i.test(content)) return "blue";
-  if (/绿色预警|green alert/i.test(content)) return "green";
-  const configured = String(item.meta?.alertColor || item.meta?.severity || item.meta?.color || "").toLowerCase();
-  if (WEATHER_ALERT_COLOR_MAP.has(configured)) return WEATHER_ALERT_COLOR_MAP.get(configured);
-  return null;
 }
 
 function deriveSourceId(item = {}, source, id, meta = {}) {
@@ -190,10 +178,10 @@ function normalizeRawNotification(item = {}, now = Date.now()) {
   let alertColor = weatherAlertColor({ source, title, body, meta });
   if (alertColor) meta.alertColor = alertColor;
   if (source === "qweather") {
-    if (alertColor === "red") level = "critical";
-    else if (alertColor === "yellow") level = "warning";
-    else if (alertColor === "blue") level = "info";
-    else if (alertColor === "green" || lifecycle === "resolved") level = "success";
+    const weatherLevel = weatherStorageLevel(alertColor);
+    if (weatherLevel) level = weatherLevel;
+    else if (lifecycle === "resolved") level = "success";
+    if (!severity) severity = weatherDisplaySeverity(alertColor);
     if (!alertColor) {
       alertColor = level === "critical" ? "red" : level === "warning" ? "yellow" : level === "success" ? "green" : "blue";
       meta.alertColor = alertColor;

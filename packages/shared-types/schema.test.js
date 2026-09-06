@@ -46,7 +46,17 @@ test("exports the versioned notification taxonomy shared by JS and Python", () =
   );
   assert.deepEqual(notificationTaxonomy.levels, ["info", "success", "warning", "critical"]);
   assert.deepEqual(notificationTaxonomy.weather.alertColors.red, ["red", "extreme"]);
-  assert.deepEqual(notificationTaxonomy.weather.alertColors.yellow, ["orange", "yellow", "severe"]);
+  assert.deepEqual(
+    notificationTaxonomy.weather.alertColors.yellow,
+    ["orange", "yellow", "amber", "severe", "moderate"],
+  );
+  assert.deepEqual(notificationTaxonomy.weather.alertColors.blue, ["blue", "minor"]);
+  assert.equal(notificationTaxonomy.weather.alertColorLevels.yellow, "warning");
+  assert.equal(notificationTaxonomy.weather.alertColorSeverities.red, "danger");
+  assert.equal(notificationTaxonomy.weather.alertColorSeverities.blue, "info");
+  assert.equal(notificationTaxonomy.weather.alertColorSeverities.yellow, "warning");
+  assert.ok(notificationTaxonomy.weather.alertColors.yellow.includes("severe"));
+  assert.equal(notificationTaxonomy.weather.alertColorSeverities.severe, undefined);
 });
 
 test("notification schema accepts current normalized notification shape and rejects missing version", () => {

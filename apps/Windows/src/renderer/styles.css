@@ -2011,6 +2011,8 @@ html.weather-effects-paused .weather-scene * {
 .weather-alerts-empty.error { color: #f59e0b; }
 .weather-alert-card.severity-warning { border-color: rgba(250, 204, 21, .18); background: linear-gradient(145deg, rgba(250, 204, 21, .08), color-mix(in srgb, var(--surface-card) 78%, transparent)); }
 .weather-alert-card.severity-warning .weather-alert-badge { color: #fef3c7; background: rgba(217, 119, 6, .62); }
+.weather-alert-card.severity-info { border-color: rgba(59, 130, 246, .2); background: linear-gradient(145deg, rgba(59, 130, 246, .08), color-mix(in srgb, var(--surface-card) 78%, transparent)); }
+.weather-alert-card.severity-info .weather-alert-badge { color: #dbeafe; background: rgba(37, 99, 235, .62); }
 .weather-alert-card.severity-critical { border-color: rgba(248, 113, 113, .22); background: linear-gradient(145deg, rgba(239, 68, 68, .1), color-mix(in srgb, var(--surface-card) 78%, transparent)); }
 .weather-alert-card.severity-critical .weather-alert-badge { color: #fee2e2; background: rgba(185, 28, 28, .72); }
 .weather-alert-card.severity-resolved { border-color: rgba(52, 211, 153, .2); background: linear-gradient(145deg, rgba(52, 211, 153, .1), color-mix(in srgb, var(--surface-card) 78%, transparent)); }

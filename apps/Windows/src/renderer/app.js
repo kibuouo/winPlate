@@ -1844,11 +1844,12 @@ function notificationDisplaySeverity(item = {}) {
     : item?.metadata && typeof item.metadata === "object"
       ? item.metadata
       : {};
-  const severity = String(item?.severity || item?.displaySeverity || metadata.severity || "").toLowerCase();
+  const severity = String(item?.severity || item?.displaySeverity || "").toLowerCase();
   if (severity === "info" || severity === "warning" || severity === "danger") return severity;
   const alertColor = String(metadata.alertColor || "").toLowerCase();
   if (alertColor === "red") return "danger";
   if (alertColor === "yellow") return "warning";
+  if (alertColor === "blue" || alertColor === "green") return "info";
   const level = String(item?.level || "info").toLowerCase();
   if (level === "critical" || level === "danger") return "danger";
   if (level === "warning") return "warning";
@@ -2636,7 +2637,9 @@ function normalizeWeatherAlerts(value = {}) {
 
 function weatherAlertTone(alert = {}) {
   if (alert.lifecycle === "resolved") return "resolved";
-  return alert.level === "critical" ? "critical" : "warning";
+  if (alert.level === "critical" || alert.alertColor === "red") return "critical";
+  if (alert.level === "info" || alert.alertColor === "blue") return "info";
+  return "warning";
 }
 
 function weatherAlertStatus(alert = {}) {

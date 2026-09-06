@@ -955,13 +955,15 @@ struct AppNotification: Decodable, Identifiable {
     }
 
     var requiresAcknowledgement: Bool {
-        guard source == "qweather", metadata?.severity?.lowercased() == "red" else { return false }
+        guard source == "qweather" else { return false }
+        let color = (metadata?.severity ?? "").lowercased()
+        guard color == "red" || color == "extreme" else { return false }
         let lifecycle = (metadata?.lifecycle ?? metadata?.status ?? "issued").lowercased()
         return !["resolved", "cancelled", "canceled", "expired", "cleared"].contains(lifecycle)
     }
 
     /// Display severity aligned with Windows digest: info | warning | danger.
-    /// Prefers API `severity`; for weather, never promote orange/severe to danger from bare `level`.
+    /// Prefers API `severity`. QWeather `severe` is the orange band, not danger.
     var displaySeverity: String {
         switch severity.lowercased() {
         case "danger", "warning", "info":
@@ -969,19 +971,24 @@ struct AppNotification: Decodable, Identifiable {
         default:
             break
         }
-        // Weather fallback: title/metadata color beats storage level (severe≈orange → warning).
         if source == "qweather" {
             let color = (metadata?.severity ?? "").lowercased()
             if color == "red" || color == "extreme" { return "danger" }
-            if ["orange", "severe", "yellow", "blue", "moderate", "minor"].contains(color) {
+            if ["orange", "amber", "severe", "yellow", "moderate"].contains(color) {
                 return "warning"
+            }
+            if ["blue", "minor", "green", "white"].contains(color) {
+                return "info"
             }
             let text = "\(title) \(message)"
             if text.range(of: "红色预警|red alert", options: [.regularExpression, .caseInsensitive]) != nil {
                 return "danger"
             }
-            if text.range(of: "橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert", options: [.regularExpression, .caseInsensitive]) != nil {
+            if text.range(of: "橙色预警|黄色预警|orange alert|yellow alert", options: [.regularExpression, .caseInsensitive]) != nil {
                 return "warning"
+            }
+            if text.range(of: "蓝色预警|blue alert|绿色预警|green alert", options: [.regularExpression, .caseInsensitive]) != nil {
+                return "info"
             }
         }
         switch level.lowercased() {

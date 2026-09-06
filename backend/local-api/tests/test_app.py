@@ -1007,9 +1007,10 @@ class DatabaseTests(unittest.TestCase):
             payload = {
                 "alerts": [{
                     "id": "a1",
-                    "headline": "大风蓝色预警",
-                    "description": "预计未来24小时有大风。",
-                    "severity": "moderate",
+                    "headline": "高温橙色预警",
+                    "description": "预计未来24小时有高温。",
+                    "severity": "severe",
+                    "color": {"code": "orange"},
                     "issuedTime": "2026-06-17T12:00:00+08:00",
                 }]
             }
@@ -1018,16 +1019,41 @@ class DatabaseTests(unittest.TestCase):
             summary = main.notification_summary()
         main.DATABASE_PATH = original_path
         request.assert_called_once_with("/weatheralert/v1/current/22.32/114.17", None)
-        self.assertEqual(result["alerts"][0]["title"], "大风蓝色预警")
+        self.assertEqual(result["alerts"][0]["title"], "高温橙色预警")
         self.assertEqual(summary["latest"]["id"], "qweather:a1")
         self.assertEqual(summary["latest"]["level"], "warning")
         self.assertEqual(summary["latest"]["severity"], "warning")
         self.assertEqual(summary["latest"]["metadata"], {
-            "severity": "moderate",
+            "severity": "severe",
             "lifecycle": "issued",
             "riskDelta": "active",
             "alertId": "a1",
+            "alertColor": "yellow",
         })
+
+    def test_qweather_blue_alerts_are_informational(self):
+        original_path = main.DATABASE_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            main.DATABASE_PATH = Path(directory) / "test.db"
+            main.initialize_database()
+            payload = {
+                "alerts": [{
+                    "id": "blue-1",
+                    "headline": "大风蓝色预警",
+                    "description": "预计未来24小时有大风。",
+                    "severity": "minor",
+                    "color": {"code": "blue"},
+                    "issuedTime": "2026-06-17T12:00:00+08:00",
+                }]
+            }
+            with patch.object(main, "qweather_jwt_request", return_value=payload):
+                result = main.qweather_alerts(22.3193, 114.1694)
+            summary = main.notification_summary()
+        main.DATABASE_PATH = original_path
+        self.assertEqual(result["alerts"][0]["title"], "大风蓝色预警")
+        self.assertEqual(summary["latest"]["level"], "info")
+        self.assertEqual(summary["latest"]["severity"], "info")
+        self.assertEqual(summary["latest"]["metadata"]["alertColor"], "blue")
 
     def test_qweather_active_red_alert_persists_exact_acknowledgement_metadata(self):
         original_path = main.DATABASE_PATH
@@ -1052,6 +1078,7 @@ class DatabaseTests(unittest.TestCase):
             "lifecycle": "issued",
             "riskDelta": "active",
             "alertId": "red-1",
+            "alertColor": "red",
         })
 
     def test_qweather_alerts_use_stored_display_location_in_notifications(self):
@@ -1101,6 +1128,7 @@ class DatabaseTests(unittest.TestCase):
             "lifecycle": "resolved",
             "riskDelta": "decreased",
             "alertId": "a1",
+            "alertColor": "green",
         })
 
     def test_qweather_resolution_settles_previous_notification_in_same_family(self):
@@ -1369,7 +1397,8 @@ class DatabaseTests(unittest.TestCase):
             ({"source": "qweather", "title": "高温橙色预警", "message": "", "level": "critical", "metadata": {"lifecycle": "issued", "severity": "severe"}}, "warning"),
             ({"source": "qweather", "title": "暴雨橙色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
             ({"source": "qweather", "title": "高温黄色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
-            ({"source": "qweather", "title": "大风蓝色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "warning"),
+            ({"source": "qweather", "title": "大风蓝色预警", "message": "", "level": "warning", "metadata": {"lifecycle": "issued"}}, "info"),
+            ({"source": "qweather", "title": "大风预警", "message": "", "level": "info", "metadata": {"lifecycle": "issued", "severity": "minor"}}, "info"),
             ({"source": "qweather", "title": "暴雨红色预警解除", "message": "风险降低", "level": "success", "metadata": {"lifecycle": "resolved"}}, "info"),
             ({"source": "qweather", "title": "天气转多云", "message": "", "level": "info", "metadata": {}}, "info"),
             ({"source": "mail", "title": "新邮件：Launch", "message": "", "level": "info", "metadata": {}}, "info"),

@@ -907,4 +907,54 @@ final class MenuBarTemperatureFormatterTests: XCTestCase {
         XCTAssertFalse(withAPI.requiresAcknowledgement)
         XCTAssertFalse(fallback.requiresAcknowledgement)
     }
+
+    func testBlueWeatherAlertIsInfoNotWarning() throws {
+        let payload = """
+        {
+          "id": "qweather:wind-blue",
+          "source": "qweather",
+          "level": "info",
+          "severity": "info",
+          "title": "大风蓝色预警",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "minor", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+        let fallback = """
+        {
+          "id": "qweather:wind-blue-2",
+          "source": "qweather",
+          "level": "warning",
+          "title": "大风蓝色预警",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "minor", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+        let extreme = """
+        {
+          "id": "qweather:rain-extreme",
+          "source": "qweather",
+          "level": "critical",
+          "title": "暴雨预警",
+          "message": "",
+          "unread": true,
+          "createdAt": 1780000000000,
+          "metadata": {"severity": "extreme", "lifecycle": "issued"}
+        }
+        """.data(using: .utf8)!
+
+        let withAPI = try JSONDecoder().decode(AppNotification.self, from: payload)
+        let withoutAPI = try JSONDecoder().decode(AppNotification.self, from: fallback)
+        let extremeAlert = try JSONDecoder().decode(AppNotification.self, from: extreme)
+
+        XCTAssertEqual(withAPI.displaySeverity, "info")
+        XCTAssertEqual(withoutAPI.displaySeverity, "info")
+        XCTAssertFalse(withAPI.requiresAcknowledgement)
+        XCTAssertEqual(extremeAlert.displaySeverity, "danger")
+        XCTAssertTrue(extremeAlert.requiresAcknowledgement)
+    }
 }

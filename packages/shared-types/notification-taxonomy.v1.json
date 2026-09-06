@@ -54,13 +54,49 @@
       "yellow": [
         "orange",
         "yellow",
-        "severe"
+        "amber",
+        "severe",
+        "moderate"
       ],
       "blue": [
-        "blue"
+        "blue",
+        "minor"
       ],
       "green": [
-        "green"
+        "green",
+        "white"
+      ]
+    },
+    "alertColorLevels": {
+      "red": "critical",
+      "yellow": "warning",
+      "blue": "info",
+      "green": "success"
+    },
+    "alertColorSeverities": {
+      "red": "danger",
+      "yellow": "warning",
+      "blue": "info",
+      "green": "info"
+    },
+    "titleCues": {
+      "red": [
+        "红色预警",
+        "red alert"
+      ],
+      "yellow": [
+        "橙色预警",
+        "黄色预警",
+        "orange alert",
+        "yellow alert"
+      ],
+      "blue": [
+        "蓝色预警",
+        "blue alert"
+      ],
+      "green": [
+        "绿色预警",
+        "green alert"
       ]
     }
   }

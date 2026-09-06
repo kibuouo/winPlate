@@ -35,6 +35,12 @@ from pydantic import BaseModel
 
 from .modules.registry import public_modules
 from .notification_manager import NotificationManager
+from .notification_taxonomy import (
+    weather_alert_color,
+    weather_display_severity,
+    weather_raw_color_token,
+    weather_storage_level,
+)
 
 
 def resolve_database_path(
@@ -513,17 +519,6 @@ def normalize_display_severity(severity: str) -> str:
     return value if value in {"info", "warning", "danger"} else "info"
 
 
-DANGER_WEATHER_RE = re.compile(r"红色预警|red alert", re.I)
-WARNING_WEATHER_RE = re.compile(
-    r"橙色预警|黄色预警|蓝色预警|orange alert|yellow alert|blue alert",
-    re.I,
-)
-# QWeather color ladder: blue/minor → yellow/moderate → orange/severe → red/extreme.
-# Only true red-class maps to display danger; severe is orange band → warning.
-DANGER_WEATHER_COLORS = frozenset({"red", "extreme"})
-WARNING_WEATHER_COLORS = frozenset({
-    "orange", "yellow", "blue", "severe", "moderate", "minor", "unknown", "white", "green",
-})
 TASK_FAILURE_RE = re.compile(r"失败|错误|异常|崩溃|failed|failure|error|crash", re.I)
 CORE_FAILURE_RE = re.compile(
     r"(?:API|接口).*(?:连续|多次|反复).*(?:失败|错误|不可用)"
@@ -555,15 +550,15 @@ def severity_for_notification(item: dict | None = None) -> str:
     if source == "qweather":
         if lifecycle == "resolved":
             return "info"
-        weather_color = str(meta.get("severity") or "").strip().lower()
-        if weather_color in DANGER_WEATHER_COLORS:
-            return "danger"
-        if weather_color in WARNING_WEATHER_COLORS:
-            return "warning"
-        if DANGER_WEATHER_RE.search(content):
-            return "danger"
-        if WARNING_WEATHER_RE.search(content):
-            return "warning"
+        color = weather_alert_color(
+            title=title,
+            message=body,
+            lifecycle=lifecycle,
+            metadata=meta,
+        )
+        weather_severity = weather_display_severity(color)
+        if weather_severity:
+            return weather_severity
         if level == "critical":
             return "danger"
         if level == "warning":
@@ -2329,14 +2324,21 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
             display_location,
         )
         message = clean_mail_text(str(alert.get("description") or alert.get("text") or ""), limit=360)
-        severity = str(alert.get("severity") or alert.get("color") or "warning").lower()
+        raw_severity = str(alert.get("severity") or "").strip().lower()
+        raw_color = weather_raw_color_token(alert)
         lifecycle = weather_alert_lifecycle(alert, title, message)
         family_key = weather_alert_family_key(alert)
-        # Storage level: red/extreme → critical; orange(severe)/yellow/blue → warning.
+        alert_color = weather_alert_color(
+            title=title,
+            message=message,
+            lifecycle=lifecycle,
+            raw_color=raw_color or raw_severity,
+        )
+        severity = raw_severity or raw_color
+        # Storage level follows canonical color: red→critical, yellow(orange/severe)→warning, blue→info.
         level = (
             "success" if lifecycle == "resolved"
-            else "critical" if severity in {"red", "extreme"}
-            else "warning"
+            else weather_storage_level(alert_color) or "warning"
         )
         if lifecycle == "resolved" and "风险降低" not in f"{title} {message}":
             message = clean_mail_text(f"预警已解除，风险降低。{message}", limit=360)
@@ -2372,6 +2374,9 @@ def qweather_alerts(latitude: float | None = None, longitude: float | None = Non
                 "lifecycle": lifecycle,
                 "riskDelta": normalized_alert["riskDelta"],
             }
+            if alert_color:
+                metadata["alertColor"] = alert_color
+                normalized_alert["alertColor"] = alert_color
             if family_key:
                 metadata["familyKey"] = family_key
             metadata["alertId"] = alert_id

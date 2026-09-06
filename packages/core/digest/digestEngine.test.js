@@ -53,14 +53,25 @@ test("maps source semantics to the requested notification tiers", () => {
   const item = (source, title, level = "info", metadata = {}) =>
     normalizeRawNotification({ source, title, level, metadata });
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警")), "danger");
-  // Orange matches yellow/blue band (warning), not red danger — same as Windows weather cards.
+  // Orange and yellow share the warning band. Blue is informational. QWeather "severe" is orange, not danger.
   assert.equal(severityForNotification(item("qweather", "暴雨橙色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "高温黄色预警")), "warning");
   assert.equal(severityForNotification(item("qweather", "大风蓝色预警")), "info");
   assert.equal(severityForNotification(item("qweather", "天气转多云")), "info");
   assert.equal(severityForNotification(item("qweather", "暴雨橙色预警", "warning", { severity: "orange", lifecycle: "issued" })), "warning");
-  // QWeather maps orange → "severe"; must stay warning, not red danger.
   assert.equal(severityForNotification(item("qweather", "高温橙色预警", "critical", { severity: "severe", lifecycle: "issued" })), "warning");
+  assert.equal(severityForNotification({
+    source: "qweather",
+    title: "高温预警",
+    level: "critical",
+    meta: { severity: "severe", lifecycle: "issued" }
+  }), "warning");
+  assert.equal(severityForNotification({
+    source: "qweather",
+    title: "大风预警",
+    level: "warning",
+    meta: { severity: "minor", lifecycle: "issued" }
+  }), "info");
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警", "critical", { severity: "red", lifecycle: "issued" })), "danger");
   assert.equal(severityForNotification(item("qweather", "暴雨红色预警", "critical", { severity: "extreme", lifecycle: "issued" })), "danger");
   assert.equal(severityForNotification(item("mail", "新邮件：Launch")), "info");
