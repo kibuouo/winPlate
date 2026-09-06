@@ -122,9 +122,9 @@ or Python from the repository.
 **macOS.** In WinPlate settings, use the six-digit Health pairing code stored
 in Keychain. The Mac browses for WinPlate Health on the local network.
 
-**Windows.** Open `健康`, copy a `Windows 接收地址` on the same LAN as the
-iPhone, paste it into the iPhone app's `WinPlate 通信` card, and allow
-WinPlate through the Windows Firewall for private networks. Multiple
+**Windows.** Open Health, copy a Windows receive address on the same LAN as
+the iPhone, paste it into the iPhone app's WinPlate communication card, and
+allow WinPlate through the Windows Firewall for private networks. Multiple
 addresses can appear (Wi-Fi, Ethernet, VPN, virtual adapters); try another
 displayed address if the iPhone cannot connect.
 
