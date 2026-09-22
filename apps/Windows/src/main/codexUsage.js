@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const stripAnsi = require("strip-ansi");
+const { default: stripAnsi } = require("strip-ansi");
 
 const READ_TIMEOUT_MS = 15_000;
 const SUCCESS_CACHE_TTL_MS = 30 * 60_000;

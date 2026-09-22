@@ -79,6 +79,18 @@ test("parses remaining percentage and reset text", () => {
   assert.equal(usage.status, "Normal");
 });
 
+test("strips terminal styling before parsing percentages and reset text", () => {
+  const usage = parseCodexStatus(
+    "\u001b[32m5h limit: \u001b[1m69\u001b[22m% left (resets 15:23)\u001b[0m\n" +
+    "\u001b[36mWeekly limit: 42% left\u001b[0m"
+  );
+
+  assert.equal(usage.windows.fiveHour.remainingPct, 69);
+  assert.equal(usage.windows.sevenDay.remainingPct, 42);
+  assert.equal(usage.resetText, "15:23");
+  assert.equal(usage.raw, "5h limit: 69% left (resets 15:23)\nWeekly limit: 42% left");
+});
+
 test("converts an explicitly used percentage", () => {
   const usage = parseCodexStatus("Session: 25% used\nReset: 15:23");
   assert.equal(usage.remainingPct, 75);
