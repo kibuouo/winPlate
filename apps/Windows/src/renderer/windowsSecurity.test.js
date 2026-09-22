@@ -8,6 +8,10 @@ function readSource(...segments) {
   return fs.readFileSync(path.join(__dirname, ...segments), "utf8");
 }
 
+function readStyles() {
+  return `${readSource("styles-capsule.css")}\n${readSource("styles.css")}`;
+}
+
 function sourceSection(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
   const end = source.indexOf(endMarker, start);
@@ -73,7 +77,7 @@ test("renderer always renders the Windows titlebar and Windows platform class", 
 
 test("overview cards navigate to their module while preserving nested controls and notification previews", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
 
   assert.match(appSource, /function dashboardCardNavigationAttributes\(moduleId\)/);
   assert.match(appSource, /data-dashboard-target/);
@@ -100,7 +104,7 @@ test("SuperGrok renders the remaining quota derived from Grok usage", () => {
 
 test("overview groups ChatGPT quota windows below their provider", () => {
   const dashboardSource = sourceSection(readSource("app.js"), "function dashboardCodexCard()", "function mailStatusLabel");
-  const styles = readSource("styles.css");
+  const styles = readStyles();
 
   assert.match(dashboardSource, /dashboard-codex-service dashboard-codex-chatgpt-service/);
   assert.match(dashboardSource, /<strong>ChatGPT<\/strong>/);
@@ -115,7 +119,7 @@ test("overview groups ChatGPT quota windows below their provider", () => {
 
 test("Agent workspace prefers 7d remaining and token trends without DeepSeek chat", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(__dirname, "..", "main", "main.js"), "utf8");
 
@@ -140,7 +144,7 @@ test("Agent workspace prefers 7d remaining and token trends without DeepSeek cha
 
 test("GitHub uses the localized service-health label", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
 
   assert.match(appSource, /function githubStatusLabel\(status = ""\)/);
   assert.match(appSource, /value\.toLowerCase\(\) === "live" \? "服务正常"/);
@@ -152,7 +156,7 @@ test("GitHub uses the localized service-health label", () => {
 });
 
 test("overview health state uses one shared badge without a duplicate pseudo-element", () => {
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
 
   assert.doesNotMatch(styles, /\.dashboard-card\[data-module-health="stale"\]::after/);
   assert.doesNotMatch(styles, /\.dashboard-card\[data-module-health="error"\]::after/);
@@ -205,7 +209,7 @@ test("notification summaries are generated automatically by local rules", () => 
 
 test("workspace settings use registry labels and card controls without changing the settings payload", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const panelStart = appSource.indexOf("const WORKSPACE_MODULE_COPY");
   const panelEnd = appSource.indexOf("function githubSettingsPanel()", panelStart);
   const panelSource = appSource.slice(panelStart, panelEnd);
@@ -229,7 +233,7 @@ test("workspace settings use registry labels and card controls without changing 
 
 test("connected services use one status-led card system while preserving service handlers", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
 
   assert.match(appSource, /const SETTINGS_SERVICE_PRESENTATION/);
   assert.match(appSource, /settings-services-summary/);
@@ -257,7 +261,7 @@ test("connected services use one status-led card system while preserving service
 
 test("GitHub workspace exposes annual navigation, Git commit history, and maintained repositories", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const githubStart = appSource.indexOf("function formattedGithubMonthLabel");
   const githubEnd = appSource.indexOf("const previewIcons", githubStart);
   const githubSource = appSource.slice(githubStart, githubEnd);
@@ -288,7 +292,7 @@ test("GitHub workspace exposes annual navigation, Git commit history, and mainta
 
 test("top-docked floating view is a single frosted row with only requested controls", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const start = appSource.indexOf("function renderDockedFloating()");
   const end = appSource.indexOf("function renderFloating()", start);
   const dockedRenderer = appSource.slice(start, end);
@@ -389,8 +393,9 @@ test("capsule non-weather health previews use readable, source-specific cards", 
 
 test("capsule heart preview shows the 24h trend instead of placeholder lines", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const healthHistory = require("@winplate/core/health");
+  const healthTrend = require("./healthTrend");
   const sliceFn = (name, nextName) => {
     const start = appSource.indexOf(`function ${name}`);
     const end = appSource.indexOf(`function ${nextName}`, start);
@@ -398,7 +403,7 @@ test("capsule heart preview shows the 24h trend instead of placeholder lines", (
     return appSource.slice(start, end);
   };
   const context = {
-    window: { WinPlateHealthHistory: healthHistory },
+    window: { WinPlateHealthHistory: healthHistory, WinPlateHealthTrend: healthTrend },
     Date,
     Math,
     Number,
@@ -526,7 +531,7 @@ test("top-docked status derives alert color and unread mail from source-owned st
 test("mail workspace exposes mark-all-read and a per-message mark-unread control", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "preload", "preload.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const mailStart = appSource.indexOf("function mailContent()");
   const mailEnd = appSource.indexOf("function notificationContent()", mailStart);
   const mailSource = appSource.slice(mailStart, mailEnd);
@@ -565,7 +570,7 @@ test("scheduled mail refreshes force an IMAP pull instead of rereading the outli
 
 test("Windows health configuration lives in settings while the health workspace keeps its useful cards", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const connectionStart = appSource.indexOf("function healthConnectionCard()");
   const connectionEnd = appSource.indexOf("function healthSnapshotCard()", connectionStart);
   const connectionSource = appSource.slice(connectionStart, connectionEnd);
@@ -608,7 +613,7 @@ test("Windows health configuration lives in settings while the health workspace 
 
 test("overview health preview uses real heart history and separates metrics from sync metadata", () => {
   const overviewSource = sourceSection(readSource("app.js"), "function healthOverviewTrend()", "function healthPairingHostLabel");
-  const styles = readSource("styles.css");
+  const styles = readStyles();
 
   assert.match(overviewSource, /healthHeartRateSamples\("day"\)/);
   assert.match(overviewSource, /heartTooltipChartSvg\(samples\)/);
@@ -695,7 +700,7 @@ test("scheduled status refresh patches modules instead of rebuilding the whole p
 test("main renderer avoids rebuilding mail HTML and caches dashboard snapshots on a delay", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
   const effects = fs.readFileSync(path.join(__dirname, "weatherEffects.js"), "utf8");
-  const styles = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  const styles = readStyles();
   const mailStart = appSource.indexOf("function mailPreviewFrameKey");
   const mailEnd = appSource.indexOf("function closeMailDetail", mailStart);
   const mailSource = appSource.slice(mailStart, mailEnd);

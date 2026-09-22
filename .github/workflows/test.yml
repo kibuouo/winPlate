@@ -100,7 +100,6 @@ jobs:
           -target WinPlateHealth
           -sdk iphonesimulator
           -configuration Debug
-          -derivedDataPath apps/iOS/WinPlateHealth/build/ci
           CODE_SIGNING_ALLOWED=NO
           CODE_SIGNING_REQUIRED=NO
           build

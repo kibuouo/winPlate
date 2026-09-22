@@ -1,0 +1,34 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 8
+    groups:
+      runtime-dependencies:
+        dependency-type: production
+      development-toolchain:
+        dependency-type: development
+        patterns:
+          - "electron"
+          - "electron-builder"
+          - "js-yaml"
+          - "plist"
+          - "@xmldom/*"
+
+  - package-ecosystem: pip
+    directory: "/backend/local-api"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      backend-runtime:
+        dependency-type: production
+        exclude-patterns:
+          - "pyinstaller"
+      backend-build:
+        patterns:
+          - "pyinstaller"

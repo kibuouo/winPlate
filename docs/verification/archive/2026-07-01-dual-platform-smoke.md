@@ -4,7 +4,7 @@
 > branch at `4191b39dff01f053c2bc149b465920202c83caee`. It does not verify the
 > merged monorepo branch. Current local Windows integration results and the
 > exact pre-merge comparison are recorded in
-> `docs/verification/macos-branch-integration.txt`.
+> `2026-07-01-macos-branch-integration.txt`.
 
 - Date: 2026-07-01
 - Branch: `codex/macos-menu-bar`
@@ -26,7 +26,7 @@ platform-policy test is not treated as real-device evidence.
 | final process cleanup | pass — development WinPlate and its backend were stopped; port 8765 had no listener |
 
 ```sh
-if rg -n '(desktopCapsule|menuBarDisplay|renderMacFloating|mac-floating)' src README.md docs/verification --glob '!*.test.js' --glob '!dual-platform-smoke.md'; then exit 1; fi
+if rg -n '(desktopCapsule|menuBarDisplay|renderMacFloating|mac-floating)' src README.md docs/verification --glob '!*.test.js' --glob '!2026-07-01-dual-platform-smoke.md'; then exit 1; fi
 ```
 
 Port 8765 had no listener before launch. The run logged FastAPI startup completion,
