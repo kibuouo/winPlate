@@ -37,9 +37,16 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function waitForBackend() {
+async function waitForBackend(processHandle, getSpawnError) {
   let lastError;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const spawnError = getSpawnError?.();
+    if (spawnError) {
+      throw new Error(`FastAPI failed to start: ${spawnError.message}`);
+    }
+    if (processHandle.exitCode !== null) {
+      throw new Error(`FastAPI exited before becoming ready (code ${processHandle.exitCode})`);
+    }
     try {
       const response = await fetch("http://127.0.0.1:8765/api/health");
       if (response.ok) {
@@ -51,7 +58,7 @@ async function waitForBackend() {
     }
     await delay(200);
   }
-  throw new Error(`FastAPI failed to become ready: ${lastError?.message}`);
+  throw new Error(`FastAPI failed to become ready after 20 seconds: ${lastError?.message}`);
 }
 
 function backendPythonArgs({ backendAppDir, backendLogConfigPath }) {
@@ -77,11 +84,15 @@ function resolveBackendLaunch({
   const extension = platform === "win32" ? ".exe" : "";
   const packagedExecutable = env.WINPLATE_BACKEND_EXECUTABLE
     || (isPackaged ? path.join(resourcesPath, "backend", "bin", `winplate-backend${extension}`) : null);
-  if (packagedExecutable && existsSync(packagedExecutable)) {
+  const explicitBackendExecutable = env.WINPLATE_BACKEND_EXECUTABLE
+    && existsSync(env.WINPLATE_BACKEND_EXECUTABLE)
+    ? env.WINPLATE_BACKEND_EXECUTABLE
+    : null;
+  if (explicitBackendExecutable) {
     return {
-      command: packagedExecutable,
+      command: explicitBackendExecutable,
       args: [],
-      cwd: path.dirname(packagedExecutable),
+      cwd: path.dirname(explicitBackendExecutable),
       env: userDataPath ? { WINPLATE_DATA_DIR: userDataPath } : {}
     };
   }
@@ -104,6 +115,14 @@ function resolveBackendLaunch({
     python = existsSync(venvPython) ? venvPython : (platform === "win32" ? "python" : "python3");
   }
   if (!python) {
+    if (packagedExecutable && existsSync(packagedExecutable)) {
+      return {
+        command: packagedExecutable,
+        args: [],
+        cwd: path.dirname(packagedExecutable),
+        env: userDataPath ? { WINPLATE_DATA_DIR: userDataPath } : {}
+      };
+    }
     throw new Error(
       "No packaged WinPlate backend runtime was found. Set WINPLATE_BACKEND_EXECUTABLE, "
       + "bundle backend/bin/winplate-backend, bundle resources/python, or set WINPLATE_PYTHON "
@@ -119,12 +138,13 @@ function resolveBackendLaunch({
 }
 
 async function startPythonService(options = {}) {
-  if (backendProcess && !backendProcess.killed) {
+  if (backendProcess && !backendProcess.killed && backendProcess.exitCode === null) {
     return;
   }
+  backendProcess = null;
 
   const launch = resolveBackendLaunch(options);
-  backendProcess = spawn(launch.command, launch.args, {
+  const launchedProcess = spawn(launch.command, launch.args, {
     cwd: launch.cwd,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -135,19 +155,32 @@ async function startPythonService(options = {}) {
       TERM: process.env.TERM || "xterm-256color"
     }
   });
+  backendProcess = launchedProcess;
+  let spawnError = null;
 
-  backendProcess.stdout.on("data", (data) => (
+  launchedProcess.stdout.on("data", (data) => (
     writeBackendOutput(process.stdout, "\u001b[36m[backend]\u001b[0m ", data)
   ));
-  backendProcess.stderr.on("data", (data) => (
+  launchedProcess.stderr.on("data", (data) => (
     writeBackendOutput(process.stderr, "\u001b[36m[backend]\u001b[0m ", data)
   ));
-  backendProcess.on("error", (error) => console.error("Failed to start FastAPI backend:", error.message));
-  backendProcess.on("exit", () => {
-    backendProcess = null;
+  launchedProcess.on("error", (error) => {
+    spawnError = error;
+    console.error("Failed to start FastAPI backend:", error.message);
+  });
+  launchedProcess.on("exit", () => {
+    if (backendProcess === launchedProcess) backendProcess = null;
   });
 
-  await waitForBackend();
+  try {
+    await waitForBackend(launchedProcess, () => spawnError);
+  } catch (error) {
+    if (backendProcess === launchedProcess) {
+      launchedProcess.kill();
+      backendProcess = null;
+    }
+    throw error;
+  }
 }
 
 function stopPythonService() {

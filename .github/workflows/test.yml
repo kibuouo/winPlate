@@ -1,0 +1,106 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows / pinned Node and Python toolchain
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Audit runtime dependencies
+        run: npm run audit:runtime
+
+      - name: Create Python environment
+        run: npm run venv:create
+
+      - name: Install backend dependencies
+        run: npm run backend:install
+
+      - name: Run repository checks
+        run: npm run check
+
+  macos:
+    name: macOS / pinned Node and Python toolchain
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Audit runtime dependencies
+        run: npm run audit:runtime
+
+      - name: Create Python environment
+        run: npm run venv:create
+
+      - name: Install backend dependencies
+        run: npm run backend:install
+
+      - name: Run repository checks
+        run: npm run check
+
+      - name: Run native macOS tests
+        run: npm run macos:test
+
+  ios:
+    name: iOS / simulator compile
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode.app
+
+      - name: Show Apple toolchain
+        run: xcodebuild -version
+
+      - name: Compile iOS app for simulator
+        run: >-
+          xcodebuild
+          -project apps/iOS/WinPlateHealth/WinPlateHealth.xcodeproj
+          -target WinPlateHealth
+          -sdk iphonesimulator
+          -configuration Debug
+          -derivedDataPath apps/iOS/WinPlateHealth/build/ci
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build

@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .modules.registry import public_modules
+from .database import migrate_schema
 from .notification_manager import NotificationManager
 from .notification_taxonomy import (
     weather_alert_color,
@@ -1404,78 +1405,7 @@ notification_manager = NotificationManager(
 
 def initialize_database() -> None:
     with closing(connect()) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS status_modules (
-                module TEXT PRIMARY KEY,
-                payload TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS qweather_usage (
-                month TEXT PRIMARY KEY,
-                request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS qweather_usage_daily (
-                day TEXT PRIMARY KEY,
-                request_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS notifications (
-                id TEXT PRIMARY KEY,
-                source TEXT NOT NULL,
-                level TEXT NOT NULL,
-                title TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '',
-                unread INTEGER NOT NULL DEFAULT 1,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                external_url TEXT
-                ,metadata TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        notification_columns = {row["name"] for row in connection.execute("PRAGMA table_info(notifications)")}
-        if "metadata" not in notification_columns:
-            connection.execute("ALTER TABLE notifications ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_notifications_unread_created ON notifications (unread, created_at)"
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS notification_imports (
-                id TEXT PRIMARY KEY,
-                source TEXT NOT NULL,
-                imported_at INTEGER NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS mail_outline_cache (
-                message_id TEXT PRIMARY KEY,
-                thread_id TEXT NOT NULL,
-                sender TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                sent_at INTEGER NOT NULL,
-                snippet TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                action TEXT NOT NULL,
-                labels TEXT NOT NULL,
-                updated_at INTEGER NOT NULL
-            )
-            """
-        )
+        migrate_schema(connection)
         for module, payload in DEFAULT_STATUS.items():
             initial_payload = deepcopy(payload)
             connection.execute(

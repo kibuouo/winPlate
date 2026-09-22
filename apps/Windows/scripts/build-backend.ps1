@@ -15,9 +15,44 @@ $notificationTaxonomy = Join-Path $repositoryRoot "packages\shared-types\notific
 $entrypoint = Join-Path $backendRoot "winplate_local_api\launcher.py"
 $buildRoot = Join-Path $windowsRoot ".build"
 $backendOutput = Join-Path $buildRoot "backend"
+$pythonOutput = Join-Path $buildRoot "python"
 $pyInstallerWork = Join-Path $buildRoot "pyinstaller\work"
 $pyInstallerSpec = Join-Path $buildRoot "pyinstaller\spec"
 $backendExecutable = Join-Path $backendOutput "winplate-backend.exe"
+$venvRoot = Split-Path $python -Parent | Split-Path -Parent
+
+function Build-EmbeddedPythonRuntime {
+    $configuration = Join-Path $venvRoot "pyvenv.cfg"
+    if (-not (Test-Path -LiteralPath $configuration -PathType Leaf)) {
+        throw "Python virtual environment configuration was not found at $configuration"
+    }
+
+    $homeLine = Get-Content -LiteralPath $configuration | Where-Object { $_ -like 'home = *' } | Select-Object -First 1
+    if (-not $homeLine -or $homeLine -notmatch '^home\s*=\s*(.+)$') {
+        throw "Python virtual environment configuration does not declare its base interpreter."
+    }
+    $pythonHome = $Matches[1].Trim()
+    if (-not (Test-Path -LiteralPath (Join-Path $pythonHome "python.exe") -PathType Leaf)) {
+        throw "The base Python interpreter was not found at $pythonHome"
+    }
+
+    if (Test-Path -LiteralPath $pythonOutput) {
+        Remove-Item -LiteralPath $pythonOutput -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $pythonOutput | Out-Null
+
+    Copy-Item -LiteralPath (Join-Path $pythonHome "python.exe") -Destination $pythonOutput
+    Copy-Item -LiteralPath (Join-Path $pythonHome "pythonw.exe") -Destination $pythonOutput
+    Copy-Item -Path (Join-Path $pythonHome "*.dll") -Destination $pythonOutput
+    Copy-Item -LiteralPath (Join-Path $pythonHome "DLLs") -Destination $pythonOutput -Recurse
+    Copy-Item -LiteralPath (Join-Path $pythonHome "Lib") -Destination $pythonOutput -Recurse
+    $sitePackagesOutput = Join-Path $pythonOutput "Lib\site-packages"
+    New-Item -ItemType Directory -Force -Path $sitePackagesOutput | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $venvRoot "Lib\site-packages") -Force |
+        Copy-Item -Destination $sitePackagesOutput -Recurse -Force
+
+    Write-Host "Embedded Python runtime prepared at $pythonOutput"
+}
 
 function Stop-BuiltBackendProcesses {
     $processes = Get-CimInstance Win32_Process -Filter "Name='winplate-backend.exe'" | Where-Object {
@@ -47,6 +82,7 @@ if (-not (Test-Path -LiteralPath $notificationTaxonomy -PathType Leaf)) {
 
 New-Item -ItemType Directory -Force -Path $backendOutput, $pyInstallerWork, $pyInstallerSpec | Out-Null
 Stop-BuiltBackendProcesses
+Build-EmbeddedPythonRuntime
 
 if (-not $SkipBuildDependencyInstall) {
     & $python -m pip install --disable-pip-version-check --requirement (Join-Path $backendRoot "requirements-build.txt")

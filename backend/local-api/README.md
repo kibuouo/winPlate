@@ -21,3 +21,9 @@ the checkout path and the Documents folder.
 Runtime SQLite state is stored under `WINPLATE_DATA_DIR` when provided; Electron
 sets this to its writable user-data directory. Standalone launches fall back to
 the platform's user-local application-data location.
+
+The database schema is versioned by `winplate_local_api/database.py`. New schema
+changes must be added as numbered migrations and tested against a pre-migration
+database fixture. The API applies pending migrations in a transaction at
+startup and refuses to open a database whose schema is newer than the running
+application.

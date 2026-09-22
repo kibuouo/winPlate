@@ -7,12 +7,26 @@ const { resolveBackendLaunch, writeBackendOutput } = require('./pythonService');
 const { repositoryRoot } = require('./repositoryPaths');
 const packageManifest = require('../../package.json');
 
-test('Electron packaging copies the local API below resources', () => {
-  assert.deepEqual(packageManifest.build.extraResources, [{
-    from: '.build/backend',
-    to: 'backend/bin',
-    filter: ['winplate-backend.exe']
-  }]);
+test('Electron packaging embeds both the signed Python fallback and local API', () => {
+  assert.deepEqual(packageManifest.build.extraResources, [
+    {
+      from: '.build/backend',
+      to: 'backend/bin',
+      filter: ['winplate-backend.exe']
+    },
+    {
+      from: '.build/python',
+      to: 'python'
+    },
+    {
+      from: '../../backend/local-api',
+      to: 'backend/local-api'
+    },
+    {
+      from: '../../packages/shared-types/notification-taxonomy.v1.json',
+      to: 'packages/shared-types/notification-taxonomy.v1.json'
+    }
+  ]);
   assert.equal(packageManifest.build.appId, 'com.kiko.winplate');
   assert.equal(packageManifest.build.nsis.perMachine, false);
   assert.equal(packageManifest.build.nsis.include, 'build/installer.nsh');
@@ -87,6 +101,35 @@ test('packaged mode resolves source below resources and uses a configured interp
 
   assert.equal(launch.command, configuredPython);
   assert.equal(launch.args[4], path.join(resourcesPath, 'backend', 'local-api'));
+});
+
+test('packaged mode prefers the bundled Python runtime over the unsigned executable', () => {
+  const resourcesPath = path.join('C:', 'Program Files', 'WinPlate', 'resources');
+  const bundledPython = path.join(resourcesPath, 'python', 'python.exe');
+  const packagedExecutable = path.join(resourcesPath, 'backend', 'bin', 'winplate-backend.exe');
+  const launch = resolveBackendLaunch({
+    isPackaged: true,
+    resourcesPath,
+    userDataPath: path.join('C:', 'Users', 'test', 'WinPlate'),
+    platform: 'win32',
+    env: {},
+    existsSync: (candidate) => candidate === bundledPython || candidate === packagedExecutable
+  });
+
+  assert.equal(launch.command, bundledPython);
+  assert.deepEqual(launch.args, [
+    '-m',
+    'uvicorn',
+    'winplate_local_api.main:api',
+    '--app-dir',
+    path.join(resourcesPath, 'backend', 'local-api'),
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '8765',
+    '--log-config',
+    path.join(resourcesPath, 'backend', 'local-api', 'logging.json')
+  ]);
 });
 
 test('packaged mode fails fast when no backend executable or interpreter exists', () => {

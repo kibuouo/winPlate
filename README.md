@@ -80,13 +80,22 @@ apps/macOS/* ─┼─> packages/core + shared-types + icons
 
 ## Setup
 
-From the repository root, with Node.js and Python 3 on `PATH`:
+From the repository root, with Node.js 22+ and Python 3.12 on `PATH`:
 
 ```sh
 npm install
 npm run venv:create
 npm run backend:install
 ```
+
+The repository records the local toolchain baseline in `.node-version` and
+`.python-version`. CI uses those same files. The Windows client is built with
+the Electron version pinned in `apps/Windows/package.json`; its standalone
+backend builder is pinned in `backend/local-api/requirements-build.txt`.
+
+The native targets require macOS 14 or later with Swift tools 5.10 for the
+macOS client, and iOS 17 or later for the iPhone companion. The iOS target
+still requires full Xcode and a physical iPhone for HealthKit validation.
 
 iPhone development is Xcode-only. Open
 `apps/iOS/WinPlateHealth/WinPlateHealth.xcodeproj`, sign with your team,
@@ -101,8 +110,10 @@ and run on a physical iPhone. See the [iOS client guide](apps/iOS/README.md).
 | Build and install the canonical Windows application | `npm run windows:app` |
 | Run the local API in development | `npm run backend` |
 | Test the local API | `npm run backend:test` |
-| Run JavaScript and workspace checks | `npm run check` |
+| Run the full JavaScript, workspace, and backend checks | `npm run check` |
+| Audit shipped runtime dependencies | `npm run audit:runtime` |
 | Test the native macOS client | `npm run macos:test` |
+| Compile the iOS client | GitHub Actions `iOS / simulator compile` job |
 | Build the canonical macOS application | `npm run macos:app` |
 
 `npm run macos:app` installs the only launchable macOS bundle at

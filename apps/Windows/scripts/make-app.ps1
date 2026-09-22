@@ -13,6 +13,7 @@ $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsRoot "..\..")
 $distributionRoot = Join-Path $windowsRoot "dist"
 $installedExecutable = Join-Path $env:LOCALAPPDATA "Programs\WinPlate\WinPlate.exe"
 $installedBackendExecutable = Join-Path $env:LOCALAPPDATA "Programs\WinPlate\resources\backend\bin\winplate-backend.exe"
+$installedPythonExecutable = Join-Path $env:LOCALAPPDATA "Programs\WinPlate\resources\python\python.exe"
 $startMenuShortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\WinPlate.lnk"
 $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "WinPlate.lnk"
 
@@ -31,6 +32,7 @@ function Stop-ExistingWinPlate {
         $commandLine = [string]$_.CommandLine
         ($executablePath -and $executablePath.Equals($installedExecutable, [StringComparison]::OrdinalIgnoreCase)) -or
         ($executablePath -and $executablePath.Equals($installedBackendExecutable, [StringComparison]::OrdinalIgnoreCase)) -or
+        ($executablePath -and $executablePath.Equals($installedPythonExecutable, [StringComparison]::OrdinalIgnoreCase)) -or
         (
             $_.Name -ieq "electron.exe" -and
             $commandLine.IndexOf($normalizedRepositoryRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0
@@ -108,8 +110,18 @@ if (-not $SkipInstall) {
         if (-not ($runningPaths -contains $installedExecutable)) {
             throw "The canonical installed WinPlate process is not running."
         }
-        if (-not ($runningPaths -contains $installedBackendExecutable)) {
-            throw "The installed standalone WinPlate backend process is not running."
+        $backendConnection = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        $backendProcess = if ($backendConnection) {
+            Get-CimInstance Win32_Process -Filter "ProcessId = $($backendConnection.OwningProcess)"
+        }
+        $backendCommandLine = [string]$backendProcess.CommandLine
+        $backendPath = [string]$backendProcess.ExecutablePath
+        $backendRunning = $backendPath.Equals($installedBackendExecutable, [StringComparison]::OrdinalIgnoreCase)
+        $bundledPythonRunning = $backendPath.Equals($installedPythonExecutable, [StringComparison]::OrdinalIgnoreCase) -or
+            $backendCommandLine.IndexOf("resources\python\python.exe", [StringComparison]::OrdinalIgnoreCase) -ge 0
+        if (-not ($backendRunning -or $bundledPythonRunning)) {
+            throw "The installed WinPlate backend process is not running (neither the standalone backend nor bundled Python was found)."
         }
     }
 

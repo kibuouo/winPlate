@@ -19,6 +19,11 @@ HealthKit samples.
 The project lives in [`WinPlateHealth`](./WinPlateHealth). Minimum iOS is 17.
 The target device is a physical iPhone.
 
+The repository CI also compiles the application target for the iOS Simulator
+without code signing. This catches Swift, project-file, and resource build
+regressions; HealthKit authorization and background delivery still require a
+physical iPhone for validation.
+
 ## Run from Xcode
 
 1. Open `WinPlateHealth/WinPlateHealth.xcodeproj` in full Xcode.

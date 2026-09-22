@@ -41,6 +41,18 @@
         "filter": [
           "winplate-backend.exe"
         ]
+      },
+      {
+        "from": ".build/python",
+        "to": "python"
+      },
+      {
+        "from": "../../backend/local-api",
+        "to": "backend/local-api"
+      },
+      {
+        "from": "../../packages/shared-types/notification-taxonomy.v1.json",
+        "to": "packages/shared-types/notification-taxonomy.v1.json"
       }
     ],
     "win": {
