@@ -83,7 +83,7 @@
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
-    "electron": "41.10.3",
+    "electron": "44.4.3",
     "electron-builder": "^26.15.3",
     "jsdom": "^26.1.0"
   }
