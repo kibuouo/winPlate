@@ -44,7 +44,7 @@ removed locally; the corrected job has not yet run remotely. See the
 - `npm run macos:test` was not run because `xcodebuild` is unavailable on
   Windows.
 - The iOS Simulator compile job was not run locally; it is configured for the
-  `macos-14` GitHub Actions runner.
+  `macos-latest` GitHub Actions runner.
 - A signed macOS bundle and a physical iPhone HealthKit run require the native
   Apple environment and are not represented as local Windows evidence.
 

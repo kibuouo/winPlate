@@ -81,7 +81,7 @@ jobs:
 
   ios:
     name: iOS / simulator compile
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository

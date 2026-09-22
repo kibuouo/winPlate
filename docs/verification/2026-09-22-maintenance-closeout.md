@@ -38,6 +38,17 @@ The flag -scheme, -testProductsPath, or -xctestrun is required when specifying -
 Removing `-derivedDataPath` retains the explicit project, target, simulator
 SDK and disabled signing without relying on an unshared scheme.
 
+## Publication follow-up
+
+Maintenance commit `9f863bc` was pushed to `main`. Dependabot update runs
+started for that commit, confirming that the configuration was picked up.
+[Run 35688851456](https://github.com/kibuouo/winPlate/actions/runs/35688851456)
+passed the previous argument error but exposed an additional iOS toolchain
+mismatch: Xcode 15.4 on `macos-14` cannot read project objectVersion 71.
+The follow-up changes the iOS runner to `macos-latest`, matching the macOS
+job's runner family. Its actual Xcode version remains printed in CI logs.
+This section supersedes the pre-publication state recorded above.
+
 ## Verification and publication boundary
 
 The latest full local code suite passed 421 tests; the final configuration and
