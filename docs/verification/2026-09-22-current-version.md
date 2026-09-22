@@ -63,6 +63,14 @@ removed locally; the corrected job has not yet run remotely. See the
 
 ## Final review boundaries
 
+Publication result: maintenance commit `9f863bc` and CI toolchain fix
+`af01291` were pushed to `main`. [Run 35688936049](https://github.com/kibuouo/winPlate/actions/runs/35688936049)
+at `af012913531761fc994b5c3ffe441e02f04f539a` passed Windows, macOS (including
+native Swift tests), and iOS Simulator compilation. This supersedes the
+earlier pending remote-validation statements in this record. Dependabot
+update runs started after publication; the configuration is no longer local
+only. No new runtime code is included in this final documentation update.
+
 - The Python runtime update group explicitly excludes `pyinstaller`, keeping
   it in the backend build group.
 - Large-file work is partial: `app.js` is still approximately 323 KB and the

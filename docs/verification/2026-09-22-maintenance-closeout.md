@@ -49,6 +49,14 @@ The follow-up changes the iOS runner to `macos-latest`, matching the macOS
 job's runner family. Its actual Xcode version remains printed in CI logs.
 This section supersedes the pre-publication state recorded above.
 
+Follow-up commit `af012913531761fc994b5c3ffe441e02f04f539a` passed all three
+jobs in [run 35688936049](https://github.com/kibuouo/winPlate/actions/runs/35688936049):
+Windows repository checks, macOS repository and native Swift tests, and iOS
+Simulator compilation. The iOS CI configuration failure is now resolved.
+This does not close the separate iOS logic-test, build-dependency advisory,
+or remaining large-file work listed above. The final evidence update changes
+documentation only and records the tested code commit explicitly.
+
 ## Verification and publication boundary
 
 The latest full local code suite passed 421 tests; the final configuration and
