@@ -4,6 +4,10 @@ WinPlate uses automated dependency update pull requests, but does not enable
 blind auto-merge for application or packaging dependencies. Every update must
 pass the repository checks and be reviewed for platform packaging impact.
 
+For the current security status and the scoped Electron proxy override, see
+[the October dependency verification](verification/2026-10-16-dependency-security.md).
+That record supersedes the historical exception described below.
+
 ## Automation
 
 - `.github/dependabot.yml` checks npm workspaces and the local API's pip build

@@ -33,6 +33,9 @@ jobs:
       - name: Audit runtime dependencies
         run: npm run audit:runtime
 
+      - name: Audit build and test dependencies
+        run: npm run audit:all
+
       - name: Create Python environment
         run: npm run venv:create
 
@@ -66,6 +69,9 @@ jobs:
 
       - name: Audit runtime dependencies
         run: npm run audit:runtime
+
+      - name: Audit build and test dependencies
+        run: npm run audit:all
 
       - name: Create Python environment
         run: npm run venv:create

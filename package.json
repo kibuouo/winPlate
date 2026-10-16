@@ -14,6 +14,11 @@
     "packages/shared-types",
     "packages/icons"
   ],
+  "overrides": {
+    "@electron/get@3": {
+      "global-agent": "^4.1.3"
+    }
+  },
   "scripts": {
     "start": "npm run start --workspace @winplate/windows-electron",
     "dev": "npm run dev --workspace @winplate/windows-electron",
@@ -30,8 +35,9 @@
     "check:backend": "npm run backend:test",
     "test:layout": "node --test scripts/workspaceLayout.test.js",
     "audit:runtime": "npm audit --omit=dev",
+    "audit:all": "npm audit",
     "check:syntax": "npm run check:syntax --workspace @winplate/windows-electron && node --check scripts/venvPython.js",
-    "test:tooling": "node --check scripts/venvPython.js && node --check scripts/checkJavaScriptSyntax.js && node --test scripts/venvPython.test.js scripts/checkJavaScriptSyntax.test.js",
+    "test:tooling": "node --check scripts/venvPython.js && node --check scripts/checkJavaScriptSyntax.js && node --test scripts/venvPython.test.js scripts/checkJavaScriptSyntax.test.js scripts/dependencyProxy.test.js",
     "test:unit": "npm run test:tooling && npm run test:unit --workspace @winplate/windows-electron",
     "venv:create": "python -m venv .venv",
     "backend:install": "node scripts/venvPython.js -m pip install -r backend/local-api/requirements.txt",
