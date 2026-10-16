@@ -48,7 +48,7 @@ function renderer(input) {
 }
 
 for (const fixture of fixtures.cases) {
-  test(`Codex usage fixture: ${fixture.name} renders the same quota across capsule and Dashboard`, async (t) => {
+  test(`Codex usage fixture: ${fixture.name} renders 5h in capsules and both windows in Dashboard`, async (t) => {
     const { context: ctx, close } = renderer(fixture.input);
     t.after(close);
     // A real refresh must not fill missing provider fields with demo quota.
@@ -58,17 +58,20 @@ for (const fixture of fixtures.cases) {
     if (fixture.expected.status === "Unavailable") await assert.rejects(ctx.refreshCodexData());
     else await ctx.refreshCodexData();
     assert.equal(ctx.statusData.codex.status, fixture.expected.status);
+    const capsuleHeadline = fixture.expected.fiveHour === null ? "--%" : `${fixture.expected.fiveHour}%`;
+    const fiveHour = fixture.input.windows?.fiveHour;
     const assertQuota = (selector) => {
       const module = ctx.document.querySelector(selector);
-      assert.equal(module.querySelector("strong.metric").textContent, fixture.expected.headline);
+      assert.equal(module.querySelector("strong.metric").textContent, capsuleHeadline);
       assert.equal(module.querySelector('[role="progressbar"]').getAttribute("aria-valuenow"),
-        fixture.expected.headline === "--%" ? null : fixture.expected.headline.replace("%", ""));
+        capsuleHeadline === "--%" ? null : capsuleHeadline.replace("%", ""));
     };
     ctx.renderDockedFloating();
     assertQuota(".docked-usage");
     ctx.renderFloating();
     assertQuota(".codex-module");
-    assert.equal(ctx.document.querySelector(".codex-module .reset").textContent, fixture.expected.reset);
+    assert.equal(ctx.document.querySelector(".codex-module .reset").textContent,
+      fixture.expected.fiveHour === null ? "--:--" : fiveHour.resetClock || fiveHour.resetText || "--:--");
     ctx.appRoot.innerHTML = ctx.dashboardCodexCard();
     const rows = [...ctx.document.querySelectorAll(".dashboard-codex-chatgpt-service .dashboard-codex-window")];
     const expectedRows = [
@@ -91,7 +94,7 @@ test("a missing-window response preserves a real prior snapshot as Cached, then 
   await ctx.refreshCodexData();
   assert.equal(ctx.statusData.codex.status, "Cached");
   ctx.renderFloating();
-  assert.equal(ctx.document.querySelector(".codex-module strong.metric").textContent, "64%");
+  assert.equal(ctx.document.querySelector(".codex-module strong.metric").textContent, "82%");
   ctx.window.winplate.getCodexUsage = async () => find("fiveHour");
   await ctx.refreshCodexData();
   assert.equal(ctx.statusData.codex.status, "Normal");

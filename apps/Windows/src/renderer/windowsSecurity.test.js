@@ -337,15 +337,15 @@ test("top-docked floating view is a single frosted row with only requested contr
   assert.match(styles, /\.restore-capsule-icon-front\s*\{[\s\S]*?fill:\s*none/);
 });
 
-test("floating capsules render Codex quota from the resolved usage window", () => {
+test("floating capsules render Codex quota from the five-hour window", () => {
   const appSource = readSource("app.js");
   const dockedSource = sourceSection(appSource, "function renderDockedFloating()", "function renderFloating()");
   const floatingSource = sourceSection(appSource, "function renderFloating()", "function bindNotificationStrip");
   const updateSource = sourceSection(appSource, "function updateFloatingStatusDom", "async function refreshNetworkSpeed");
 
-  assert.match(appSource, /function codexDisplayQuota\(codex = \{\}\)/);
+  assert.match(appSource, /function codexCapsuleQuota\(codex = \{\}\)/);
   for (const source of [dockedSource, floatingSource, updateSource]) {
-    assert.match(source, /const codexQuota = codexDisplayQuota\(codex\)/);
+    assert.match(source, /const codexQuota = codexCapsuleQuota\(codex\)/);
     assert.match(source, /codexQuota\.remainingPct/);
   }
   assert.match(floatingSource, /remainingPct: codexQuota\.remainingPct/);

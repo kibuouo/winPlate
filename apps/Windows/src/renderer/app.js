@@ -1578,6 +1578,10 @@ function codexDisplayQuota(codex = {}) {
   return windows.sevenDay || windows.fiveHour || {};
 }
 
+function codexCapsuleQuota(codex = {}) {
+  return codexQuotaWindows(codex).fiveHour || {};
+}
+
 function codexWindowHasQuota(window) {
   return Boolean(window) && normalizePercent(window.remainingPct) !== null;
 }
@@ -2833,7 +2837,7 @@ function dockedUnreadMailCount(outline = mailOutline) {
 function renderDockedFloating() {
   const weather = statusData.weather || mockStatus.weather;
   const codex = statusData.codex || mockStatus.codex;
-  const codexQuota = codexDisplayQuota(codex);
+  const codexQuota = codexCapsuleQuota(codex);
   const heart = statusData.heart || mockStatus.heart;
   const heartRate = healthMetric(heart.heartRate);
   const weatherAlert = dockedWeatherAlertState();
@@ -2902,7 +2906,7 @@ function renderFloating() {
   }
   const weather = statusData.weather || mockStatus.weather;
   const codex = statusData.codex || mockStatus.codex;
-  const codexQuota = codexDisplayQuota(codex);
+  const codexQuota = codexCapsuleQuota(codex);
   document.body.className = "floating-body";
   appRoot.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
@@ -5439,7 +5443,7 @@ function updateFloatingStatusDom(moduleIds = null) {
   const template = document.createElement("template");
   const weather = statusData.weather || mockStatus.weather;
   const codex = statusData.codex || mockStatus.codex;
-  const codexQuota = codexDisplayQuota(codex);
+  const codexQuota = codexCapsuleQuota(codex);
   template.innerHTML = `
     <main class="floating-shell" id="floating-shell" aria-label="WinPlate status">
       <section class="status-capsule">
