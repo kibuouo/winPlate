@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published private(set) var weatherLocations = [WeatherLocation]()
     @Published private(set) var weatherAlerts = WeatherAlertSummary.empty
     @Published private(set) var weatherError: String?
+    @Published private(set) var isLocatingWeather = false
     @Published private(set) var weatherAlertError: String?
     @Published private(set) var isTestingWeatherAlertConnection = false
     @Published private(set) var isWeatherAlertConnected = false
@@ -71,6 +72,7 @@ final class AppState: ObservableObject {
     private let grokClient = GrokUsageClient()
     private let grokTokenClient = GrokTokenUsageClient()
     private let backend = LocalBackendSupervisor()
+    private let weatherLocationProvider = WeatherLocationProvider()
     private var refreshTask: Task<Void, Never>?
     private var refreshLoopTask: Task<Void, Never>?
     private var refreshRequestID = 0
@@ -1098,6 +1100,32 @@ final class AppState: ObservableObject {
             }
             weatherError = result.error
             lastError = result.error ?? weatherAlertError
+        }
+    }
+
+    func useMacWeatherLocation() {
+        guard !isLocatingWeather else { return }
+        isLocatingWeather = true
+        weatherError = nil
+        Task {
+            defer { isLocatingWeather = false }
+            do {
+                let coordinate = try await weatherLocationProvider.currentLocation()
+                let result = await api.useWeatherCoordinates(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                if let weather = result.value {
+                    snapshot = StatusSnapshot(weather: weather, github: snapshot.github)
+                    if weather.isAvailable && !weather.isCached { weatherUpdatedAt = Date() }
+                    weatherAlerts = .empty
+                    weatherAlertsUpdatedAt = nil
+                    if weather.isAvailable { _ = await refreshWeatherAlerts() }
+                    sendDesktopStatusSnapshot()
+                }
+                weatherError = result.error
+                lastError = result.error ?? weatherAlertError
+            } catch {
+                weatherError = error.localizedDescription
+                lastError = weatherError
+            }
         }
     }
 

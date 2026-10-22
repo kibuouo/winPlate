@@ -57,16 +57,15 @@ if [[ ! -x "$python_runtime/bin/python3" ]]; then
 fi
 
 python_packages="$("$python_runtime/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-venv_python_version="$("$python_runtime/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-system_python_version="$(/usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+python_base_prefix="$("$python_runtime/bin/python3" -c 'import sys; print(sys.base_prefix)')"
 
 if [[ ! -d "$python_packages" ]]; then
   print -u2 "Python packages not found at $python_packages"
   exit 1
 fi
 
-if [[ "$venv_python_version" != "$system_python_version" ]]; then
-  print -u2 "Python runtime version $venv_python_version does not match /usr/bin/python3 ($system_python_version)"
+if ! "$python_runtime/bin/python3" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  print -u2 "WinPlate requires Python 3.10 or newer. Create .venv with a standalone Python runtime."
   exit 1
 fi
 
@@ -83,6 +82,8 @@ cp -R "$weather_scenes" "$staging_bundle/Contents/Resources/WeatherScenes"
 mkdir -p "$staging_bundle/Contents/Resources/LocalAPI"
 cp -R "$local_api_source" "$staging_bundle/Contents/Resources/LocalAPI/winplate_local_api"
 cp -R "$python_packages" "$staging_bundle/Contents/Resources/PythonPackages"
+cp -R "$python_base_prefix" "$staging_bundle/Contents/Resources/PythonRuntime"
+"$staging_bundle/Contents/Resources/PythonRuntime/bin/python3" -I -B -c 'import sys; assert sys.version_info >= (3, 10)'
 mkdir -p "$staging_bundle/Contents/packages"
 cp -R "$shared_types_source" "$staging_bundle/Contents/packages/shared-types"
 
@@ -121,6 +122,13 @@ if [[ "$signing_identity" == "-" ]]; then
 else
   print "Signing with $signing_identity"
 fi
+# Sign the embedded interpreter and native Python extension modules before
+# signing the enclosing app so strict verification covers the full runtime.
+while IFS= read -r -d '' native_file; do
+  if /usr/bin/file -b "$native_file" | /usr/bin/grep -q 'Mach-O'; then
+    codesign --force --sign "$signing_identity" "$native_file"
+  fi
+done < <(find "$staging_bundle/Contents/Resources/PythonRuntime" "$staging_bundle/Contents/Resources/PythonPackages" -type f \( -name '*.so' -o -name '*.dylib' -o -perm -111 \) -print0)
 codesign --force --sign "$signing_identity" --identifier com.kiko.winplate "$staging_bundle"
 codesign --verify --deep --strict "$staging_bundle"
 

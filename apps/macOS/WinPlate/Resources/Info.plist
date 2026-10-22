@@ -26,6 +26,10 @@
     <true/>
     <key>NSLocalNetworkUsageDescription</key>
     <string>WinPlate 需要通过本地网络接收 iPhone 健康概览。</string>
+    <key>NSLocationUsageDescription</key>
+    <string>WinPlate 使用一次性 Mac 定位，为当前位置获取天气和预警。</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>WinPlate 使用一次性 Mac 定位，为当前位置获取天气和预警。</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_winplate-health._tcp</string>

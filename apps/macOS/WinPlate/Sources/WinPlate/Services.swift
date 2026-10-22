@@ -149,6 +149,14 @@ actor LocalAPIClient {
         return await request(path: "/api/weather/location/manual", method: "POST", payload: AnyEncodable(payload))
     }
 
+    func useWeatherCoordinates(latitude: Double, longitude: Double) async -> ResultValue<WeatherSnapshot> {
+        struct Payload: Encodable { let latitude: Double; let longitude: Double }
+        return await request(
+            path: "/api/weather/refresh", method: "POST",
+            payload: AnyEncodable(Payload(latitude: latitude, longitude: longitude))
+        )
+    }
+
     func weatherAlerts() async -> ResultValue<WeatherAlertSummary> {
         await request(path: "/api/weather/alerts")
     }
@@ -523,8 +531,9 @@ private enum ProcessCodexReader {
     private static func querySynchronously() -> UsageSnapshot {
         let process = Process()
         let bundledCodex = "/Applications/ChatGPT.app/Contents/Resources/codex"
+        let packagedCodex = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
         let configuredCodex = ProcessInfo.processInfo.environment["CODEX_CLI_PATH"]
-        let executable = [configuredCodex, bundledCodex]
+        let executable = [configuredCodex, packagedCodex, bundledCodex]
             .compactMap { $0 }
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
         if let executable {
@@ -1227,7 +1236,9 @@ enum Keychain {
     }
 
     static func loadSensitiveBundle() -> SensitiveBundle {
-        let stored = decodeValues(from: readData(account: sensitiveValuesAccount, dataProtection: false, allowPrompt: false))
+        // A new signing identity may need one approval for the consolidated
+        // item instead of a separate prompt for each stored secret.
+        let stored = decodeValues(from: readData(account: sensitiveValuesAccount, dataProtection: false, allowPrompt: true))
             ?? SensitiveValues()
         var values = stored
         values.fillMissing(from: decodeValues(from: readData(account: sensitiveValuesAccount, dataProtection: true, allowPrompt: false)) ?? SensitiveValues())
@@ -1346,7 +1357,8 @@ enum Keychain {
         let updated = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updated == errSecSuccess { return true }
         if updated != errSecItemNotFound {
-            delete(account: account, dataProtection: dataProtection)
+            fputs("WinPlate keychain update failed: \(updated)\n", stderr)
+            return false
         }
         var item = query
         item.merge(attributes) { _, new in new }
@@ -1415,13 +1427,20 @@ final class LocalBackendSupervisor {
             fputs("WinPlate bundled Python packages not found\n", stderr)
             return
         }
+        guard let python = Bundle.main.resourceURL?.appendingPathComponent(
+            "PythonRuntime/bin/python3"
+        ), FileManager.default.isExecutableFile(atPath: python.path) else {
+            fputs("WinPlate bundled Python runtime not found\n", stderr)
+            return
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.executableURL = python
         process.arguments = [
-            "-m", "uvicorn", "winplate_local_api.main:api",
+            "-B", "-m", "uvicorn", "winplate_local_api.main:api",
             "--host", "127.0.0.1", "--port", "8765"
         ]
         var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         environment["PYTHONPATH"] = pythonPackages.path
         assign(&environment, "QWEATHER_API_KEY", weatherAPIKey)
         assign(&environment, "QWEATHER_API_HOST", weatherAPIHost)

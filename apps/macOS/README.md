@@ -41,9 +41,10 @@ Finder checks.
 ## Local API runtime
 
 The installed App contains a copy of `backend/local-api/winplate_local_api` and
-the Python packages from the repository `.venv`. It starts that bundled service
-from App resources with `/usr/bin/python3`, so normal launches do not read the
-repository or the user's Documents folder. The API only binds to
+the Python packages and standalone Python runtime used by the repository `.venv`.
+It starts that bundled service from App resources with its embedded Python,
+so normal launches do not read the repository or the user's Documents folder.
+The API only binds to
 `http://127.0.0.1:8765`.
 
 Set `WINPLATE_SKIP_LOCAL_API=1` only when launching a development build that

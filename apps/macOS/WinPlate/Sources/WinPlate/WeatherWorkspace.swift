@@ -92,6 +92,10 @@ private struct WeatherDashboard: View {
                         onSelect: { location in
                             state.selectWeatherLocation(location)
                             isLocationPickerPresented = false
+                        },
+                        onLocate: {
+                            state.useMacWeatherLocation()
+                            isLocationPickerPresented = false
                         }
                     )
                     .environmentObject(state)
@@ -446,11 +450,17 @@ private struct WeatherLocationPicker: View {
     @EnvironmentObject private var state: AppState
     @State private var query = ""
     let onSelect: (WeatherLocation) -> Void
+    let onLocate: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("切换天气城市")
                 .font(.headline)
+
+            Button(action: onLocate) {
+                Label(state.isLocatingWeather ? "正在定位…" : "使用 Mac 定位", systemImage: "location.fill")
+            }
+            .disabled(state.isLocatingWeather)
 
             HStack(spacing: 8) {
                 TextField("城市，例如：武汉", text: $query)
