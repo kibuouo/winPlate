@@ -113,7 +113,7 @@ final class MenuBarController: NSObject {
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: .showWinPlateMainWindow)
-            .merge(with: NotificationCenter.default.publisher(for: .showWinPlateSettingsWindow))
+            .merge(with: NotificationCenter.default.publisher(for: .showWinPlateSettings))
             .sink { [weak self] _ in self?.hidePanel() }
             .store(in: &cancellables)
     }
@@ -236,7 +236,7 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func openSettings() {
-        NotificationCenter.default.post(name: .showWinPlateSettingsWindow, object: nil)
+        NotificationCenter.default.post(name: .showWinPlateSettings, object: nil)
     }
 
     @objc private func refresh() {

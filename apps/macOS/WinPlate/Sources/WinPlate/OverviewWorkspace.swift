@@ -303,7 +303,7 @@ struct OverviewWorkspace: View {
                 title: "打开设置",
                 subtitle: "账户与密钥"
             ) {
-                NotificationCenter.default.post(name: .showWinPlateSettingsWindow, object: nil)
+                NotificationCenter.default.post(name: .showWinPlateSettings, object: nil)
             }
         }
         .padding(16)

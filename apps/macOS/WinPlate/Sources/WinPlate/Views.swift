@@ -44,7 +44,7 @@ private struct MenuBarHeader: View {
                 NotificationCenter.default.post(name: .showWinPlateMainWindow, object: nil)
             }
             HeaderIconButton(symbol: "gearshape", label: "打开设置") {
-                NotificationCenter.default.post(name: .showWinPlateSettingsWindow, object: nil)
+                NotificationCenter.default.post(name: .showWinPlateSettings, object: nil)
             }
         }
         .padding(.horizontal, 16)
@@ -206,7 +206,7 @@ private struct MenuBarOverview: View {
                 )
                 if deepSeek.status == "Unconfigured" {
                     Button("配置 DeepSeek") {
-                        NotificationCenter.default.post(name: .showWinPlateSettingsWindow, object: nil)
+                        NotificationCenter.default.post(name: .showWinPlateSettings, object: nil)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
@@ -592,7 +592,6 @@ private struct WeatherSection: View {
 
 struct DashboardView: View {
     @EnvironmentObject private var state: AppState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var columnVisibility: Binding<NavigationSplitViewVisibility> {
         Binding(
@@ -605,7 +604,12 @@ struct DashboardView: View {
         NavigationSplitView(columnVisibility: columnVisibility) {
             List(selection: $state.selectedWorkspace) {
                 ForEach(WorkspaceDestination.allCases, id: \.self) { destination in
-                    Label(destination.title, systemImage: destination.symbol)
+                    Label {
+                        Text(destination.title)
+                    } icon: {
+                        SidebarIcon(destination: destination)
+                            .frame(width: 20, height: 20)
+                    }
                         .tag(destination)
                 }
             }
@@ -650,26 +654,7 @@ struct DashboardView: View {
                 }
             )
         }
-        .toolbar(removing: .sidebarToggle)
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    if reduceMotion {
-                        state.toggleMainSidebar()
-                    } else {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            state.toggleMainSidebar()
-                        }
-                    }
-                } label: {
-                    Image(systemName: "sidebar.leading")
-                }
-                .help(SidebarPresentation.actionLabel(isVisible: state.isMainSidebarVisible))
-                .accessibilityLabel(
-                    SidebarPresentation.actionLabel(isVisible: state.isMainSidebarVisible)
-                )
-            }
-        }
+        .background(OverlayScrollIndicators().id(state.selectedWorkspace))
     }
 }
 
@@ -726,11 +711,26 @@ private struct MailWorkspace: View {
                     state.loadMail(force: true)
                 }
             }
-            List(state.mail.items) { item in
-                Button { state.openMail(item) } label: {
-                    MailOutlineRow(item: item)
+            .padding(.horizontal, 28)
+            .padding(.top, 28)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(state.mail.items) { item in
+                        Button { state.openMail(item) } label: {
+                            MailOutlineRow(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+
+                        if item.id != state.mail.items.last?.id {
+                            Divider().padding(.horizontal, 10)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
             }
             .overlay {
                 if state.mail.items.isEmpty {
@@ -741,7 +741,7 @@ private struct MailWorkspace: View {
                     )
                 }
             }
-        }.padding(28)
+        }
     }
 }
 
@@ -1465,9 +1465,11 @@ private struct SettingsForm: View {
                     state.refresh(force: true)
                 }
             }
+            .frame(maxWidth: 560)
+            .padding(24)
+            .frame(maxWidth: .infinity)
         }
-        .frame(width: 560)
-        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             deepSeekAPIKey = ""
             deepSeekBaseURL = settings.deepSeekBaseURL

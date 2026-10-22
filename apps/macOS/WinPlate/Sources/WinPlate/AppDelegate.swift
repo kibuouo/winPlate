@@ -5,7 +5,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let showWinPlateMainWindow = Notification.Name("showWinPlateMainWindow")
-    static let showWinPlateSettingsWindow = Notification.Name("showWinPlateSettingsWindow")
+    static let showWinPlateSettings = Notification.Name("showWinPlateSettings")
 }
 
 @MainActor
@@ -13,7 +13,7 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
     let state = AppState()
 
     private var mainWindow: NSWindow?
-    private var settingsWindow: NSWindow?
+    private var reopenMainWindow: (() -> Void)?
     private var menuBarController: MenuBarController?
     private let systemNotificationCoordinator = SystemNotificationCoordinator()
     private var notificationSummaryCancellable: AnyCancellable?
@@ -38,8 +38,8 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(showSettingsWindow),
-            name: .showWinPlateSettingsWindow,
+            selector: #selector(showSettings),
+            name: .showWinPlateSettings,
             object: nil
         )
         menuBarController = MenuBarController(state: state)
@@ -72,9 +72,9 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { activateMainWindow() }
+        activateMainWindow()
         state.reconnectHealthPeerIfNeeded()
-        return true
+        return false
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -85,48 +85,41 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationShouldRestoreApplicationState(_ app: NSApplication, coder: NSCoder) -> Bool {
+        // Launch the main scene afresh instead of restoring legacy settings windows.
+        false
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         notificationSummaryCancellable = nil
         state.stop()
     }
 
     @objc private func showMainWindow() { activateMainWindow() }
-    @objc private func showSettingsWindow() { activateSettingsWindow() }
+    @objc private func showSettings() { activateSettings() }
 
-    private func activateMainWindow() {
-        if mainWindow == nil {
-            let rootView = DashboardView().environmentObject(state)
-            let controller = NSHostingController(rootView: rootView)
-            let window = NSWindow(contentViewController: controller)
-            window.title = "WinPlate"
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.titlebarSeparatorStyle = .none
-            window.toolbarStyle = .unified
-            window.setContentSize(NSSize(width: 1040, height: 720))
-            window.minSize = NSSize(width: 880, height: 580)
-            window.center()
-            window.isReleasedWhenClosed = false
-            mainWindow = window
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        mainWindow?.makeKeyAndOrderFront(nil)
+    func configureMainWindow(_ window: NSWindow, reopen: @escaping () -> Void) {
+        mainWindow = window
+        reopenMainWindow = reopen
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
+        window.isRestorable = false
     }
 
-    private func activateSettingsWindow() {
-        if settingsWindow == nil {
-            let rootView = SettingsView().environmentObject(state)
-            let controller = NSHostingController(rootView: rootView)
-            let window = NSWindow(contentViewController: controller)
-            window.title = "WinPlate 设置"
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-            window.setContentSize(NSSize(width: 560, height: 520))
-            window.minSize = NSSize(width: 480, height: 420)
-            window.isReleasedWhenClosed = false
-            settingsWindow = window
-        }
+    private func activateMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        if let mainWindow, mainWindow.isVisible || mainWindow.isMiniaturized {
+            if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
+            mainWindow.makeKeyAndOrderFront(nil)
+        } else {
+            reopenMainWindow?()
+        }
+    }
+
+    private func activateSettings() {
+        state.selectedWorkspace = .settings
+        activateMainWindow()
     }
 }
