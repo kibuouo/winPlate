@@ -2,6 +2,34 @@ import XCTest
 @testable import WinPlate
 
 final class HealthSyncTests: XCTestCase {
+    func testPendingHandshakeBlocksBothTimerAndCallbackInvitations() {
+        var schedule = HealthPeerInvitationSchedule()
+        XCTAssertTrue(schedule.begin(at: 100))
+        for now in stride(from: 100.1, to: 115.0, by: 0.1) {
+            XCTAssertFalse(schedule.begin(at: now))
+        }
+        XCTAssertFalse(schedule.hasTimedOut(at: 114.9))
+        XCTAssertTrue(schedule.hasTimedOut(at: 115))
+    }
+
+    func testDeclinedInvitationBacksOffBeforeRetrying() {
+        var schedule = HealthPeerInvitationSchedule()
+        XCTAssertTrue(schedule.begin(at: 100))
+        schedule.failed(at: 100.2)
+        XCTAssertFalse(schedule.begin(at: 100.2))
+        XCTAssertFalse(schedule.begin(at: 103.1))
+        XCTAssertTrue(schedule.begin(at: 103.2))
+    }
+
+    func testNewSessionClearsTimedOutHandshake() {
+        var schedule = HealthPeerInvitationSchedule()
+        XCTAssertTrue(schedule.begin(at: 100))
+        XCTAssertTrue(schedule.hasTimedOut(at: 120))
+        schedule = HealthPeerInvitationSchedule()
+        XCTAssertFalse(schedule.hasTimedOut(at: 120))
+        XCTAssertTrue(schedule.begin(at: 120))
+    }
+
     func testHealthSnapshotRoundTripsAcrossThePeerLink() throws {
         let sentAt = Date(timeIntervalSince1970: 1_725_000_000)
         let updatedAt = Date(timeIntervalSince1970: 1_724_999_900)

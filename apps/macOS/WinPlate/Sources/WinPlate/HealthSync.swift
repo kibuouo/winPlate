@@ -572,6 +572,29 @@ enum HealthPeerConnectionState: Equatable {
     }
 }
 
+struct HealthPeerInvitationSchedule {
+    static let timeout: TimeInterval = 15
+    static let retryDelay: TimeInterval = 3
+    private(set) var startedAt: TimeInterval?
+    private(set) var retryAfter: TimeInterval = 0
+
+    mutating func begin(at now: TimeInterval) -> Bool {
+        guard startedAt == nil, now >= retryAfter else { return false }
+        startedAt = now
+        return true
+    }
+
+    mutating func failed(at now: TimeInterval) {
+        startedAt = nil
+        retryAfter = now + Self.retryDelay
+    }
+
+    func hasTimedOut(at now: TimeInterval) -> Bool {
+        guard let startedAt else { return false }
+        return now - startedAt >= Self.timeout
+    }
+}
+
 final class HealthPeerLink: NSObject, ObservableObject {
     enum Role {
         case advertiser
@@ -586,13 +609,15 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
     private let role: Role
     private let serviceType = "winplate-health"
-    private let session: MCSession
+    private var session: MCSession
     private let peerID: MCPeerID
     private var pairingCode: String?
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
     private var nearbyPeers: [MCPeerID: [String: String]] = [:]
     private var inviteRetryWorkItem: DispatchWorkItem?
+    private var invitationSchedule = HealthPeerInvitationSchedule()
+    private var invitedPeer: MCPeerID?
 
     init(role: Role, displayName: String, pairingCode: String? = nil) {
         self.role = role
@@ -643,7 +668,12 @@ final class HealthPeerLink: NSObject, ObservableObject {
         nearbyPeers.removeAll()
         inviteRetryWorkItem?.cancel()
         inviteRetryWorkItem = nil
+        invitationSchedule = HealthPeerInvitationSchedule()
+        invitedPeer = nil
+        session.delegate = nil
         session.disconnect()
+        session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
+        session.delegate = self
         publish(.idle)
     }
 
@@ -651,22 +681,27 @@ final class HealthPeerLink: NSObject, ObservableObject {
         guard role == .browser, let browser, let pairingCode, session.connectedPeers.isEmpty else { return }
         let expected = HealthPeerPairing.discoveryToken(for: pairingCode)
         let matches = nearbyPeers.filter { $0.value["role"] == "iphone" && $0.value["pair"] == expected }
-        guard !matches.isEmpty else { return }
+        guard let peer = matches.keys.first,
+              invitationSchedule.begin(at: ProcessInfo.processInfo.systemUptime) else { return }
+        invitedPeer = peer
         publish(.connecting)
-        for peer in matches.keys {
-            browser.invitePeer(
-                peer,
-                to: session,
-                withContext: HealthPeerPairing.invitationContext(for: pairingCode),
-                timeout: 12
-            )
-        }
+        browser.invitePeer(
+            peer,
+            to: session,
+            withContext: HealthPeerPairing.invitationContext(for: pairingCode),
+            timeout: 12
+        )
     }
 
     private func scheduleInviteRetry() {
         inviteRetryWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.session.connectedPeers.isEmpty else { return }
+            guard let self, self.browser != nil, self.session.connectedPeers.isEmpty else { return }
+            if self.invitationSchedule.hasTimedOut(at: ProcessInfo.processInfo.systemUptime) {
+                self.stop()
+                self.start()
+                return
+            }
             self.inviteMatchingPeers()
             self.scheduleInviteRetry()
         }
@@ -677,6 +712,8 @@ final class HealthPeerLink: NSObject, ObservableObject {
     func restartIfNeeded() {
         guard session.connectedPeers.isEmpty else { return }
         if advertiser != nil || browser != nil {
+            // Activation must not interrupt discovery or an in-flight handshake.
+            guard case .error = connectionState else { return }
             stop()
         }
         start()
@@ -709,18 +746,28 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
 extension HealthPeerLink: MCSessionDelegate {
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        switch state {
-        case .connecting:
-            publish(.connecting)
-        case .connected:
-            publish(.connected(peerID.displayName))
-        case .notConnected:
-            publish(.searching)
-            DispatchQueue.main.async { [weak self] in
-                self?.inviteMatchingPeers()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, session === self.session else { return }
+            switch state {
+            case .connecting:
+                self.publish(.connecting)
+            case .connected:
+                self.invitationSchedule = HealthPeerInvitationSchedule()
+                self.invitedPeer = nil
+                self.inviteRetryWorkItem?.cancel()
+                self.inviteRetryWorkItem = nil
+                self.publish(.connected(peerID.displayName))
+            case .notConnected:
+                guard self.session.connectedPeers.isEmpty else { return }
+                if self.invitedPeer == nil || self.invitedPeer == peerID {
+                    self.invitedPeer = nil
+                    self.invitationSchedule.failed(at: ProcessInfo.processInfo.systemUptime)
+                }
+                self.publish(.searching)
+                if self.role == .browser { self.scheduleInviteRetry() }
+            @unknown default:
+                self.publish(.error("收到未知的设备连接状态"))
             }
-        @unknown default:
-            publish(.error("收到未知的设备连接状态"))
         }
     }
 
@@ -790,15 +837,21 @@ extension HealthPeerLink: MCNearbyServiceBrowserDelegate {
         foundPeer peerID: MCPeerID,
         withDiscoveryInfo info: [String: String]?
     ) {
-        nearbyPeers[peerID] = info ?? [:]
-        inviteMatchingPeers()
-        scheduleInviteRetry()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, browser === self.browser else { return }
+            self.nearbyPeers[peerID] = info ?? [:]
+            self.inviteMatchingPeers()
+            self.scheduleInviteRetry()
+        }
     }
 
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        nearbyPeers.removeValue(forKey: peerID)
-        guard session.connectedPeers.isEmpty else { return }
-        publish(.searching)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, browser === self.browser else { return }
+            self.nearbyPeers.removeValue(forKey: peerID)
+            guard self.session.connectedPeers.isEmpty else { return }
+            self.publish(.searching)
+        }
     }
 
     func browser(
