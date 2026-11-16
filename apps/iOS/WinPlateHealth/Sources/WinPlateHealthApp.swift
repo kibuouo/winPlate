@@ -51,8 +51,10 @@ struct WinPlateHealthApp: App {
             switch phase {
             case .active:
                 healthStore.sceneDidBecomeActive()
-            case .inactive, .background:
+            case .inactive:
                 healthStore.sceneWillResignActive()
+            case .background:
+                healthStore.sceneDidEnterBackground()
             @unknown default:
                 break
             }

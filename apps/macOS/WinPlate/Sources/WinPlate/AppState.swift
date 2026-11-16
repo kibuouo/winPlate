@@ -139,6 +139,16 @@ final class AppState: ObservableObject {
         healthPeerLink.restartIfNeeded()
     }
 
+    func suspendHealthPeerForSleep() {
+        guard hasStarted else { return }
+        healthPeerLink.stop()
+    }
+
+    func resumeHealthPeerAfterWake() {
+        guard hasStarted else { return }
+        healthPeerLink.restartAfterWake()
+    }
+
     private func sendDesktopStatusSnapshot() {
         let formatter = ISO8601DateFormatter()
         let balance = deepSeek.balances.first(where: {

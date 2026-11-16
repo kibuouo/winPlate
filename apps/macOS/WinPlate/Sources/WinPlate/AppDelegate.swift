@@ -43,6 +43,13 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
         menuBarController = MenuBarController(state: state)
+        let workspaceNotifications = NSWorkspace.shared.notificationCenter
+        workspaceNotifications.addObserver(
+            self, selector: #selector(systemWillSleep), name: NSWorkspace.willSleepNotification, object: nil
+        )
+        workspaceNotifications.addObserver(
+            self, selector: #selector(systemDidWake), name: NSWorkspace.didWakeNotification, object: nil
+        )
         activateMainWindow()
     }
 
@@ -91,12 +98,15 @@ final class WinPlateAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         notificationSummaryCancellable = nil
         state.stop()
     }
 
     @objc private func showMainWindow() { activateMainWindow() }
     @objc private func showSettings() { activateSettings() }
+    @objc private func systemWillSleep() { state.suspendHealthPeerForSleep() }
+    @objc private func systemDidWake() { state.resumeHealthPeerAfterWake() }
 
     func configureMainWindow(_ window: NSWindow, reopen: @escaping () -> Void) {
         mainWindow = window

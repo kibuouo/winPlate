@@ -45,6 +45,30 @@ your own device, but the provisioning profile lasts only seven days. After
 it expires you must Build & Run again. That signing is not a long-term
 distribution path.
 
+For periodic local renewal, [`scripts/renew-health.py`](./scripts/renew-health.py)
+checks the last successfully installed profile and renews when at most 48 hours
+remain. It uses an already configured Xcode account and a trusted physical
+iPhone. A scheduler must invoke it on a Mac that is awake with the device
+reachable; Apple account authentication and iPhone developer trust can still
+require user interaction.
+
+The private setup directory defaults to
+`~/Library/Application Support/WinPlate/iOSAutoRenew`. Its `config.json` records
+`device_id`, `bundle_id`, `application_identifier` (team prefix plus bundle ID),
+and the absolute `project` path to a known working source snapshot. Its
+`state.json` records `installed_expires_at` (UTC Unix seconds) and `profile_uuid`,
+seeded from the profile of an app that was actually installed successfully.
+Do not seed it from an uninstalled build. No account password or private key
+belongs in these files.
+
+Run `/usr/bin/python3 scripts/renew-health.py --check` to inspect the expiry,
+or run it without `--check` to perform a due renewal. `--force` renews immediately.
+The script backs up only this app's cached profiles, requests a fresh profile,
+performs a clean signed build, verifies the bundle, then installs over the
+existing app. It advances the recorded expiry only after successful installation.
+Logs are in `last-run.log` inside the private setup directory. Source changes do
+not automatically replace the configured snapshot.
+
 This project already includes the `com.apple.developer.healthkit`
 entitlement. HealthKit is a restricted capability. If your Personal Team
 cannot produce a profile that includes it, signing fails. Join the paid

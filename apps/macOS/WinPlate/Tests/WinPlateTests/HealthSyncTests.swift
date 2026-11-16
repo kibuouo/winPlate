@@ -2,6 +2,37 @@ import XCTest
 @testable import WinPlate
 
 final class HealthSyncTests: XCTestCase {
+    func testRepeatedFrameworkTimeoutsRebuildSessionEvenBeforeHandshakeDeadline() {
+        var schedule = HealthPeerInvitationSchedule()
+        XCTAssertTrue(schedule.begin(at: 100))
+        schedule.failed(at: 110)
+        XCTAssertFalse(schedule.shouldRebuildSession(at: 113))
+        XCTAssertTrue(schedule.begin(at: 113))
+        schedule.failed(at: 123)
+        XCTAssertFalse(schedule.hasTimedOut(at: 126))
+        XCTAssertFalse(schedule.shouldRebuildSession(at: 125.9))
+        XCTAssertTrue(schedule.shouldRebuildSession(at: 126))
+    }
+
+    func testFreshSessionClearsFailuresFromBeforeSleep() {
+        var schedule = HealthPeerInvitationSchedule()
+        XCTAssertTrue(schedule.begin(at: 100))
+        schedule.failed(at: 110)
+        XCTAssertTrue(schedule.begin(at: 113))
+        schedule.failed(at: 123)
+        XCTAssertTrue(schedule.shouldRebuildSession(at: 126))
+        schedule = HealthPeerInvitationSchedule()
+        XCTAssertFalse(schedule.shouldRebuildSession(at: 30_000))
+        XCTAssertTrue(schedule.begin(at: 30_000))
+    }
+
+    func testHungHandshakeStillRebuildsWithoutFailureCallback() {
+        var schedule = HealthPeerInvitationSchedule()
+        XCTAssertTrue(schedule.begin(at: 100))
+        XCTAssertFalse(schedule.shouldRebuildSession(at: 114.9))
+        XCTAssertTrue(schedule.shouldRebuildSession(at: 115))
+    }
+
     func testPendingHandshakeBlocksBothTimerAndCallbackInvitations() {
         var schedule = HealthPeerInvitationSchedule()
         XCTAssertTrue(schedule.begin(at: 100))

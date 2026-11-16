@@ -2,6 +2,7 @@ import Combine
 import CryptoKit
 import Foundation
 import MultipeerConnectivity
+import OSLog
 
 enum HealthRefreshReason: String, Codable, Equatable {
     case appLaunch
@@ -577,6 +578,7 @@ struct HealthPeerInvitationSchedule {
     static let retryDelay: TimeInterval = 3
     private(set) var startedAt: TimeInterval?
     private(set) var retryAfter: TimeInterval = 0
+    private(set) var consecutiveFailures = 0
 
     mutating func begin(at now: TimeInterval) -> Bool {
         guard startedAt == nil, now >= retryAfter else { return false }
@@ -587,11 +589,16 @@ struct HealthPeerInvitationSchedule {
     mutating func failed(at now: TimeInterval) {
         startedAt = nil
         retryAfter = now + Self.retryDelay
+        consecutiveFailures += 1
     }
 
     func hasTimedOut(at now: TimeInterval) -> Bool {
         guard let startedAt else { return false }
         return now - startedAt >= Self.timeout
+    }
+
+    func shouldRebuildSession(at now: TimeInterval) -> Bool {
+        hasTimedOut(at: now) || (consecutiveFailures >= 2 && now >= retryAfter)
     }
 }
 
@@ -618,6 +625,8 @@ final class HealthPeerLink: NSObject, ObservableObject {
     private var inviteRetryWorkItem: DispatchWorkItem?
     private var invitationSchedule = HealthPeerInvitationSchedule()
     private var invitedPeer: MCPeerID?
+    private var discoveryStartedAt: TimeInterval = 0
+    private static let logger = Logger(subsystem: "com.kiko.winplate", category: "HealthPeerLink")
 
     init(role: Role, displayName: String, pairingCode: String? = nil) {
         self.role = role
@@ -634,6 +643,8 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
     func start() {
         guard advertiser == nil, browser == nil else { return }
+        discoveryStartedAt = ProcessInfo.processInfo.systemUptime
+        Self.logger.notice("Starting health peer discovery")
 
         switch role {
         case .advertiser:
@@ -697,7 +708,10 @@ final class HealthPeerLink: NSObject, ObservableObject {
         inviteRetryWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.browser != nil, self.session.connectedPeers.isEmpty else { return }
-            if self.invitationSchedule.hasTimedOut(at: ProcessInfo.processInfo.systemUptime) {
+            let now = ProcessInfo.processInfo.systemUptime
+            let discoveryIsStale = self.nearbyPeers.isEmpty && now - self.discoveryStartedAt >= 30
+            if self.invitationSchedule.shouldRebuildSession(at: now) || discoveryIsStale {
+                Self.logger.notice("Rebuilding health peer session and discovery after failed recovery")
                 self.stop()
                 self.start()
                 return
@@ -716,6 +730,12 @@ final class HealthPeerLink: NSObject, ObservableObject {
             guard case .error = connectionState else { return }
             stop()
         }
+        start()
+    }
+
+    func restartAfterWake() {
+        Self.logger.notice("Rebuilding health peer session after system wake")
+        stop()
         start()
     }
 
@@ -748,6 +768,7 @@ extension HealthPeerLink: MCSessionDelegate {
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         DispatchQueue.main.async { [weak self] in
             guard let self, session === self.session else { return }
+            Self.logger.notice("Health peer connection state: \(state.rawValue, privacy: .public)")
             switch state {
             case .connecting:
                 self.publish(.connecting)
@@ -775,7 +796,9 @@ extension HealthPeerLink: MCSessionDelegate {
         do {
             let payload = try JSONDecoder().decode(HealthSyncPayload.self, from: data)
             DispatchQueue.main.async { [weak self] in
-                self?.onPayload?(payload)
+                guard let self, session === self.session else { return }
+                Self.logger.notice("Received valid health sync payload")
+                self.onPayload?(payload)
             }
         } catch {
             if case .connected = connectionState { return }

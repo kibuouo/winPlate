@@ -227,6 +227,11 @@ final class HealthStore: ObservableObject {
         persistForBackground()
     }
 
+    func sceneDidEnterBackground() {
+        sceneWillResignActive()
+        peerLink.stop()
+    }
+
     func persistForBackground() {
         let task = UIApplication.shared.beginBackgroundTask(withName: "winplate.overview-cache")
         persistOverviewCache()

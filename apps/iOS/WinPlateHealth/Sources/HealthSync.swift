@@ -1030,13 +1030,14 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
     private let role: Role
     private let serviceType = "winplate-health"
-    private let session: MCSession
+    private var session: MCSession
     private let peerID: MCPeerID
     private var pairingCode: String?
     private var advertiser: MCNearbyServiceAdvertiser?
     private var browser: MCNearbyServiceBrowser?
     private var nearbyPeers: [MCPeerID: [String: String]] = [:]
     private var inviteRetryWorkItem: DispatchWorkItem?
+    private var sessionRecoveryWorkItem: DispatchWorkItem?
 
     init(role: Role, displayName: String, pairingCode: String? = HealthPeerPairing.savedCode) {
         self.role = role
@@ -1084,6 +1085,8 @@ final class HealthPeerLink: NSObject, ObservableObject {
     }
 
     func stop() {
+        advertiser?.delegate = nil
+        browser?.delegate = nil
         advertiser?.stopAdvertisingPeer()
         browser?.stopBrowsingForPeers()
         advertiser = nil
@@ -1091,8 +1094,30 @@ final class HealthPeerLink: NSObject, ObservableObject {
         nearbyPeers.removeAll()
         inviteRetryWorkItem?.cancel()
         inviteRetryWorkItem = nil
+        sessionRecoveryWorkItem?.cancel()
+        sessionRecoveryWorkItem = nil
+        // iOS drops nearby transports in the background. Reusing the old
+        // session can keep discovery working while every new handshake fails.
+        session.delegate = nil
         session.disconnect()
+        session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
+        session.delegate = self
         publish(.idle)
+    }
+
+    private func scheduleSessionRecovery(after delay: TimeInterval) {
+        guard role == .advertiser else { return }
+        sessionRecoveryWorkItem?.cancel()
+        let recoveringSession = session
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.advertiser != nil,
+                  self.session === recoveringSession,
+                  self.session.connectedPeers.isEmpty else { return }
+            self.stop()
+            self.start()
+        }
+        sessionRecoveryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func inviteMatchingPeers() {
@@ -1157,18 +1182,24 @@ final class HealthPeerLink: NSObject, ObservableObject {
 
 extension HealthPeerLink: MCSessionDelegate {
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        switch state {
-        case .connecting:
-            publish(.connecting)
-        case .connected:
-            publish(.connected(peerID.displayName))
-        case .notConnected:
-            publish(.searching)
-            DispatchQueue.main.async { [weak self] in
-                self?.inviteMatchingPeers()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, session === self.session else { return }
+            switch state {
+            case .connecting:
+                self.publish(.connecting)
+                self.scheduleSessionRecovery(after: 15)
+            case .connected:
+                self.sessionRecoveryWorkItem?.cancel()
+                self.sessionRecoveryWorkItem = nil
+                self.publish(.connected(peerID.displayName))
+            case .notConnected:
+                guard session.connectedPeers.isEmpty else { return }
+                self.publish(.searching)
+                self.scheduleSessionRecovery(after: 3)
+                self.inviteMatchingPeers()
+            @unknown default:
+                self.publish(.error("收到未知的设备连接状态"))
             }
-        @unknown default:
-            publish(.error("收到未知的设备连接状态"))
         }
     }
 
@@ -1176,7 +1207,8 @@ extension HealthPeerLink: MCSessionDelegate {
         do {
             let payload = try JSONDecoder().decode(HealthSyncPayload.self, from: data)
             DispatchQueue.main.async { [weak self] in
-                self?.onPayload?(payload)
+                guard let self, session === self.session else { return }
+                self.onPayload?(payload)
             }
         } catch {
             if case .connected = connectionState { return }
@@ -1214,20 +1246,24 @@ extension HealthPeerLink: MCNearbyServiceAdvertiserDelegate {
         withContext context: Data?,
         invitationHandler: @escaping (Bool, MCSession?) -> Void
     ) {
-        guard HealthPeerPairing.matches(context, expectedCode: pairingCode) else {
-            invitationHandler(false, nil)
-            return
+        DispatchQueue.main.async { [weak self] in
+            guard let self, advertiser === self.advertiser,
+                  HealthPeerPairing.matches(context, expectedCode: self.pairingCode) else {
+                invitationHandler(false, nil)
+                return
+            }
+            invitationHandler(true, self.session)
         }
-        invitationHandler(true, session)
     }
 
     func advertiser(
         _ advertiser: MCNearbyServiceAdvertiser,
         didNotStartAdvertisingPeer error: Error
     ) {
-        publish(.error("无法广播健康服务：\(error.localizedDescription)"))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            self?.restartIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, advertiser === self.advertiser else { return }
+            self.publish(.error("无法广播健康服务：\(error.localizedDescription)"))
+            self.scheduleSessionRecovery(after: 3)
         }
     }
 }
