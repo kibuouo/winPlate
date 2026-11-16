@@ -84,7 +84,7 @@ test('platform clients cannot import each other', () => {
   const collect = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const target = path.join(directory, entry.name);
-      if (entry.isDirectory()) collect(target);
+      if (entry.isDirectory() && entry.name !== 'node_modules') collect(target);
       else if (/\.(?:js|json|css|html)$/.test(entry.name) && !entry.name.endsWith(".test.js")) {
         sourceFiles.push(target);
       }
